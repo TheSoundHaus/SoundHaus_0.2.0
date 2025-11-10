@@ -159,3 +159,5 @@ vite.config.ts.timestamp-*
 gitea/
 gitea/ssh/*.key
 gitea/ssh/*.pub
+
+claude.local.md
