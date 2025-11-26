@@ -6,6 +6,7 @@ const LoginPage = () => {
     const navigate = useNavigate();
 
     const handleSignInClick = () => {
+        // window.open("http://www.rickleinecker.com/", "_blank");
         setDidOpen(true);
         setTimeout(() => {
             navigate('/home');

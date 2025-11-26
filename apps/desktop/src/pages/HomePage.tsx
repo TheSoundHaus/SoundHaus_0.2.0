@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom'
+import { useElectronIPC } from '../hooks/useElectronIPC'
 
 const HomePage = () => {
+    const { chooseFolder, hasGitFile } = useElectronIPC()
     const navigate = useNavigate()
 
     const handleServerExplore = async () => {
@@ -12,7 +14,13 @@ const HomePage = () => {
     }
 
     const handleExistingProject = async () => {
-        navigate('/project')
+        const folder = await chooseFolder();
+        if(folder) {
+            const git = await hasGitFile(folder);
+            if(git) {
+                navigate('/project', {state: {projectPath: folder}});
+            }
+        }
     }
 
     return(

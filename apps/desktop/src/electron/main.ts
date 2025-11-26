@@ -1,15 +1,23 @@
-import { app, BrowserWindow, shell } from "electron";
-import { join } from "path";
+import { app, BrowserWindow, shell, ipcMain } from "electron";
+import type { IpcMainInvokeEvent } from 'electron';
+import { chooseFolder, hasGitFile } from './home'
+import { decompressAls, getAlsFromGitHead, structuralCompareAls } from "./project";
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from "path";
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
 
+const execFileP = promisify(execFile);
+
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+    const mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
-      preload: join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
@@ -28,6 +36,52 @@ function createWindow() {
     return { action: "deny" }; // Prevent the app from opening the URL.
   })
 }
+
+ipcMain.handle('choose-folder', async (event: IpcMainInvokeEvent) => {
+  const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+  const repoPath = await chooseFolder(win ?? undefined);
+  return repoPath;
+});
+
+ipcMain.handle('check-git', async (_event: IpcMainInvokeEvent, folderPath: string) => {
+  if(typeof folderPath !== 'string') return false;
+  return await hasGitFile(folderPath);
+});
+
+ipcMain.handle('find-instrument-changes', async (_event: IpcMainInvokeEvent, alsPath) => {
+  try {
+    const local = await decompressAls(alsPath);
+    const startDir = path.dirname(alsPath);
+
+    const { stdout } = await execFileP('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    const repoRoot = stdout.trim();
+    const relPath = path.relative(repoRoot, alsPath);
+    const head = await getAlsFromGitHead(repoRoot, relPath);
+    const struct = structuralCompareAls(local.text, head.text, { allowTrackNameFallback: false });
+    return struct;
+  }
+  catch(e: any) {
+    return { ok: false, reason: e && e.message ? e.message : String(e) };
+  }
+});
+
+ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
+  if(!folderPath) {
+    return null;
+  }
+  try {
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes:  true });
+    for(const ent of entries) {
+      if(ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+        return path.join(folderPath, ent.name);
+      }
+    }
+  }
+  catch(e) {
+    // Ignore errors
+  }
+  return null;
+});
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
