@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import styles from './ProjectPage.module.css'
+import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 
 const ProjectPage = () => {
@@ -9,7 +10,11 @@ const ProjectPage = () => {
 
     const [alsStruct, setAlsStruct] = useState<any | null>(null)
     const [selectedProject, setSelectedProject] = useState<string | null>(initialPath)
+    // Track Information closed by default, Changes open by default
+    const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
+    const [showChanges, setShowChanges] = useState<boolean>(true)
 
+    const { metadata, findAndParse } = useAlsParser()
     const { getAlsStruct, findAls } = useElectronIPC()
 
     useEffect(() => {
@@ -24,6 +29,8 @@ const ProjectPage = () => {
             setAlsStruct(null)
             return
         }
+
+        findAndParse(selectedProject)
 
         ;(async () => {
             try {
@@ -42,27 +49,86 @@ const ProjectPage = () => {
                 setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
             }
         })()
-    }, [selectedProject, findAls, getAlsStruct])
+    }, [selectedProject, findAndParse])
 
     return(
         <div className={styles.container}>
             <div className={styles.left}>
-                {alsStruct == null ? (
-                    <div>
-                        <h1>Changes</h1>
-                        <p>No ALS loaded</p>
-                    </div>
-                ) : alsStruct.ok === false ? (
-                    <div className={styles.error}>
-                        <h1>Changes</h1>
-                        <p>{alsStruct.reason ?? 'An error occurred'}</p>
-                    </div>
-                ) : (
-                    <div className={styles.metadata}>
-                        <h1>Changes</h1>
-                        <p>{alsStruct}</p>
-                    </div>
-                )}
+                {/* Track Information dropdown - exact block requested */}
+                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
+                    <button
+                        onClick={() => setShowTrackInfo(s => !s)}
+                        aria-expanded={showTrackInfo}
+                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer' }}
+                    >
+                        Track Information <span style={{ float: 'right' }}>{showTrackInfo ? '▾' : '▸'}</span>
+                    </button>
+                    {showTrackInfo && (
+                        <div style={{ padding: 12, background: '#fff' }}>
+                            {metadata && (
+                            typeof metadata === 'string' ? (
+                                <div className="als-raw">
+                                <pre style={{ whiteSpace: 'pre-wrap' }}>{metadata}</pre>
+                                </div>
+                            ) : (
+                                <div className="als-placeholder">
+                                {selectedProject
+                                    ? 'No .als file found in project'
+                                    : 'Select a project to view ALS content'}
+                                </div>
+                            )
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Changes dropdown - exact block requested */}
+                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
+                    <button
+                        onClick={() => setShowChanges(s => !s)}
+                        aria-expanded={showChanges}
+                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer' }}
+                    >
+                        Changes <span style={{ float: 'right' }}>{showChanges ? '▾' : '▸'}</span>
+                    </button>
+                    {showChanges && (
+                        <div style={{ padding: 12, background: '#fff' }}>
+                            {alsStruct == null ? (
+                                    <div>
+                                        <h1>Changes</h1>
+                                        <p>No ALS loaded</p>
+                                    </div>
+                                ) : alsStruct.ok === false ? (
+                                    <div className={styles.error}>
+                                        <h1>Changes</h1>
+                                        <p>{alsStruct.reason ?? 'An error occurred'}</p>
+                                    </div>
+                                ) : (
+                                    <div className={styles.metadata}>
+                                        {alsStruct && typeof alsStruct === 'object' ? (
+                                            Array.isArray((alsStruct as any).changes) ? (
+                                                <div>
+                                                    <div>
+                                                        {((alsStruct as any).changes as any[]).map((c, i) => (
+                                                            <div key={i} className={styles.changeItem}>
+                                                                <strong>{c.trackName ?? c.trackId ?? `Change ${i + 1}`}</strong>
+                                                                <div>Before: {c.beforeTrackName ?? '—'} {c.before?.name ? `(${c.before.name})` : ''}</div>
+                                                                <div>After: {c.afterTrackName ?? '—'} {c.after?.name ? `(${c.after.name})` : ''}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(alsStruct, null, 2)}</pre>
+                                            )
+                                        ) : (
+                                            <pre style={{ whiteSpace: 'pre-wrap' }}>{String(alsStruct)}</pre>
+                                        )}
+                                    </div>
+                                )}
+                        </div>
+                    )}
+                </div>
             </div>
             <div className={styles.right}>
                 <div className={styles.buttons}>

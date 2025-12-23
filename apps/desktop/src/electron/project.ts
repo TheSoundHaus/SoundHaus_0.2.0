@@ -228,11 +228,66 @@ function structuralCompareAls(localXmlText: string, headXmlText: string, options
     return { ok: true, changes };
 }
 
+async function getAlsContent(alsPath: string): Promise<string> {
+  // Read file as Buffer
+  const input: Buffer = await fs.promises.readFile(alsPath);
+
+  // Decompress (wrap callback API so we can await it)
+  const decompressed: Buffer = await new Promise<Buffer>((resolve, reject) => {
+    zlib.gunzip(input, (err, result) => {
+      if (err) {
+        return reject(new Error("Could not open ALS file."));
+      }
+      resolve(result as Buffer);
+    });
+  });
+
+  // Parse XML forcing arrays for nodes (matches original behavior)
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    isArray: (_name: string, _jpath: string, _isLeafNode: boolean, _isAttribute: boolean) => true,
+  });
+
+  const xmlDoc: any = parser.parse(decompressed.toString());
+  const ableton = xmlDoc?.Ableton?.[0];
+  const tracks = ableton?.LiveSet?.[0]?.Tracks?.[0];
+
+  let returnString = "Ableton Live Set\n";
+  const major = ableton?.["@_MajorVersion"]?.[0] ?? "unknown";
+  const minor = ableton?.["@_MinorVersion"]?.[0] ?? "unknown";
+  const creator = ableton?.["@_Creator"]?.[0] ?? "unknown";
+
+  returnString += `Version: ${major}.${minor}\n`;
+  returnString += `Created with: ${creator}\n\n`;
+
+  returnString += "Tracks:\n";
+  returnString += `${tracks?.MidiTrack?.length ?? 0} MIDI tracks\n`;
+  returnString += `${tracks?.AudioTrack?.length ?? 0} Audio tracks\n`;
+  returnString += `${tracks?.ReturnTrack?.length ?? 0} Return tracks\n\n`;
+
+  // countSampleUsage is assumed to be available in scope and typed as:
+  // function countSampleUsage(xmlDoc: any): { bySample: { name: string; count: number }[]; totalClips: number; }
+  const { bySample, totalClips } = countSampleUsage(xmlDoc);
+
+  returnString += `Samples used:\n`;
+  if (bySample.length === 0) {
+    returnString += "No samples or clips found.\n\n";
+  } else {
+    bySample.forEach((entry: { name: string; count: number }) => {
+      returnString += `${entry.name}: used ${entry.count} time${entry.count !== 1 ? "s" : ""}\n`;
+    });
+    returnString += `\nTotal Samples: ${totalClips}\n\n`;
+  }
+
+  return returnString;
+}
+
 export {
     decompressAls,
     execFileP,
     getAlsFromGitHead,
-    structuralCompareAls
+    structuralCompareAls,
+    getAlsContent
 };
 
 function parseXmlTextToObj(xmlText: string): Record<string, any> | null {
@@ -561,4 +616,97 @@ function findAllByName(obj: any, name: string): any[] {
     }
 
     return out;
+}
+
+function countSampleUsage(xmlDoc: any): {
+  totalClips: number;
+  bySample: { id: string; name: string; count: number }[];
+} {
+  // Gather all Events nodes and then all AudioClip nodes inside them
+  const eventsNodes: any[] = findAllByName(xmlDoc, "Events");
+  const audioClips: any[] = [];
+  for (const eventsNode of eventsNodes) {
+    const clips = findAllByName(eventsNode, "AudioClip");
+    audioClips.push(...clips);
+  }
+
+  // Count occurrences per clip identifier
+  const counts = new Map<string, number>();
+  for (const clip of audioClips) {
+    const clipObjs = toArray<any>(clip);
+    for (const c of clipObjs) {
+      const id = clipIdentifier(c);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+  }
+
+  // Build a mapping from various sample identifiers to friendly names
+  const sampleNameMap = new Map<string, string>();
+  const samples = toArray<any>(xmlDoc?.Sample);
+  samples.forEach((sample, idx) => {
+    const lom =
+      sample?.LomId?.[0]?.["@_Value"]?.[0] ?? sample?.LomId?.[0];
+    const sampleRefAttr =
+      sample?.["@_Ref"] ?? sample?.SampleRef?.[0]?.["@_Ref"] ?? null;
+    const name =
+      sample?.Name?.[0]?.["@_Value"]?.[0] ??
+      sample?.Name?.[0] ??
+      `Sample ${idx + 1}`;
+
+    if (lom) sampleNameMap.set(`lom:${lom}`, name);
+    if (sampleRefAttr) sampleNameMap.set(`sref:${sampleRefAttr}`, name);
+    sampleNameMap.set(`name:${name}`, name);
+  });
+
+  // Convert counts to an array with resolved names and sort by usage desc
+  const result = Array.from(counts.entries())
+    .map(([id, count]) => ({
+      id,
+      name: sampleNameMap.get(id) ?? id.replace(/^raw:/, "").slice(0, 60),
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  return { totalClips: audioClips.length, bySample: result };
+}
+
+function clipIdentifier(clipNode: any): string {
+  // Try to extract the relative path (most common and useful)
+  const relativePath =
+    clipNode?.SampleRef?.[0]?.FileRef?.[0]?.RelativePath?.[0]?.["@_Value"]?.[0] ??
+    clipNode?.SampleRef?.[0]?.FileRef?.[0]?.RelativePath?.[0];
+
+  if (relativePath) {
+    // Strip leading "Samples/" if present
+    const cleanedPath = String(relativePath).replace(/^Samples[\\/]/, "");
+    return cleanedPath;
+  }
+
+  // Fall back to LomId (internal Ableton reference)
+  const lom = clipNode?.LomId?.[0]?.["@_Value"]?.[0] ?? clipNode?.LomId?.[0];
+  if (lom) return `lom:${String(lom)}`;
+
+  // Fall back to SampleRef ID
+  const sampleRef = clipNode?.SampleRef ?? clipNode?.Sample?.[0]?.SampleRef;
+  const sampleRefAttr =
+    sampleRef?.[0]?.["@_Ref"] ?? sampleRef?.["@_Ref"] ?? null;
+  if (sampleRefAttr) return `sref:${String(sampleRefAttr)}`;
+
+  // Fall back to clip name (sometimes used for audio loops)
+  const name = clipNode?.Name?.[0]?.["@_Value"]?.[0] ?? clipNode?.Name?.[0];
+  if (name) return String(name);
+
+  // Fall back to file path fields
+  const filePath =
+    clipNode?.FileRef?.[0]?.Path?.[0] ??
+    clipNode?.SampleName?.[0] ??
+    null;
+  if (filePath) return String(filePath);
+
+  // Last resort: JSON stringify
+  try {
+    return `raw:${JSON.stringify(clipNode)}`;
+  } catch {
+    return "unknown";
+  }
 }
