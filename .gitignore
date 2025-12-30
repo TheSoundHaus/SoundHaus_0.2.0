@@ -88,7 +88,8 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+dist/electron
+dist/types
 .output
 
 # Gatsby files
