@@ -2,15 +2,29 @@ import { useNavigate } from 'react-router-dom'
 import { useElectronIPC } from '../hooks/useElectronIPC'
 
 const HomePage = () => {
-    const { chooseFolder, hasGitFile } = useElectronIPC()
+    const { chooseFolder, hasGitFile, initRepo } = useElectronIPC()
     const navigate = useNavigate()
 
     const handleServerExplore = async () => {
         window.open("http://www.rickleinecker.com/", "_blank");
     }
-    
+
     const handleAbletonImport = async () => {
-        navigate('/project')
+        const folder = await chooseFolder();
+        if(folder) {
+            try {
+                const result = await initRepo(folder);
+                alert(`Init complete:\n${result}`)
+            } catch(error) {
+                alert(`Init failed:\n${error}`)
+            }
+
+            // Backup check
+            const git = await hasGitFile(folder);
+            if(git) {
+                navigate('/project', {state: {projectPath: folder}});
+            }
+        }
     }
 
     const handleExistingProject = async () => {

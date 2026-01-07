@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain } from "electron";
 import type { IpcMainInvokeEvent } from 'electron';
-import { chooseFolder, hasGitFile } from './home'
-import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent } from "./project";
+import { chooseFolder, hasGitFile, init } from './home'
+import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, push } from "./project";
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -85,6 +85,18 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
 
 ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) => {
   return await getAlsContent(alsPath);
+});
+
+ipcMain.handle('init-repo', async(_event: IpcMainInvokeEvent, folderPath) => {
+  return init(folderPath);
+})
+
+ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
+  return await pull(repoPath);
+});
+
+ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
+  return await push(repoPath);
 });
 
 // This method will be called when Electron has finished

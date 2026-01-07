@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import { XMLParser } from 'fast-xml-parser';
@@ -282,12 +282,46 @@ async function getAlsContent(alsPath: string): Promise<string> {
   return returnString;
 }
 
+function pull(repoPath: string) {
+  return new Promise((resolve, reject) => {
+    const cmd = `"${gitBin}" pull origin main`;
+    exec(cmd, {cwd: repoPath}, (err, stdout, stderr) => {
+      if(err) {
+        reject(stderr);
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+function push(repoPath: string) {
+  return new Promise((resolve, reject) => {
+    const cmds = [
+      `"${gitBin}" add .`,
+      `"${gitBin}" commit -m "Auto-commit from Electron app"`,
+      `"${gitBin}" push origin HEAD`
+    ];
+    const cmd = cmds.join(' && ');
+
+    exec(cmd, { cwd: repoPath }, (err, stdout, stderr) => {
+      if(err) {
+        reject(stderr);
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
 export {
     decompressAls,
     execFileP,
     getAlsFromGitHead,
     structuralCompareAls,
-    getAlsContent
+    getAlsContent,
+    pull,
+    push
 };
 
 function parseXmlTextToObj(xmlText: string): Record<string, any> | null {

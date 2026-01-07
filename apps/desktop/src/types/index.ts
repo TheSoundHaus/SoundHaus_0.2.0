@@ -6,6 +6,12 @@ export interface ElectronAPI {
   getAlsContent: (alsPath: string) => Promise<any>
 }
 
+export interface GitService {
+  initRepo: (folderPath: string) => Promise<string>
+  pullRepo: (repoPath: string) => Promise<string>
+  pushRepo: (repoPath: string) => Promise<string>
+}
+
 // ALS (Ableton Live Set) types
 export interface AlsMetadata {
   version?: string
@@ -78,5 +84,6 @@ export type MainInstrumentInfo = {
 declare global {
   interface Window {
     electronAPI?: ElectronAPI
+    gitService?: GitService
   }
 }

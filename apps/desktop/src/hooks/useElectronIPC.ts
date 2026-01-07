@@ -1,4 +1,5 @@
 import electronAPI from '../services/electronAPI'
+import gitService from '../services/gitService';
 
 export function useElectronIPC() {
     return {
@@ -6,7 +7,10 @@ export function useElectronIPC() {
         hasGitFile: electronAPI.hasGitFile,
         getAlsContent: electronAPI.getAlsContent,
         findAls: electronAPI.findAls,
-        getAlsStruct: electronAPI.getAlsStruct
+        getAlsStruct: electronAPI.getAlsStruct,
+        initRepo: gitService.initRepo,
+        pullRepo: gitService.pullRepo,
+        pushRepo: gitService.pushRepo
     }
 }
 

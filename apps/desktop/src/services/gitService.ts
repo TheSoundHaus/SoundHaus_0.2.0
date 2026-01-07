@@ -1,0 +1,27 @@
+const gitService = {
+    async initRepo(folderPath: string): Promise<string> {
+        if(!window.gitService) {
+            console.warn('gitService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.gitService.initRepo(folderPath)
+    },
+    
+    async pullRepo(repoPath: string): Promise<string> {
+        if(!window.gitService) {
+            console.warn('gitService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.gitService.pullRepo(repoPath)
+    },
+
+    async pushRepo(repoPath: string): Promise<string> {
+        if(!window.gitService) {
+            console.warn('gitService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.gitService.pushRepo(repoPath)
+    }
+}
+
+export default gitService

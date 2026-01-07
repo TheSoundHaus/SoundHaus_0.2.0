@@ -1,4 +1,4 @@
-export const electronAPI = {
+const electronAPI = {
     isElectron: (): boolean => {
         return typeof window !== 'undefined' && !!window.electronAPI
     },

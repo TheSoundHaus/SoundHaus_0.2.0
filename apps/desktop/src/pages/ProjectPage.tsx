@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import styles from './ProjectPage.module.css'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
+import gitService from '../services/gitService'
 
 const ProjectPage = () => {
     const location = useLocation();
@@ -14,11 +15,13 @@ const ProjectPage = () => {
     const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
     const [showChanges, setShowChanges] = useState<boolean>(true)
 
+    const [pulling, setPulling] = useState(false)
+    const [pushing, setPushing] = useState(false)
+
     const { metadata, findAndParse } = useAlsParser()
     const { getAlsStruct, findAls } = useElectronIPC()
 
-    useEffect(() => {
-        // Guard: if there's no selected project or IPC helper, do nothing.
+    const refreshChanges = useCallback(async () => {
         if (!selectedProject) {
             setAlsStruct(null)
             return
@@ -32,24 +35,50 @@ const ProjectPage = () => {
 
         findAndParse(selectedProject)
 
-        ;(async () => {
-            try {
-                const alsPath = await findAls(selectedProject)
-                if (alsPath) {
-                    if (typeof getAlsStruct === 'function') {
-                        const s = await getAlsStruct(alsPath)
-                        setAlsStruct(s)
-                    } else {
-                        setAlsStruct(null)
-                    }
-                } else {
-                    setAlsStruct(null)
-                }
-            } catch (e) {
-                setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
+        try {
+            const alsPath = await findAls(selectedProject)
+            if (alsPath && typeof getAlsStruct === 'function') {
+                const s = await getAlsStruct(alsPath)
+                setAlsStruct(s)
+            } else {
+                setAlsStruct(null)
             }
-        })()
-    }, [selectedProject, findAndParse])
+        } catch (e) {
+            setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
+        }
+    }, [findAls, findAndParse, getAlsStruct, selectedProject])
+
+    const handleGitPull = async () => {
+        if(!selectedProject) return
+        setPulling(true)
+        try {
+            const result = await gitService.pullRepo(selectedProject)
+            alert(`Pull complete:\n${result}`)
+            await refreshChanges()
+        } catch(error) {
+            alert(`Pull failed:\n${error}`)
+        } finally {
+            setPulling(false)
+        }
+    }
+
+    const handleGitPush = async () => {
+        if(!selectedProject) return
+        setPushing(true)
+        try {
+            const result = await gitService.pushRepo(selectedProject)
+            alert(`Pull complete:\n${result}`)
+            await refreshChanges()
+        } catch(error) {
+            alert(`Push failed:\n${error}`)
+        } finally {
+            setPushing(false)
+        }
+    }
+
+    useEffect(() => {
+        refreshChanges()
+    }, [refreshChanges])
 
     return(
         <div className={styles.container}>
@@ -132,8 +161,8 @@ const ProjectPage = () => {
             </div>
             <div className={styles.right}>
                 <div className={styles.buttons}>
-                    <button>Pull Project Changes from Server</button>
-                    <button>Push Version to Server</button>
+                    <button onClick={handleGitPull}>Download Changes from Server</button>
+                    <button onClick={handleGitPush}>Upload Changes to Server</button>
                 </div>
             </div>
         </div>
