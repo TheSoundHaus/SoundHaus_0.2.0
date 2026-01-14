@@ -10,7 +10,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 });
 
 contextBridge.exposeInMainWorld('gitService', {
-	initRepo: (folderPath: string): Promise<string> => ipcRenderer.invoke('init-repo', folderPath),
+	initRepo: (folderPath: string, projectInfo?: any): Promise<string> => ipcRenderer.invoke('init-repo', folderPath, projectInfo),
 	pullRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('pull-repo', repoPath),
 	pushRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('push-repo', repoPath)
+});
+
+contextBridge.exposeInMainWorld('electron', {
+	showProjectSetup: () => ipcRenderer.invoke('show-project-setup'),
+	submitProjectSetup: (data: any) => ipcRenderer.send('project-setup-submit', data),
+	cancelProjectSetup: () => ipcRenderer.send('project-setup-cancel')
 });

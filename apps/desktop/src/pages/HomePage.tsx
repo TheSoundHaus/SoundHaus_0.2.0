@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useElectronIPC } from '../hooks/useElectronIPC'
 
 const HomePage = () => {
-    const { chooseFolder, hasGitFile, initRepo } = useElectronIPC()
+    const { chooseFolder, hasGitFile, initRepo, showProjectSetup } = useElectronIPC()
     const navigate = useNavigate()
 
     const handleServerExplore = async () => {
@@ -12,8 +12,16 @@ const HomePage = () => {
     const handleAbletonImport = async () => {
         const folder = await chooseFolder();
         if(folder) {
+            // Show project setup dialog
+            const projectInfo = await showProjectSetup();
+            
+            if (!projectInfo) {
+                // User cancelled the dialog
+                return;
+            }
+
             try {
-                const result = await initRepo(folder);
+                const result = await initRepo(folder, projectInfo);
                 alert(`Init complete:\n${result}`)
             } catch(error) {
                 alert(`Init failed:\n${error}`)

@@ -4,6 +4,7 @@ import type { OpenDialogOptions } from 'electron'
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
+import * as http from 'http';
 
 const platformMap: Partial<Record<NodeJS.Platform, string>> = {
   win32: 'windows',
@@ -52,7 +53,13 @@ async function hasGitFile(folderPath: string): Promise<boolean> {
     }
 }
 
-function init(folderPath: string): Promise<string> {
+interface ProjectSetupData {
+    name: string;
+    description: string;
+    isPublic: boolean;
+}
+
+function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<string> {
     return new Promise((resolve, reject) => {
         const gitCmd = `"${gitBin}" init -b main`;
         exec(gitCmd, { cwd: folderPath }, (gitErr, _gitStdout, gitStderr) => {
@@ -62,61 +69,93 @@ function init(folderPath: string): Promise<string> {
             }
 
             const repoName = path.basename(folderPath).replace(/\s+/g, '_');
-
-            const curlCmd = `curl -sS -X POST http://129.212.182.247:3000/api/v1/user/repos \
-            -u "4cf84c7c-0b07-4043-bdf6-9edf229625e6:DesktopTest123!" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -d '{
-                "name": "${repoName}",
-                "description": "",
-                "private": false,
-                "auto_init": false,
-                "default_branch": "main"
-            }'`;
-
-            exec(curlCmd, { cwd: folderPath }, (curlErr, curlStdout, curlStderr) => {
-                if (curlErr) {
-                    reject(curlStderr || curlErr.message);
-                    return;
+            
+            // Use project info if provided, otherwise use defaults
+            // Sanitize name to only allow alphanumeric, dashes, and dots (API requirement)
+            const sanitizeName = (name: string): string => {
+                return name
+                    .replace(/\s+/g, '-')           // Replace spaces with dashes
+                    .replace(/[^a-zA-Z0-9\-\.]/g, '') // Remove anything that's not alphanumeric, dash, or dot
+                    .replace(/^-+|-+$/g, '');        // Remove leading/trailing dashes
+            };
+            
+            const finalRepoName = projectInfo ? sanitizeName(projectInfo.name) : repoName;
+            const finalDescription = projectInfo?.description || '';
+            const isPrivate = projectInfo?.isPublic === false; // private if not explicitly public
+            
+            // Build JSON payload
+            const payload = JSON.stringify({
+                name: finalRepoName,
+                description: finalDescription,
+                private: isPrivate,
+                auto_init: false,
+                default_branch: "main"
+            });
+            
+            // Use Node.js HTTP request instead of curl to avoid shell escaping issues
+            const reqOptions = {
+                hostname: '129.212.182.247',
+                port: 3000,
+                path: '/api/v1/user/repos',
+                method: 'POST',
+                headers: {
+                    'Authorization': 'token 79e189c1bdbc88bec7196c5c5c9eb43293ed329a',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload)
                 }
+            };
 
-                let remoteURL = '';
-                try {
-                  const parsed = JSON.parse(curlStdout);
-                  remoteURL = parsed.url || '';
-                } catch (parseErr) {
-                  reject(`Failed to parse repo creation response: ${parseErr}`);
-                  return;
-                }
-
-                if (!remoteURL) {
-                  reject('Repo creation did not return a url');
-                  return;
-                }
-
-                // Insert credentials into the URL
-                remoteURL = remoteURL.replace('http://', 'http://79e189c1bdbc88bec7196c5c5c9eb43293ed329a@');
-                remoteURL = remoteURL.replace('/api/v1/repos', '');
-
-                const setRemoteCmd = `git remote add origin ${remoteURL}`;
-                exec(setRemoteCmd, { cwd: folderPath }, (remoteErr, _remoteStdout, remoteStderr) => {
-                  if (remoteErr) {
-                    reject(remoteStderr || remoteErr.message);
-                    return;
-                  }
-
-                  // Set upstream tracking for main branch
-                  const setUpstreamCmd = `git branch --set-upstream-to=origin/main main`;
-                  exec(setUpstreamCmd, { cwd: folderPath }, (upstreamErr, _upstreamStdout, upstreamStderr) => {
-                    // Ignore error if branch doesn't exist yet - will be set on first push
-                    if (upstreamErr) {
-                      console.warn('Could not set upstream tracking:', upstreamStderr);
+            const req = http.request(reqOptions, (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                res.on('end', () => {
+                    let remoteURL = '';
+                    try {
+                        const parsed = JSON.parse(data);
+                        remoteURL = parsed.clone_url || parsed.url || '';
+                    } catch (parseErr) {
+                        reject(`Failed to parse repo creation response: ${parseErr}\nResponse: ${data}`);
+                        return;
                     }
-                    resolve(remoteURL);
-                  });
+
+                    if (!remoteURL) {
+                        reject(`Repo creation did not return a url. Response: ${data}`);
+                        return;
+                    }
+
+                    // Insert credentials into the URL
+                    remoteURL = remoteURL.replace('http://', 'http://79e189c1bdbc88bec7196c5c5c9eb43293ed329a@');
+                    remoteURL = remoteURL.replace('/api/v1/repos', '');
+
+                    const setRemoteCmd = `git remote add origin ${remoteURL}`;
+                    exec(setRemoteCmd, { cwd: folderPath }, (remoteErr, _remoteStdout, remoteStderr) => {
+                        if (remoteErr) {
+                            reject(remoteStderr || remoteErr.message);
+                            return;
+                        }
+
+                        // Set upstream tracking for main branch
+                        const setUpstreamCmd = `git branch --set-upstream-to=origin/main main`;
+                        exec(setUpstreamCmd, { cwd: folderPath }, (upstreamErr, _upstreamStdout, upstreamStderr) => {
+                            // Ignore error if branch doesn't exist yet - will be set on first push
+                            if (upstreamErr) {
+                                console.warn('Could not set upstream tracking:', upstreamStderr);
+                            }
+                            resolve(remoteURL);
+                        });
+                    });
                 });
             });
+
+            req.on('error', (error) => {
+                reject(`HTTP request error: ${error.message}`);
+            });
+
+            req.write(payload);
+            req.end();
         });
     });
 }

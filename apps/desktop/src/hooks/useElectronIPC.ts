@@ -2,6 +2,10 @@ import electronAPI from '../services/electronAPI'
 import gitService from '../services/gitService';
 
 export function useElectronIPC() {
+    const showProjectSetup = async () => {
+        return await window.electron?.showProjectSetup();
+    };
+
     return {
         chooseFolder: electronAPI.chooseFolder,
         hasGitFile: electronAPI.hasGitFile,
@@ -10,7 +14,8 @@ export function useElectronIPC() {
         getAlsStruct: electronAPI.getAlsStruct,
         initRepo: gitService.initRepo,
         pullRepo: gitService.pullRepo,
-        pushRepo: gitService.pushRepo
+        pushRepo: gitService.pushRepo,
+        showProjectSetup
     }
 }
 

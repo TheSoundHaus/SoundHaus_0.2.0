@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, ipcMain } from "electron";
 import type { IpcMainInvokeEvent } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
 import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, push } from "./project";
+import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -23,9 +24,9 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
+    //mainWindow.webContents.openDevTools();
   } else if (isPreview) {
-    mainWindow.webContents.openDevTools();
+    //mainWindow.webContents.openDevTools();
     mainWindow.loadFile("dist/index.html");
   } else {
     mainWindow.loadFile("dist/index.html");
@@ -87,9 +88,15 @@ ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) =>
   return await getAlsContent(alsPath);
 });
 
-ipcMain.handle('init-repo', async(_event: IpcMainInvokeEvent, folderPath) => {
-  return init(folderPath);
+ipcMain.handle('init-repo', async(_event: IpcMainInvokeEvent, folderPath: string, projectInfo?: any) => {
+  return init(folderPath, projectInfo);
 })
+
+ipcMain.handle('show-project-setup', async (event: IpcMainInvokeEvent) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return null;
+  return await createProjectSetupDialog(win);
+});
 
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await pull(repoPath);
