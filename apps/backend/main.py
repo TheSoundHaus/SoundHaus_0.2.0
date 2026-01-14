@@ -753,6 +753,55 @@ async def remove_collaborator(
 # ============== DESKTOP APP / PAT ENDPOINTS ==============
 # These endpoints support the desktop Git client (replacing file watcher system)
 
+@app.post("/api/auth/desktop-login")
+async def desktop_login(
+    request: SignInRequest,
+    db: Session = Depends(get_db),
+    auth_service:SupabaseAuthService = Depends(get_auth)
+):
+    """
+    Desktop app login endpoint that automatically provisions a Backend PAT.
+    
+    Unlike web login, this endpoint:
+    1. Authenticates with email/password
+    2. Automatically creates a Backend PAT for the desktop app
+    3. Returns both session token (for UI) and PAT (for API calls)
+    
+    Desktop app workflow:
+        1. User enters email/password in desktop login form
+        2. Desktop calls this endpoint (instead of /api/auth/login)
+        3. Receives PAT in response
+        4. Stores PAT securely in OS keychain (electron-store + keytar)
+        5. Uses PAT for all subsequent API calls
+        6. On logout, revokes PAT via DELETE /api/auth/tokens/{token_id}
+    
+    Security:
+        - PAT is ONLY returned once (like GitHub)
+        - Desktop must store it securely
+        - Old desktop PATs are auto-revoked on new login (prevents token sprawl)
+    """
+
+    # Step 1: Auth user with Supabase
+    result = await auth_service.sign_in(
+        email=request.email,
+        password=request.password
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=401, detail=result.get("message"))
+    
+    user_id = result["user"]["id"]
+
+    pat_service = PATService()
+    existing_pats = await pat_service.list_pats(user_id, db)
+
+    for pat in existing_pats:
+        if pat.token_name.startswith("Desktop Auto Token"):
+            
+
+    
+
+
 @app.post("/api/auth/tokens")
 async def create_personal_access_token(
     request: dict,
