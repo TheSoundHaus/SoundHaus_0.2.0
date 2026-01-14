@@ -1,0 +1,62 @@
+import React, { useState } from "react"
+import { Link } from "react-router-dom"
+import AudioPlayer from "./AudioPlayer"
+import GenreTags from "./GenreTags"
+import type { Repo } from "../types/repo"
+
+interface RepoCardProps {
+  repo: Repo
+}
+
+export default function RepoCard({ repo }: RepoCardProps) {
+  const [showDetails, setShowDetails] = useState(false)
+
+  return (
+    <div className="repo-card">
+      <div className="repo-card-content">
+        <div className="repo-card-header">
+          <Link 
+            to={`/repos/${repo.id}`}
+            className="repo-card-title"
+          >
+            {repo.name}
+          </Link>
+          {repo.path && (
+            <div className="repo-card-path">{repo.path}</div>
+          )}
+        </div>
+
+        <div className="repo-card-preview">
+          {repo.snippet ? (
+            <AudioPlayer src={repo.snippet.src} />
+          ) : (
+            <div className="no-preview">No audio preview</div>
+          )}
+        </div>
+
+        <div className="repo-card-footer">
+          <button
+            onClick={() => setShowDetails(s => !s)}
+            className="details-button"
+          >
+            {showDetails ? 'Hide' : 'View'} details
+          </button>
+
+          {repo.genres && repo.genres.length > 0 && (
+            <div className="genre-tags">
+              <GenreTags genres={repo.genres} />
+            </div>
+          )}
+        </div>
+
+        {showDetails && (
+          <div className="repo-card-details">
+            {repo.description && (
+              <p className="repo-description">{repo.description}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

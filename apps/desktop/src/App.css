@@ -1,0 +1,43 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.tab-nav {
+  display: flex;
+  background: var(--color-bg-elev);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0;
+}
+
+.tab-link {
+  padding: 12px 24px;
+  background: transparent;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-link:hover {
+  background: rgba(163, 230, 53, 0.1);
+  color: var(--color-text);
+}
+
+.tab-link.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+  background: rgba(163, 230, 53, 0.05);
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}

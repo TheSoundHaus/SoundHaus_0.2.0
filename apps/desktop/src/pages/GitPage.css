@@ -1,0 +1,241 @@
+.git-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.git-header {
+  background: var(--color-bg-elev);
+  border-bottom: 1px solid var(--color-border);
+  padding: 16px 24px;
+}
+
+.header-controls {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-group label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.control-group select {
+  padding: 8px 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 200px;
+  cursor: pointer;
+}
+
+.control-group select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.git-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 24px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.git-column,
+.als-column {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.git-column h3,
+.als-column h3 {
+  font-size: 18px;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+
+.status-summary {
+  padding: 12px 16px;
+  background: var(--color-bg-elev);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.changes-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.change-group {
+  margin-bottom: 16px;
+}
+
+.change-group h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.file-item {
+  padding: 8px 12px;
+  background: var(--color-bg-elev);
+  border-left: 3px solid var(--color-border);
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.file-item.modified {
+  border-left-color: #fbbf24;
+}
+
+.file-item.added {
+  border-left-color: #34d399;
+}
+
+.file-item.deleted {
+  border-left-color: var(--color-danger);
+}
+
+.file-item.untracked {
+  border-left-color: #60a5fa;
+}
+
+.git-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.git-button {
+  flex: 1;
+  padding: 12px 24px;
+  background: var(--color-bg-elev);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.git-button:hover:not(:disabled) {
+  background: #2a2a2a;
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+}
+
+.git-button.primary {
+  background: var(--color-accent);
+  color: #000;
+  border: none;
+}
+
+.git-button.primary:hover:not(:disabled) {
+  background: var(--color-accent-strong);
+}
+
+.git-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.als-info {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.info-row .label {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.info-row .value {
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.info-section {
+  margin-top: 20px;
+}
+
+.info-section h4 {
+  font-size: 15px;
+  margin-bottom: 12px;
+  color: var(--color-accent);
+}
+
+.samples-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.sample-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-bg-elev);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.sample-path {
+  font-size: 12px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  color: var(--color-text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sample-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-left: 12px;
+}
+
+.sample-more {
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.als-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
