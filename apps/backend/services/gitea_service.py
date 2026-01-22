@@ -390,8 +390,9 @@ class GiteaAdminService:
 		"""
 		Create a Gitea Personal Access Token for a user.
 		
-		This method attempts to use the Gitea CLI command first (more reliable),
-		and falls back to the API method if CLI is not available.
+		Uses SSH CLI method exclusively since Gitea REST API does not support
+		creating tokens for other users via token authentication (requires admin:user
+		scope which is not available in Gitea 1.24.6).
 		
 		Args:
 			username: Gitea username (Supabase UUID)
@@ -413,72 +414,10 @@ class GiteaAdminService:
 			if result["success"]:
 				git_token = result["token"]["sha1"]  # Use this for Git operations
 		"""
-		# Try CLI method first (more reliable for admin operations)
-		cli_result = self.create_or_get_user_token_cli(username, token_name, scopes)
-		if cli_result.get("success"):
-			return cli_result
+		print(f"[GiteaAdminService] Creating token for user: {username} via SSH CLI")
 		
-		# Fallback to API method (kept for backwards compatibility)
-		print(f"[GiteaAdminService] CLI method failed, falling back to API method...")
-		
-		if scopes is None:
-			scopes = ["write:repository", "read:user"]
-		
-		url = f"{self.base_url}/api/v1/users/{username}/tokens"
-		
-		# Use Sudo mode: admin creates token on behalf of user
-		# Documentation: https://docs.gitea.com/api/1.24/
-		# Endpoint: POST /users/{username}/tokens requires Sudo header
-		headers = self.headers.copy()
-		headers["Sudo"] = username
-		
-		payload = {"name": token_name, "scopes": scopes}
-
-		print(f"[GiteaAdminService] create_or_get_user_token (API): POST /api/v1/users/{username}/tokens")
-		print(f"  token_name={token_name}")
-		print(f"  scopes={scopes}")
-		print(f"  Using Sudo mode for user: {username}")
-
-		try:
-			resp = requests.post(
-				url, 
-				headers=headers, 
-				json=payload, 
-				timeout=10
-			)
-			
-			print(f"  -> status={resp.status_code}")
-			
-			if resp.status_code in (200, 201):
-				token_data = resp.json()
-				print(f"  -> token created successfully")
-				print(f"  -> token_id={token_data.get('id')}")
-				print(f"  -> token_name={token_data.get('name')}")
-				return {"success": True, "token": token_data}
-			elif resp.status_code == 404:
-				print(f"  -> error: User not found in Gitea")
-				return {"success": False, "message": "User not found in Gitea"}
-			elif resp.status_code == 422:
-				print(f"  -> error: Token name already exists")
-				return {"success": False, "message": "Token name already exists"}
-			elif resp.status_code in (401, 403):
-				print(f"  -> error: Admin authentication failed")
-				print(f"  -> Response: {resp.text[:200]}")
-				return {"success": False, "message": "Admin authentication failed"}
-			else:
-				print(f"  -> error: {resp.text[:200]}")
-				return {"success": False, "message": f"Gitea API error: {resp.text}"}
-		except requests.Timeout:
-			print(f"  -> timeout error")
-			return {"success": False, "status": 504, "message": "Gitea API timeout"}
-		except requests.RequestException as e:
-			print(f"  -> network error: {e}")
-			return {"success": False, "status": 0, "message": f"Network error: {e}"}
-		except Exception as e:
-			print(f"  -> unexpected error: {e}")
-			import traceback
-			traceback.print_exc()
-			return {"success": False, "status": 500, "message": f"Unexpected error: {e}"}
+		# Use SSH CLI method directly (REST API doesn't work with our permissions)
+		return self.create_or_get_user_token_cli(username, token_name, scopes)
 
 	def list_user_tokens(self, username: str) -> Dict[str, Any]:
 		"""
@@ -565,3 +504,272 @@ class GiteaAdminService:
 			return {"success": False, "status": 0, "message": f"Network error: {e}"}
 		except Exception as e:
 			return {"success": False, "status": 500, "message": f"Unexpected error: {e}"}
+
+
+	# ============== WEBHOOK MANAGEMENT METHODS ==============
+
+	def create_webhook(
+		self,
+		owner: str,
+		repo: str,
+		webhook_url: str,
+		secret: str,
+		events: list[str] = None
+	) -> Dict[str, Any]:
+		"""
+		Create a webhook for a repository.
+		
+		Args:
+			owner: Repository owner username (Supabase UUID)
+			repo: Repository name
+			webhook_url: URL to send webhook events
+			secret: Secret for HMAC signature validation
+			events: List of events to subscribe to
+		
+		Returns:
+			Dictionary with success status and webhook details
+		"""
+		if events is None:
+			events = ["push", "create", "delete", "repository"]
+		
+		payload = {
+			"type": "gitea",
+			"config": {
+				"url": webhook_url,
+				"content_type": "json",
+				"secret": secret
+			},
+			"events": events,
+			"active": True
+		}
+		
+		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks")
+		print(f"[GiteaAdminService] create_webhook: POST {url}")
+		
+		try:
+			resp = requests.post(url, json=payload, headers=self.headers, timeout=10)
+			
+			if resp.status_code == 201:
+				webhook_data = resp.json()
+				return {
+					"success": True,
+					"webhook_id": webhook_data.get("id"),
+					"url": webhook_data.get("config", {}).get("url"),
+					"events": webhook_data.get("events", []),
+					"created_at": webhook_data.get("created_at")
+				}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Repository not found"}
+			elif resp.status_code == 409:
+				return {"success": False, "message": "Webhook already exists"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+
+	def list_webhooks(self, owner: str, repo: str) -> Dict[str, Any]:
+		"""
+		List all webhooks for a repository.
+		
+		Args:
+			owner: Repository owner username
+			repo: Repository name
+		
+		Returns:
+			Dictionary with success status and list of webhooks
+		"""
+		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks")
+		print(f"[GiteaAdminService] list_webhooks: GET {url}")
+		
+		try:
+			resp = requests.get(url, headers=self.headers, timeout=10)
+			
+			if resp.status_code == 200:
+				webhooks = resp.json()
+				return {
+					"success": True,
+					"webhooks": webhooks
+				}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Repository not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+
+	def get_webhook(self, owner: str, repo: str, webhook_id: int) -> Dict[str, Any]:
+		"""
+		Get details of a specific webhook.
+		
+		Args:
+			owner: Repository owner username
+			repo: Repository name
+			webhook_id: Gitea webhook ID
+		
+		Returns:
+			Dictionary with webhook details
+		"""
+		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}")
+		print(f"[GiteaAdminService] get_webhook: GET {url}")
+		
+		try:
+			resp = requests.get(url, headers=self.headers, timeout=10)
+			
+			if resp.status_code == 200:
+				return {
+					"success": True,
+					"webhook": resp.json()
+				}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Webhook not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+
+	def update_webhook(
+		self,
+		owner: str,
+		repo: str,
+		webhook_id: int,
+		webhook_url: Optional[str] = None,
+		events: Optional[list[str]] = None,
+		active: Optional[bool] = None
+	) -> Dict[str, Any]:
+		"""
+		Update an existing webhook.
+		
+		Args:
+			owner: Repository owner username
+			repo: Repository name
+			webhook_id: Gitea webhook ID
+			webhook_url: New webhook URL (optional)
+			events: New event list (optional)
+			active: Enable/disable webhook (optional)
+		
+		Returns:
+			Dictionary with success status and updated webhook details
+		"""
+		# Build PATCH payload with only provided fields
+		payload: Dict[str, Any] = {}
+		
+		if webhook_url is not None:
+			payload["config"] = {"url": webhook_url, "content_type": "json"}
+		if events is not None:
+			payload["events"] = events
+		if active is not None:
+			payload["active"] = active
+		
+		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}")
+		print(f"[GiteaAdminService] update_webhook: PATCH {url}")
+		
+		try:
+			resp = requests.patch(url, json=payload, headers=self.headers, timeout=10)
+			
+			if resp.status_code == 200:
+				return {
+					"success": True,
+					"webhook": resp.json()
+				}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Webhook not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+
+	def delete_webhook(self, owner: str, repo: str, webhook_id: int) -> Dict[str, Any]:
+		"""
+		Delete a webhook from a repository.
+		
+		Args:
+			owner: Repository owner username
+			repo: Repository name
+			webhook_id: Gitea webhook ID
+		
+		Returns:
+			Dictionary with success status
+		"""
+		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}")
+		print(f"[GiteaAdminService] delete_webhook: DELETE {url}")
+		
+		try:
+			resp = requests.delete(url, headers=self.headers, timeout=10)
+			
+			if resp.status_code == 204:
+				return {"success": True, "message": "Webhook deleted"}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Webhook not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+
+	def test_webhook(self, owner: str, repo: str, webhook_id: int) -> Dict[str, Any]:
+		"""
+		Trigger a test delivery for a webhook.
+		
+		Args:
+			owner: Repository owner username
+			repo: Repository name
+			webhook_id: Gitea webhook ID
+		
+		Returns:
+			Dictionary with test delivery status
+		"""
+		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}/tests")
+		print(f"[GiteaAdminService] test_webhook: POST {url}")
+		
+		try:
+			resp = requests.post(url, headers=self.headers, timeout=10)
+			
+			if resp.status_code == 204:
+				return {"success": True, "message": "Test webhook delivered"}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Webhook not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+

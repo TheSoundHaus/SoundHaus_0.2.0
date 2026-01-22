@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Response, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, Header, Response, File, UploadFile, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from typing import Optional, Dict, Any
@@ -14,12 +14,17 @@ from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList, repo_genres
 from models.pat_models import PersonalAccessToken
+from models.webhook_models import (
+    WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig,
+    validate_webhook_signature, parse_gitea_event, extract_repo_info
+)
 import hashlib
 import os
 import sys
 import uuid
 import secrets
 import subprocess
+import traceback
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
@@ -792,14 +797,44 @@ async def desktop_login(
     
     user_id = result["user"]["id"]
 
+    # Step 2: Revoke any existing desktop PATs (cleanup old sessions)
     pat_service = PATService()
     existing_pats = await pat_service.list_pats(user_id, db)
 
     for pat in existing_pats:
         if pat.token_name.startswith("Desktop Auto Token"):
-            
+            await pat_service.revoke_pat(str(pat.id), user_id, db)
 
+    # Step 3: Create new desktop PAT automatically
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    token_name = f"Desktop Auto Token {timestamp}"
     
+    pat_result = await pat_service.create_pat(
+        user_id=user_id,
+        token_name=token_name,
+        db=db,
+        expires_in_days=90  # 3 months, user can stay logged in
+    )
+    
+    if not pat_result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create desktop credentials"
+        )
+    
+    # Step 4: Return combined response with auto-provisioned PAT
+    return {
+        "success": True,
+        "user": result["user"],
+        "session": result["session"],  # For UI state management
+        "desktop_credentials": {
+            "pat": pat_result["token"],  # ONLY TIME THIS IS VISIBLE!
+            "pat_id": pat_result["token_id"],
+            "expires_at": pat_result["expires_at"]
+        },
+        "message": "Desktop login successful. Credentials stored securely."
+    }
+
 
 
 @app.post("/api/auth/tokens")
@@ -1228,6 +1263,248 @@ async def upload_audio_snippet(
     db.commit()
     
     return {"success": True, "url": url}
+
+
+# ============== WEBHOOK ENDPOINTS ==============
+
+@app.post("/api/webhooks/gitea")
+async def receive_gitea_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Webhook receiver endpoint for Gitea events.
+    Validates signatures and processes events in background.
+    """
+    print("🔔 Webhook received!")  # Debug log
+    
+    # Create our own DB session to avoid dependency issues
+    db = SessionLocal()
+    
+    try:
+        # Step 1: Extract signature from headers
+        headers_dict = dict(request.headers)
+        signature = headers_dict.get("x-gitea-signature")
+        
+        # Step 2: Read raw request body
+        body = await request.body()
+        
+        # Step 3: Validate webhook signature
+        webhook_secret = os.getenv("GITEA_WEBHOOK_SECRET")
+        if not webhook_secret or not validate_webhook_signature(body, signature, webhook_secret):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        
+        # Step 4: Parse webhook payload (from already-read body)
+        import json
+        payload = json.loads(body)
+        event_type = parse_gitea_event(headers_dict)
+        repo_info = extract_repo_info(payload)
+        
+        # Step 5: Log webhook delivery (only if repo exists or create placeholder)
+        delivery = WebhookDelivery(
+            repo_id=repo_info["full_name"],
+            event_type=event_type,
+            payload=payload,
+            signature=signature,
+            processing_status="pending"
+        )
+        db.add(delivery)
+        db.commit()
+        
+        # Step 6: Route to appropriate handler in background
+        if event_type == "push":
+            background_tasks.add_task(handle_push_event, payload, delivery.id)
+        elif event_type == "create":
+            background_tasks.add_task(handle_create_event, payload, delivery.id)
+        elif event_type == "delete":
+            background_tasks.add_task(handle_delete_event, payload, delivery.id)
+        elif event_type == "repository":
+            background_tasks.add_task(handle_repository_event, payload, delivery.id)
+        
+        # Step 7: Return 200 immediately
+        return {"status": "accepted", "delivery_id": delivery.id}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error processing webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+# ============== WEBHOOK EVENT HANDLERS ==============
+
+async def handle_push_event(payload: Dict[str, Any], delivery_id: str):
+    """Handle push webhook events."""
+    db = SessionLocal()
+    try:
+        repo_info = extract_repo_info(payload)
+        repo_id = repo_info["full_name"]
+        
+        # Extract pusher info
+        pusher = payload.get("pusher", {})
+        pusher_username = pusher.get("username", "unknown")
+        
+        # Extract commit info
+        ref = payload.get("ref", "")
+        before_sha = payload.get("before", "")
+        after_sha = payload.get("after", "")
+        commits = payload.get("commits", [])
+        commit_count = len(commits)
+        
+        # Create PushEvent record
+        push_event = PushEvent(
+            repo_id=repo_id,
+            pusher_id=pusher_username,  # In production, map to Supabase UUID
+            pusher_username=pusher_username,
+            ref=ref,
+            before_sha=before_sha,
+            after_sha=after_sha,
+            commit_count=commit_count
+        )
+        db.add(push_event)
+        
+        # Update RepoData
+        repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+        if repo_data:
+            repo_data.last_push_at = datetime.utcnow()
+            repo_data.total_commits = (repo_data.total_commits or 0) + commit_count
+            repo_data.last_activity_at = datetime.utcnow()
+        
+        # Update delivery status
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "success"
+        
+        db.commit()
+    except Exception as e:
+        # Update delivery with error
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "failed"
+            delivery.error_message = str(e)
+            db.commit()
+        print(f"Error handling push event: {e}")
+    finally:
+        db.close()
+
+
+async def handle_create_event(payload: Dict[str, Any], delivery_id: str):
+    """Handle create webhook events (branch/tag creation)."""
+    db = SessionLocal()
+    try:
+        repo_info = extract_repo_info(payload)
+        repo_id = repo_info["full_name"]
+        
+        ref_type = payload.get("ref_type", "unknown")
+        sender = payload.get("sender", {})
+        sender_username = sender.get("username", "unknown")
+        
+        # Create RepositoryEvent record
+        repo_event = RepositoryEvent(
+            repo_id=repo_id,
+            event_type=f"{ref_type}_created",
+            actor_id=sender_username,
+            actor_username=sender_username
+        )
+        db.add(repo_event)
+        
+        # Update RepoData activity
+        repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+        if repo_data:
+            repo_data.last_activity_at = datetime.utcnow()
+        
+        # Update delivery status
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "success"
+        
+        db.commit()
+    except Exception as e:
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "failed"
+            delivery.error_message = str(e)
+            db.commit()
+        print(f"Error handling create event: {e}")
+    finally:
+        db.close()
+
+
+async def handle_delete_event(payload: Dict[str, Any], delivery_id: str):
+    """Handle delete webhook events (branch/tag deletion)."""
+    db = SessionLocal()
+    try:
+        repo_info = extract_repo_info(payload)
+        repo_id = repo_info["full_name"]
+        
+        ref_type = payload.get("ref_type", "unknown")
+        sender = payload.get("sender", {})
+        sender_username = sender.get("username", "unknown")
+        
+        # Create RepositoryEvent record
+        repo_event = RepositoryEvent(
+            repo_id=repo_id,
+            event_type=f"{ref_type}_deleted",
+            actor_id=sender_username,
+            actor_username=sender_username
+        )
+        db.add(repo_event)
+        
+        # Update delivery status
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "success"
+        
+        db.commit()
+    except Exception as e:
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "failed"
+            delivery.error_message = str(e)
+            db.commit()
+        print(f"Error handling delete event: {e}")
+    finally:
+        db.close()
+
+
+async def handle_repository_event(payload: Dict[str, Any], delivery_id: str):
+    """Handle repository webhook events (repo created/deleted)."""
+    db = SessionLocal()
+    try:
+        action = payload.get("action", "unknown")
+        repo_info = extract_repo_info(payload)
+        repo_id = repo_info["full_name"]
+        
+        sender = payload.get("sender", {})
+        sender_username = sender.get("username", "unknown")
+        
+        # Create RepositoryEvent record
+        repo_event = RepositoryEvent(
+            repo_id=repo_id,
+            event_type=f"repository_{action}",
+            actor_id=sender_username,
+            actor_username=sender_username
+        )
+        db.add(repo_event)
+        
+        # Update delivery status
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "success"
+        
+        db.commit()
+    except Exception as e:
+        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
+        if delivery:
+            delivery.processing_status = "failed"
+            delivery.error_message = str(e)
+            db.commit()
+        print(f"Error handling repository event: {e}")
+    finally:
+        db.close()
+
 
 # ============== ERROR HANDLERS ==============
 
