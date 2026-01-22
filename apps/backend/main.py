@@ -1147,7 +1147,6 @@ async def get_public_repos(genres: Optional[str] = None, match: str = "any", db:
     return {"success": True, "repos": result}
 
 
-
 @app.get("/repos/{owner}/{repo}/stats")
 async def get_repo_stats(
     owner: str,

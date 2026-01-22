@@ -83,9 +83,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
     env_file:
       - ./apps/backend/.env
-    environment:
-      # Override DATABASE_URL to use Docker service name
-      - DATABASE_URL=postgresql://soundhaus_user:soundhaus_password@db:5432/soundhaus_db
+    # No environment override - uses .env file for GITEA_URL
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
