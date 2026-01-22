@@ -59,6 +59,16 @@ interface ProjectSetupData {
     isPublic: boolean;
 }
 
+function getTokenFromCredentials(hostname: string, port: number): string | null {
+    try {
+        const content = fs.readFileSync('~/.soundhaus/.git-credentials', 'utf-8');
+        const regex = new RegExp(`^https?:\\/\\/[^:]+:([^@]+)@${hostname.replace(/\./g, '\\.')}:${port}`, 'm');
+        return content.match(regex)?.[1] || null;
+    } catch {
+        return null;
+    }
+}
+
 function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<string> {
     return new Promise((resolve, reject) => {
         const gitCmd = `"${gitBin}" init -b main`;
@@ -91,6 +101,9 @@ function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<strin
                 auto_init: false,
                 default_branch: "main"
             });
+
+            const token = getTokenFromCredentials("129.212.182.247" , 3000);
+            console.log(`Token: ${token}`);
             
             // Use Node.js HTTP request instead of curl to avoid shell escaping issues
             const reqOptions = {
@@ -99,7 +112,7 @@ function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<strin
                 path: '/api/v1/user/repos',
                 method: 'POST',
                 headers: {
-                    'Authorization': 'token 79e189c1bdbc88bec7196c5c5c9eb43293ed329a',
+                    'Authorization': `token ${token}`,
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'Content-Length': Buffer.byteLength(payload)
@@ -126,10 +139,6 @@ function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<strin
                         return;
                     }
 
-                    // Insert credentials into the URL
-                    remoteURL = remoteURL.replace('http://', 'http://79e189c1bdbc88bec7196c5c5c9eb43293ed329a@');
-                    remoteURL = remoteURL.replace('/api/v1/repos', '');
-
                     const setRemoteCmd = `git remote add origin ${remoteURL}`;
                     exec(setRemoteCmd, { cwd: folderPath }, (remoteErr, _remoteStdout, remoteStderr) => {
                         if (remoteErr) {
@@ -143,7 +152,9 @@ function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<strin
                             // Ignore error if branch doesn't exist yet - will be set on first push
                             if (upstreamErr) {
                                 console.warn('Could not set upstream tracking:', upstreamStderr);
+                                return;
                             }
+
                             resolve(remoteURL);
                         });
                     });

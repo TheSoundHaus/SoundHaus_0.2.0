@@ -7,9 +7,11 @@ export interface ElectronAPI {
 }
 
 export interface GitService {
-  initRepo: (folderPath: string) => Promise<string>
+  initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
   pullRepo: (repoPath: string) => Promise<string>
   pushRepo: (repoPath: string) => Promise<string>
+  getSoundHausCredentials: () => Promise<string | null>
+  setSoundHausCredentials: (token: string) => Promise<string>
 }
 
 // ALS (Ableton Live Set) types
@@ -80,6 +82,12 @@ export type MainInstrumentInfo = {
   name: string | null;
   path: string | null;
 };
+
+export interface ProjectSetupData {
+  name: string;
+  description: string;
+  isPublic: boolean;
+}
 
 declare global {
   interface Window {

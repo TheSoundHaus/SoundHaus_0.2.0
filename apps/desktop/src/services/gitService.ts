@@ -21,6 +21,22 @@ const gitService = {
             return Promise.resolve('')
         }
         return window.gitService.pushRepo(repoPath)
+    },
+
+    async getSoundHausCredentials(): Promise<string | null> {
+        if(!window.gitService) {
+            console.warn('gitService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.gitService.getSoundHausCredentials()
+    },
+
+    async setSoundHausCredentials(token: string): Promise<string> {
+        if(!window.gitService) {
+            console.warn('gitService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.gitService.setSoundHausCredentials(token)
     }
 }
 

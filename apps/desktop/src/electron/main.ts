@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain } from "electron";
 import type { IpcMainInvokeEvent } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
+import { getSoundHausCredentials, setSoundHausCredentials } from "./login"; 
 import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { execFile } from 'child_process';
@@ -104,6 +105,14 @@ ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 
 ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await push(repoPath);
+});
+
+ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
+  return await getSoundHausCredentials();
+})
+
+ipcMain.handle('set-soundhaus-credentials', async(_event: IpcMainInvokeEvent, token: string) => {
+  return await setSoundHausCredentials(token);
 });
 
 // This method will be called when Electron has finished
