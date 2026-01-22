@@ -24,7 +24,6 @@ class RepoData(Base):
         clone_events: Relationship to CloneEvent records
     """
     __tablename__ = "repo_data"
-
     # Primary key: unique repo identifier (owner/repo-name)
     gitea_id = Column(String(255), primary_key=True, index=True)
     
