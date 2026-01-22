@@ -1,5 +1,5 @@
-import { app, BrowserWindow, shell, ipcMain } from "electron";
-import type { IpcMain, IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
+import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
 import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, commit, push } from "./project";
@@ -160,6 +160,80 @@ ipcMain.handle('set-gitea-credentials', async(_event: IpcMainInvokeEvent, token:
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   createWindow();
+
+  const isMac = process.platform === 'darwin';
+
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New SoundHaus Project' },
+        { type: 'separator' },
+        { label: 'Import Ableton Project' },
+        { label: 'Browse Public Projects' },
+        { type: 'separator' },
+        { label: 'Options' },
+        { type: 'separator' },
+        isMac ? { role: 'close' } : { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        { label: 'Find' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Project List' },
+        { label: 'Branches List' },
+        { type: 'separator' },
+        { label: 'Go To Summary' },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'toggleDevTools' }
+      ]
+    },
+    {
+      label: 'Project',
+      submenu: [
+        { label: 'Push' },
+        { label: 'Pull' },
+        { type: 'separator' },
+        { label: 'View On SoundHaus'},
+        { label: 'Project Settings' }
+      ]
+    },
+    {
+      label: 'Branch',
+      submenu: [
+        { label: 'TODO' }
+      ]
+    },
+    {
+      label: 'Help',
+      submenu: [
+        { label: 'Search' },
+        { label: 'About' }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 
   app.on("activate", () => {
     // On macOS it's common to re-create a window in the app when the
