@@ -126,7 +126,6 @@ class PATService:
                 "token_id": pat.id,
                 "token_name": pat.token_name,
                 "token_prefix": pat.token_prefix,
-                "token_no_prefix": full_token.removeprefix(pat.token_prefix),
                 "created_at": pat.created_at.isoformat() if pat.created_at else None,
                 "expires_at": pat.expires_at.isoformat() if pat.expires_at else None,
                 "message": "Save this token now - you won't see it again!"

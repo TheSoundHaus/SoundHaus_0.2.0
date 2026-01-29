@@ -295,6 +295,24 @@ function pull(repoPath: string) {
   });
 }
 
+function commit(repoPath: string) {
+  return new Promise((resolve, reject) => {
+    const cmds = [
+      `"${gitBin}" add .`,
+      `"${gitBin}" commit -m "Auto-commit from Electron app"`,
+    ];
+    const cmd = cmds.join(' && ');
+
+    exec(cmd, { cwd: repoPath }, (err, stdout, stderr) => {
+      if(err) {
+        reject(stderr);
+        return;
+      }
+      resolve(stdout);
+    });
+  })
+}
+
 function push(repoPath: string) {
   return new Promise((resolve, reject) => {
     const cmds = [
@@ -321,6 +339,7 @@ export {
     structuralCompareAls,
     getAlsContent,
     pull,
+    commit,
     push
 };
 

@@ -17,6 +17,7 @@ const ProjectPage = () => {
 
     const [pulling, setPulling] = useState(false)
     const [pushing, setPushing] = useState(false)
+    const [comitting, setComitting] = useState(false)
 
     const { metadata, findAndParse } = useAlsParser()
     const { getAlsStruct, findAls } = useElectronIPC()
@@ -59,6 +60,20 @@ const ProjectPage = () => {
             alert(`Pull failed:\n${error}`)
         } finally {
             setPulling(false)
+        }
+    }
+
+    const handleGitCommit = async () => {
+        if(!selectedProject) return
+        setComitting(true)
+        try {
+            const result = await gitService.commitChange(selectedProject)
+            alert(`Commit complete:\n${result}`)
+            await refreshChanges()
+        } catch(error) {
+            alert(`Commit failed:\n${error}`)
+        } finally {
+            setComitting(false)
         }
     }
 
@@ -162,6 +177,7 @@ const ProjectPage = () => {
             <div className={styles.right}>
                 <div className={styles.buttons}>
                     <button onClick={handleGitPull}>Download Changes from Server</button>
+                    <button onClick={handleGitCommit}>Save Changes in Snapshot</button>
                     <button onClick={handleGitPush}>Upload Changes to Server</button>
                 </div>
             </div>

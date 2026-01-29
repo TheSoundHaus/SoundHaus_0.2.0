@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 contextBridge.exposeInMainWorld('gitService', {
 	initRepo: (folderPath: string, projectInfo?: any): Promise<string> => ipcRenderer.invoke('init-repo', folderPath, projectInfo),
 	pullRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('pull-repo', repoPath),
+	commitChange: (repoPath: string): Promise<string> => ipcRenderer.invoke('commit-changes', repoPath),
 	pushRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('push-repo', repoPath),
 	getSoundHausCredentials: (): Promise<string | null> => ipcRenderer.invoke('get-soundhaus-credentials'),
 	setSoundHausCredentials: (token: string): Promise<string> => ipcRenderer.invoke('set-soundhaus-credentials', token)

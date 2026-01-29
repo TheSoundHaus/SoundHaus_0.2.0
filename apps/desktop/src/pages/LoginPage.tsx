@@ -13,30 +13,34 @@ const LoginPage = () => {
         }, 1500);
     }
 
-    useEffect(() => {
-        const attemptPATLogin = async () => {
-            const token = window.gitService?.getSoundHausCredentials();
-            if(!token) return;
+    // useEffect(() => {
+    //     const attemptPATLogin = async () => {
+    //         //const token = window.gitService?.getSoundHausCredentials();
+    //         //if(!token) return;
 
-            try{
-                const credRes = await fetch('http://localhost:8000/api/desktop/credentials', {
-                    method: 'POST',
-                    headers: { Authorization: `token ${token}`}
-                });
+    //         const token = 'soundh_kGykICmPU2cwGUkZQ-pQxUHbhvqIGsajmbBgGkWLuXc'
 
-                if(!credRes.ok) {
-                    console.warn('Saved PAT is invalid/expired');
-                    return
-                }
+    //         try{
+    //             const credRes = await fetch('http://localhost:8000/api/desktop/credentials', {
+    //                 method: 'GET',
+    //                 headers: { Authorization: `token ${token}`}
+    //             });
 
-                navigate('/home');
-            } catch(err) {
-                console.warn('Auto-login failed', err);
-            }
-        };
+    //             console.log(credRes);
 
-        void attemptPATLogin();
-    }, [navigate]);
+    //             if(!credRes.ok) {
+    //                 console.warn('Saved PAT is invalid/expired');
+    //                 return
+    //             }
+
+    //             navigate('/home');
+    //         } catch(err) {
+    //             console.warn('Auto-login failed', err);
+    //         }
+    //     };
+
+    //     void attemptPATLogin();
+    // }, [navigate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -64,14 +68,10 @@ const LoginPage = () => {
                 return;
             }
 
-            const formData = new FormData();
-            formData.append('token_name', 'Gitea Token');
-            formData.append('expires_in_days', '90');
-
             const patRes = await fetch('http://localhost:8000/api/auth/tokens', {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${accessToken}` },
-                body: formData
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+                body: JSON.stringify({ token_name: 'Gitea Token', expires_in_days: 90 }),
             })
 
             if(!patRes.ok) {
@@ -103,29 +103,32 @@ const LoginPage = () => {
     return(
         <div>
             <h1>Welcome to SoundHaus</h1>
-            <p>
+            {/* <p>
                 {didOpen
                     ? 'A browser window should have opened automatically. Please sign in or create an account.'
                     : 'Click the button below to sign in with your SoundHaus account.'}
-            </p>
+            </p> */}
 
-            <button onClick={handleSignInClick}>{didOpen ? 'Open Login Page Again' : 'Sign In with Browser'}</button>
+            <p>Please sign in or create an account below</p>
 
-            <div>
+            {/* <button onClick={handleSignInClick}>{didOpen ? 'Open Login Page Again' : 'Sign In with Browser'}</button> */}
+
+            {/* <div>
                 <p>
                     After signing in, this window will automatically detect your authentication
                     and you'll be logged into the desktop app.
                 </p>
-            </div>
+            </div> */}
 
-            <p>~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~</p>
-            <p>Pssss. Secret login section here:</p>
+            {/* <p>~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~</p>
+            <p>Pssss. Secret login section here:</p> */}
             <form onSubmit={handleSubmit}>
                 <label htmlFor="username">Username: </label>
                 <input type="text" id="username" name="username"></input>
                 <br></br>
                 <label htmlFor="password">Password: </label>
                 <input type="password" id="password" name="password"></input>
+                <br></br>
                 <br></br>
                 <button type="submit">Log In</button>
             </form>

@@ -15,6 +15,14 @@ const gitService = {
         return window.gitService.pullRepo(repoPath)
     },
 
+    async commitChange(repoPath: string): Promise<string> {
+        if(!window.gitService) {
+            console.warn('gitService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.gitService.commitChange(repoPath)
+    },
+
     async pushRepo(repoPath: string): Promise<string> {
         if(!window.gitService) {
             console.warn('gitService not avaliable')

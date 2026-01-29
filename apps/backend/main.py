@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Response, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, Header, Response, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from typing import Optional, Dict, Any
@@ -798,18 +798,21 @@ async def desktop_login(
     for pat in existing_pats:
         if pat.token_name.startswith("Desktop Auto Token"):
             pass
+            
+
+    
+
 
 @app.post("/api/auth/tokens")
 async def create_personal_access_token(
-    token_name: str = Form(default="Unnamed_Token"),
-    expires_in_days: int = Form(default=14),
+    request: dict,
     token: str = Depends(verify_token),
     db: Session = Depends(get_db)
 ):
     """
     Create a Personal Access Token for desktop app authentication.
     
-    Request body (form-data):
+    Request body:
         - token_name: User-friendly name for the token (default: "Unnamed_Token")
         - expires_in_days: Days until expiration (default: 14, null = never expires)
     
@@ -830,6 +833,9 @@ async def create_personal_access_token(
 
     user_res = await get_auth().get_user(token)
     user_id = user_res["user"]["id"]  # Supabase UUID
+
+    token_name = request.get("token_name", "Unnamed_Token")
+    expires_in_days = request.get("expires_in_days", 14)
 
     result = await PATService.create_pat(
         user_id=user_id,

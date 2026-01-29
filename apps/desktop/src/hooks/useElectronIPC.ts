@@ -14,6 +14,7 @@ export function useElectronIPC() {
         getAlsStruct: electronAPI.getAlsStruct,
         initRepo: gitService.initRepo,
         pullRepo: gitService.pullRepo,
+        commitChange: gitService.commitChange,
         pushRepo: gitService.pushRepo,
         showProjectSetup
     }

@@ -1,8 +1,8 @@
 import { app, BrowserWindow, shell, ipcMain } from "electron";
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMain, IpcMainInvokeEvent } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials } from "./login"; 
-import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, push } from "./project";
+import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -102,6 +102,10 @@ ipcMain.handle('show-project-setup', async (event: IpcMainInvokeEvent) => {
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await pull(repoPath);
 });
+
+ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
+  return await commit(repoPath);
+})
 
 ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await push(repoPath);

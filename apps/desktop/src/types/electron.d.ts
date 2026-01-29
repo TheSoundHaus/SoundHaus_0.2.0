@@ -14,6 +14,7 @@ declare global {
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
       pullRepo: (repoPath: string) => Promise<string>
+      commitChange: (repoPath: string) => Promise<string>
       pushRepo: (repoPath: string) => Promise<string>
       getSoundHausCredentials: () => Promise<string | null>
       setSoundHausCredentials: (token: string) => Promise<string>

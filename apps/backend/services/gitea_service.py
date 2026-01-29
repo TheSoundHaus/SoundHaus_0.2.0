@@ -272,62 +272,12 @@ class GiteaAdminService:
 		# Try multiple methods to execute the Gitea CLI command
 		gitea_container = os.getenv("GITEA_CONTAINER_NAME", "gitea")
 		gitea_ssh_host = os.getenv("GITEA_SSH_HOST")  # e.g., "user@129.212.182.247"
+		gitea_ssh_password = os.getenv("GITEA_SSH_PASSWORD")
+
+		gitea_ssh_host.split("@")
 		
-		try:
-			# Method 1: Try SSH (for remote Gitea servers) - PRIMARY METHOD
-			if gitea_ssh_host:
-				# Build the SSH command to run docker exec on the remote server
-				# Using -u git to run as the git user (Gitea doesn't run as root)
-				ssh_command = (
-					f'ssh {gitea_ssh_host} '
-					f'"docker exec -u git gitea gitea admin user generate-access-token '
-					f'--username \'{username}\' '
-					f'--token-name \'{token_name}\' '
-					f'--scopes \'{scopes_str}\' '
-					f'--raw"'
-				)
-				
-				print(f"  -> Attempting SSH method to {gitea_ssh_host}...")
-				print(f"  -> Command: {ssh_command}")
-				
-				try:
-					result = subprocess.run(
-						ssh_command,
-						shell=True,
-						capture_output=True,
-						text=True,
-						timeout=30
-					)
-					
-					if result.returncode == 0:
-						token = result.stdout.strip()
-						if token and len(token) > 20:  # Validate token looks valid
-							print(f"  -> SSH method succeeded")
-							print(f"  -> Token created: {token[:20]}...")
-							return {
-								"success": True,
-								"token": {
-									"sha1": token,
-									"name": token_name
-								}
-							}
-						else:
-							print(f"  -> Invalid token returned: '{token}'")
-							print(f"  -> stderr: {result.stderr}")
-					else:
-						print(f"  -> SSH method failed (exit code {result.returncode})")
-						print(f"  -> stderr: {result.stderr}")
-						print(f"  -> stdout: {result.stdout}")
-				except subprocess.TimeoutExpired:
-					print(f"  -> SSH command timeout (30s)")
-				except Exception as e:
-					print(f"  -> SSH method error: {e}")
-					import traceback
-					traceback.print_exc()
-			else:
-				print(f"  -> GITEA_SSH_HOST not configured, skipping SSH method")
-			
-			# Method 2: Try Docker exec (for local Gitea containers) - FALLBACK
+		try:			
+			# Try Docker exec
 			docker_cmd = [
 				"docker", "exec", "-u", "git", gitea_container,
 				"gitea", "admin", "user", "generate-access-token",
@@ -366,7 +316,7 @@ class GiteaAdminService:
 			except Exception as e:
 				print(f"  -> Docker method error: {e}")
 			
-			# If both methods failed, return error
+			# If method failed, return error
 			return {
 				"success": False,
 				"message": "Unable to execute Gitea CLI command. Configure GITEA_CONTAINER_NAME or GITEA_SSH_HOST environment variables."
@@ -430,7 +380,7 @@ class GiteaAdminService:
 		# Documentation: https://docs.gitea.com/api/1.24/
 		# Endpoint: POST /users/{username}/tokens requires Sudo header
 		headers = self.headers.copy()
-		headers["Sudo"] = username
+		#headers["Sudo"] = username
 		
 		payload = {"name": token_name, "scopes": scopes}
 
