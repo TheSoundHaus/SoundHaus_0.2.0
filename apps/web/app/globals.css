@@ -1,0 +1,1138 @@
+/**
+ * SoundHaus Global Styles
+ * Brand Bible v1.0 Implementation
+ * 
+ * This file contains:
+ * - CSS custom properties (design tokens)
+ * - Base layer overrides
+ * - Component layer styles
+ * - Headless UI component styling patterns
+ * - Utility layer extensions
+ */
+
+/**
+ * Tailwind CSS v4 - Modern Import Syntax
+ * Reference the config file and import Tailwind
+ */
+@config "../tailwind.config.ts";
+@import "tailwindcss";
+
+/* SoundHaus Brand Tokens - Extracted Palette */
+@layer base {
+  :root {
+    /* Background - Deep midnight navy gradient */
+    --background-primary: #0B1622;
+    --background-secondary: #0E1C2B;
+    --background-depth: #2A3E52;
+
+    /* Brand - Icy blue with glow */
+    --brand-primary: #A7C7E7;
+    --brand-accent: #9BBFE6;
+    --brand-highlight: #CFE6FF;
+
+    /* Text */
+    --text-primary: #F0F4F8;
+    --text-muted: #6F8FAF;
+
+    /* Semantic tokens */
+    --background: var(--background-primary);
+    --foreground: var(--text-primary);
+    --card: var(--background-secondary);
+    --card-foreground: var(--text-primary);
+    --popover: var(--background-secondary);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--brand-primary);
+    --primary-foreground: #FFFFFF;
+    --secondary: var(--background-depth);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--background-depth);
+    --muted-foreground: var(--text-muted);
+    --accent: var(--brand-primary);
+    --accent-foreground: #FFFFFF;
+    --destructive: #EF4444;
+    --destructive-foreground: #FFFFFF;
+    --border: rgba(255, 255, 255, 0.1);
+    --input: var(--background-depth);
+    --ring: var(--brand-primary);
+
+    /* Glass effect values */
+    --glass-blur: 12px;
+    --glass-opacity: 0.05;
+    --glow-intensity: 0.4;
+  }
+
+  /* Light mode (not the primary brand direction) */
+  .light {
+    --background: var(--text-primary);
+    --foreground: var(--background-primary);
+    --card: #FFFFFF;
+    --card-foreground: var(--background-primary);
+    --border: rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* ============================================
+   BASE LAYER
+   ============================================ */
+@layer base {
+  /* Typography defaults */
+  html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  body {
+    @apply text-soft-white font-sans;
+    /* Chromatic midnight gradient - subtle hue shifts */
+    background: linear-gradient(
+      135deg,
+      #0B1622 0%,
+      #0E1C2B 25%,
+      #0D1A2E 50%,
+      #0E1C2B 75%,
+      #0B1622 100%
+    );
+    background-attachment: fixed;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  
+  /* Headings */
+  h1, .h1 {
+    @apply text-h1 text-soft-white font-bold;
+  }
+  
+  h2, .h2 {
+    @apply text-h2 text-soft-white font-semibold;
+  }
+  
+  h3, .h3 {
+    @apply text-h3 text-soft-white font-medium;
+  }
+  
+  /* Mobile heading adjustments */
+  @media (max-width: 640px) {
+    h1, .h1 {
+      @apply text-h1-mobile;
+    }
+    
+    h2, .h2 {
+      @apply text-h2-mobile;
+    }
+    
+    h3, .h3 {
+      @apply text-h3-mobile;
+    }
+  }
+  
+  /* Links with chromatic shift */
+  a {
+    @apply transition-all duration-300;
+    color: #A7C7E7;
+    text-decoration: none;
+    position: relative;
+
+    &:hover {
+      color: #CFE6FF;
+      text-shadow: 0 0 8px rgba(207, 230, 255, 0.3);
+    }
+
+    &:active {
+      color: #9BBFE6;
+    }
+  }
+  
+  /* Code */
+  code, pre {
+    @apply font-mono text-sm;
+  }
+  
+  code {
+    @apply bg-charcoal px-1.5 py-0.5 rounded-sm text-glass-cyan-400;
+  }
+  
+  pre {
+    @apply bg-midnight p-4 rounded-md overflow-x-auto;
+  }
+  
+  pre code {
+    @apply bg-transparent p-0;
+  }
+  
+  /* Focus styles */
+  :focus-visible {
+    @apply outline-none ring-2 ring-glass-blue-500 ring-offset-2 ring-offset-navy;
+  }
+  
+  /* Selection */
+  ::selection {
+    @apply bg-glass-blue-500 text-white;
+  }
+  
+  /* Placeholder */
+  ::placeholder {
+    @apply text-muted;
+  }
+}
+
+/* ============================================
+   COMPONENTS LAYER
+   ============================================ */
+@layer components {
+  /* ----------------------------------------
+     BUTTONS
+     ---------------------------------------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2;
+    @apply font-semibold text-body;
+    @apply py-3 px-6;
+    @apply rounded-btn;
+    @apply transition-all duration-150 ease-out-expo;
+    @apply min-h-touch;
+    @apply cursor-pointer select-none;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-sm {
+    @apply text-label py-2 px-4 min-h-9;
+  }
+  
+  .btn-lg {
+    @apply text-body-lg py-4 px-8 min-h-[52px];
+  }
+  
+  .btn-primary {
+    @apply text-white;
+    position: relative;
+    overflow: hidden;
+
+    /* Chromatic gradient background */
+    background: linear-gradient(
+      135deg,
+      #A7C7E7 0%,
+      #9BBFE6 50%,
+      #A7C7E7 100%
+    );
+
+    /* Multi-tone chromatic glow */
+    box-shadow:
+      0 0 0 1px rgba(167, 199, 231, 0.3),
+      0 2px 8px rgba(167, 199, 231, 0.2),
+      0 4px 16px rgba(155, 191, 230, 0.15),
+      0 6px 24px rgba(207, 230, 255, 0.1),
+      inset 0 1px 0 rgba(207, 230, 255, 0.3),
+      inset 0 -1px 0 rgba(155, 191, 230, 0.2);
+
+    /* Iridescent shimmer */
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        110deg,
+        transparent 0%,
+        rgba(207, 230, 255, 0.2) 45%,
+        rgba(255, 255, 255, 0.3) 50%,
+        rgba(207, 230, 255, 0.2) 55%,
+        transparent 100%
+      );
+      transform: translateX(-100%);
+      transition: transform 0.6s ease;
+    }
+
+    &:hover {
+      background: linear-gradient(
+        135deg,
+        #9BBFE6 0%,
+        #8BAFD5 50%,
+        #9BBFE6 100%
+      );
+
+      box-shadow:
+        0 0 0 1px rgba(167, 199, 231, 0.4),
+        0 4px 12px rgba(167, 199, 231, 0.3),
+        0 8px 24px rgba(155, 191, 230, 0.25),
+        0 12px 36px rgba(207, 230, 255, 0.15),
+        inset 0 1px 0 rgba(207, 230, 255, 0.4),
+        inset 0 -1px 0 rgba(155, 191, 230, 0.3);
+
+      &::before {
+        transform: translateX(100%);
+      }
+    }
+
+    &:active {
+      background: linear-gradient(
+        135deg,
+        #8BAFD5 0%,
+        #7099C3 50%,
+        #8BAFD5 100%
+      );
+    }
+  }
+  
+  .btn-secondary {
+    @apply bg-transparent text-glass-blue-500;
+    @apply border border-glass-blue-500;
+    @apply hover:bg-glass-blue-500/10 active:bg-glass-blue-500/20;
+  }
+  
+  .btn-ghost {
+    @apply bg-transparent text-soft-white;
+    @apply border border-muted-400;
+    @apply hover:bg-white/5 hover:border-muted-300;
+  }
+  
+  .btn-accent {
+    @apply bg-violet-500 text-white;
+    @apply hover:bg-violet-600 active:bg-violet-700;
+  }
+  
+  .btn-danger {
+    @apply bg-error-500 text-white;
+    @apply hover:bg-error-600 active:bg-error-700;
+  }
+  
+  .btn-success {
+    @apply bg-success-500 text-white;
+    @apply hover:bg-success-600 active:bg-success-700;
+  }
+  
+  .btn-icon {
+    @apply p-3 min-h-touch min-w-touch;
+  }
+
+  /* ----------------------------------------
+     CARDS & PANELS
+     ---------------------------------------- */
+  .card {
+    @apply bg-midnight rounded-card;
+    @apply border border-white/10;
+    @apply p-6 sm:p-4;
+  }
+  
+  .card-interactive {
+    @apply bg-midnight rounded-card border border-white/10 p-6 sm:p-4 cursor-pointer;
+    @apply transition-all duration-150;
+    @apply hover:border-white/20 hover:bg-midnight-400;
+  }
+  
+  .card-glass {
+    @apply backdrop-blur-glass rounded-card border border-white/10 p-6 sm:p-4;
+    position: relative;
+    overflow: hidden;
+
+    /* Multi-layer chromatic background */
+    background:
+      linear-gradient(
+        135deg,
+        rgba(14, 28, 43, 0.95) 0%,
+        rgba(42, 62, 82, 0.85) 50%,
+        rgba(14, 28, 43, 0.95) 100%
+      );
+
+    /* Chromatic glow with depth */
+    box-shadow:
+      0 0 0 1px rgba(167, 199, 231, 0.15),
+      0 4px 24px rgba(11, 22, 34, 0.5),
+      0 8px 48px rgba(11, 22, 34, 0.3),
+      inset 0 1px 0 rgba(207, 230, 255, 0.12),
+      inset 0 -1px 0 rgba(155, 191, 230, 0.08);
+
+    /* Iridescent shimmer overlay */
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        120deg,
+        transparent 0%,
+        rgba(167, 199, 231, 0.03) 25%,
+        rgba(207, 230, 255, 0.05) 50%,
+        rgba(155, 191, 230, 0.03) 75%,
+        transparent 100%
+      );
+      pointer-events: none;
+      opacity: 0.6;
+      transition: opacity 0.3s ease;
+    }
+
+    &:hover::before {
+      opacity: 1;
+    }
+  }
+
+  /* ----------------------------------------
+     INPUTS & FORMS
+     ---------------------------------------- */
+  .input {
+    @apply block w-full;
+    @apply bg-charcoal text-soft-white;
+    @apply rounded-input py-3 px-4 text-body;
+    @apply transition-all duration-300;
+    @apply placeholder:text-muted;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    position: relative;
+
+    /* Chromatic border */
+    border: 1px solid transparent;
+    background-image:
+      linear-gradient(#2A3E52, #2A3E52),
+      linear-gradient(120deg, rgba(167, 199, 231, 0.1), rgba(207, 230, 255, 0.1), rgba(155, 191, 230, 0.1));
+    background-origin: padding-box, border-box;
+    background-clip: padding-box, border-box;
+
+    /* Subtle inner depth */
+    box-shadow: inset 0 1px 3px rgba(11, 22, 34, 0.4);
+
+    &:hover {
+      background-image:
+        linear-gradient(#2A3E52, #2A3E52),
+        linear-gradient(120deg, rgba(167, 199, 231, 0.2), rgba(207, 230, 255, 0.2), rgba(155, 191, 230, 0.2));
+    }
+
+    &:focus {
+      outline: none;
+      /* Chromatic glow on focus */
+      background-image:
+        linear-gradient(#2A3E52, #2A3E52),
+        linear-gradient(120deg, #A7C7E7, #CFE6FF, #9BBFE6);
+
+      box-shadow:
+        inset 0 1px 3px rgba(11, 22, 34, 0.4),
+        0 0 0 1px rgba(167, 199, 231, 0.3),
+        0 2px 12px rgba(167, 199, 231, 0.15),
+        0 4px 20px rgba(207, 230, 255, 0.1);
+    }
+  }
+  
+  .input-error {
+    @apply border-error-500;
+    @apply focus:border-error-500 focus:ring-error-500;
+  }
+  
+  .textarea {
+    @apply block w-full bg-charcoal text-soft-white rounded-input border border-white/10;
+    @apply py-3 px-4 text-body transition-colors duration-150;
+    @apply placeholder:text-muted hover:border-white/20;
+    @apply focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed resize-none;
+    min-height: 120px;
+  }
+  
+  .select {
+    @apply block w-full bg-charcoal text-soft-white rounded-input border border-white/10;
+    @apply py-3 px-4 text-body transition-colors duration-150;
+    @apply placeholder:text-muted hover:border-white/20;
+    @apply focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed appearance-none cursor-pointer;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2364748B' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 12px center;
+    background-repeat: no-repeat;
+    background-size: 20px;
+    padding-right: 44px;
+  }
+  
+  .label {
+    @apply block text-label text-soft-white mb-2;
+  }
+  
+  .helper-text {
+    @apply text-caption text-muted mt-1.5;
+  }
+  
+  .error-text {
+    @apply text-caption text-error-500 mt-1.5;
+  }
+
+  /* ----------------------------------------
+     BADGES
+     ---------------------------------------- */
+  .badge {
+    @apply inline-flex items-center justify-center;
+    @apply text-caption font-semibold leading-none;
+    @apply py-1 px-2;
+    @apply rounded-badge;
+    @apply uppercase tracking-wide;
+  }
+  
+  .badge-default {
+    @apply bg-charcoal text-soft-white;
+  }
+  
+  .badge-success {
+    @apply bg-success-500 text-white;
+  }
+  
+  .badge-warning {
+    @apply bg-warning-500 text-navy;
+  }
+  
+  .badge-error {
+    @apply bg-error-500 text-white;
+  }
+  
+  .badge-accent {
+    @apply bg-violet-500 text-white;
+  }
+  
+  .badge-glass {
+    @apply bg-glass-blue-500 text-white;
+  }
+  
+  .badge-outline {
+    @apply bg-transparent border border-current;
+  }
+
+  /* ----------------------------------------
+     DIVIDERS
+     ---------------------------------------- */
+  .divider {
+    @apply h-px w-full bg-white/10;
+  }
+  
+  .divider-vertical {
+    @apply w-px h-full bg-white/10;
+  }
+
+  /* ----------------------------------------
+     AVATARS
+     ---------------------------------------- */
+  .avatar {
+    @apply relative inline-flex items-center justify-center;
+    @apply rounded-full bg-charcoal text-soft-white;
+    @apply overflow-hidden;
+  }
+  
+  .avatar-sm {
+    @apply w-8 h-8 text-caption;
+  }
+  
+  .avatar-md {
+    @apply w-10 h-10 text-label;
+  }
+  
+  .avatar-lg {
+    @apply w-12 h-12 text-body;
+  }
+
+  /* ----------------------------------------
+     TOOLTIPS
+     ---------------------------------------- */
+  .tooltip {
+    @apply absolute z-tooltip;
+    @apply bg-charcoal text-soft-white;
+    @apply text-caption px-2 py-1;
+    @apply rounded-sm;
+    @apply shadow-elevation-2;
+    @apply animate-fade-in;
+  }
+}
+
+/* ============================================
+   HEADLESS UI COMPONENT STYLING
+   ============================================ */
+@layer components {
+  /* ----------------------------------------
+     MENU / DROPDOWN
+     ---------------------------------------- */
+  [data-headlessui-state] {
+    @apply transition-all duration-150 ease-out-expo;
+  }
+  
+  /* Menu Button */
+  .menu-button {
+    @apply inline-flex items-center justify-center gap-2 font-semibold text-body;
+    @apply py-3 px-6 rounded-btn transition-all duration-150 ease-out-expo;
+    @apply min-h-touch cursor-pointer select-none;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-transparent text-soft-white border border-muted-400;
+    @apply hover:bg-white/5 hover:border-muted-300;
+  }
+  
+  /* Menu Items container */
+  .menu-items {
+    @apply absolute z-dropdown;
+    @apply mt-2 min-w-[200px];
+    @apply bg-midnight/95 backdrop-blur-glass;
+    @apply rounded-md border border-white/10;
+    @apply py-1;
+    @apply shadow-elevation-3;
+    @apply focus:outline-none;
+    @apply animate-slide-in-from-top;
+  }
+  
+  /* Menu Item */
+  .menu-item {
+    @apply block w-full px-4 py-2;
+    @apply text-left text-body text-soft-white;
+    @apply transition-colors duration-150;
+    @apply cursor-pointer;
+    
+    /* Headless UI data attributes */
+    &[data-focus] {
+      @apply bg-white/5;
+    }
+    
+    &[data-active] {
+      @apply bg-glass-blue-500/20 text-glass-blue-400;
+    }
+    
+    &[data-disabled] {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+  
+  /* Alternative: Using Headless UI Tailwind plugin classes */
+  .menu-item-styled {
+    @apply block w-full px-4 py-2;
+    @apply text-left text-body text-soft-white;
+    @apply transition-colors duration-150;
+    @apply ui-active:bg-glass-blue-500/20 ui-active:text-glass-blue-400;
+    @apply ui-disabled:opacity-50 ui-disabled:cursor-not-allowed;
+  }
+
+  /* ----------------------------------------
+     LISTBOX / SELECT
+     ---------------------------------------- */
+  .listbox-button {
+    @apply block w-full bg-charcoal text-soft-white rounded-input border border-white/10;
+    @apply py-3 px-4 text-body transition-colors duration-150;
+    @apply placeholder:text-muted hover:border-white/20;
+    @apply focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply text-left flex items-center justify-between cursor-pointer;
+  }
+  
+  .listbox-options {
+    @apply absolute z-dropdown;
+    @apply mt-1 w-full max-h-60;
+    @apply bg-midnight/95 backdrop-blur-glass;
+    @apply rounded-md border border-white/10;
+    @apply py-1;
+    @apply shadow-elevation-3;
+    @apply overflow-auto;
+    @apply focus:outline-none;
+    @apply animate-slide-in-from-top;
+  }
+  
+  .listbox-option {
+    @apply relative px-4 py-2;
+    @apply text-body text-soft-white;
+    @apply cursor-pointer select-none;
+    @apply transition-colors duration-150;
+    
+    &[data-focus] {
+      @apply bg-white/5;
+    }
+    
+    &[data-selected] {
+      @apply bg-glass-blue-500/10 text-glass-blue-400;
+    }
+    
+    &[data-disabled] {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+
+  /* ----------------------------------------
+     COMBOBOX
+     ---------------------------------------- */
+  .combobox-input {
+    @apply block w-full bg-charcoal text-soft-white rounded-input border border-white/10;
+    @apply py-3 px-4 text-body transition-colors duration-150;
+    @apply placeholder:text-muted hover:border-white/20;
+    @apply focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed pr-10;
+  }
+  
+  .combobox-button {
+    @apply absolute inset-y-0 right-0 flex items-center pr-3;
+    @apply text-muted hover:text-soft-white;
+    @apply transition-colors duration-150;
+  }
+  
+  .combobox-options {
+    @apply absolute z-dropdown mt-1 w-full max-h-60;
+    @apply bg-midnight/95 backdrop-blur-glass rounded-md border border-white/10;
+    @apply py-1 shadow-elevation-3 overflow-auto focus:outline-none;
+    @apply animate-slide-in-from-top;
+  }
+
+  .combobox-option {
+    @apply relative px-4 py-2 text-body text-soft-white;
+    @apply cursor-pointer select-none transition-colors duration-150;
+
+    &[data-focus] {
+      @apply bg-white/5;
+    }
+
+    &[data-selected] {
+      @apply bg-glass-blue-500/10 text-glass-blue-400;
+    }
+
+    &[data-disabled] {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+
+  /* ----------------------------------------
+     DIALOG / MODAL
+     ---------------------------------------- */
+  .dialog-backdrop {
+    @apply fixed inset-0 z-modal-backdrop;
+    @apply bg-navy/80 backdrop-blur-sm;
+    @apply animate-fade-in;
+  }
+  
+  .dialog-panel {
+    @apply relative z-modal;
+    @apply w-full max-w-modal-md;
+    @apply bg-midnight;
+    @apply rounded-modal border border-white/10;
+    @apply p-6;
+    @apply shadow-elevation-4;
+    @apply animate-scale-in;
+  }
+  
+  .dialog-title {
+    @apply text-h3 text-soft-white font-semibold;
+  }
+  
+  .dialog-description {
+    @apply text-body text-muted mt-2;
+  }
+
+  /* ----------------------------------------
+     POPOVER
+     ---------------------------------------- */
+  .popover-button {
+    @apply inline-flex items-center justify-center gap-2 font-semibold text-body;
+    @apply py-3 px-6 rounded-btn transition-all duration-150 ease-out-expo;
+    @apply min-h-touch cursor-pointer select-none;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .popover-panel {
+    @apply absolute z-popover;
+    @apply mt-2;
+    @apply bg-midnight/95 backdrop-blur-glass;
+    @apply rounded-md border border-white/10;
+    @apply p-4;
+    @apply shadow-elevation-3;
+    @apply animate-slide-in-from-top;
+  }
+
+  /* ----------------------------------------
+     SWITCH / TOGGLE
+     ---------------------------------------- */
+  .switch {
+    @apply relative inline-flex h-6 w-11;
+    @apply items-center rounded-full;
+    @apply bg-charcoal;
+    @apply border border-white/10;
+    @apply transition-colors duration-200;
+    @apply cursor-pointer;
+    @apply focus-visible:ring-2 focus-visible:ring-glass-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy;
+    
+    &[data-checked] {
+      @apply bg-glass-blue-500 border-glass-blue-500;
+    }
+    
+    &[data-disabled] {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+  
+  .switch-thumb {
+    @apply inline-block h-4 w-4;
+    @apply rounded-full bg-soft-white;
+    @apply shadow-sm;
+    @apply transition-transform duration-200;
+    @apply translate-x-1;
+    
+    [data-checked] & {
+      @apply translate-x-6;
+    }
+  }
+
+  /* ----------------------------------------
+     RADIO GROUP
+     ---------------------------------------- */
+  .radio-group {
+    @apply space-y-2;
+  }
+  
+  .radio-option {
+    @apply relative flex items-center gap-3;
+    @apply p-4 rounded-md;
+    @apply bg-charcoal border border-white/10;
+    @apply cursor-pointer;
+    @apply transition-all duration-150;
+    
+    &[data-checked] {
+      @apply bg-glass-blue-500/10 border-glass-blue-500;
+    }
+    
+    &[data-focus] {
+      @apply ring-2 ring-glass-blue-500 ring-offset-2 ring-offset-navy;
+    }
+    
+    &[data-disabled] {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+  
+  .radio-indicator {
+    @apply w-5 h-5 rounded-full;
+    @apply border-2 border-muted;
+    @apply flex items-center justify-center;
+    @apply transition-colors duration-150;
+    
+    [data-checked] & {
+      @apply border-glass-blue-500;
+    }
+  }
+  
+  .radio-indicator-dot {
+    @apply w-2.5 h-2.5 rounded-full;
+    @apply bg-glass-blue-500;
+    @apply scale-0 transition-transform duration-150;
+    
+    [data-checked] & {
+      @apply scale-100;
+    }
+  }
+
+  /* ----------------------------------------
+     CHECKBOX
+     ---------------------------------------- */
+  .checkbox {
+    @apply relative w-5 h-5;
+    @apply rounded-sm;
+    @apply bg-charcoal border border-white/10;
+    @apply flex items-center justify-center;
+    @apply cursor-pointer;
+    @apply transition-all duration-150;
+    @apply focus-visible:ring-2 focus-visible:ring-glass-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy;
+    
+    &[data-checked] {
+      @apply bg-glass-blue-500 border-glass-blue-500;
+    }
+    
+    &[data-disabled] {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+  
+  .checkbox-icon {
+    @apply w-3 h-3 text-white;
+    @apply opacity-0 scale-75;
+    @apply transition-all duration-150;
+    
+    [data-checked] & {
+      @apply opacity-100 scale-100;
+    }
+  }
+
+  /* ----------------------------------------
+     DISCLOSURE / ACCORDION
+     ---------------------------------------- */
+  .disclosure {
+    @apply border border-white/10 rounded-md;
+  }
+  
+  .disclosure-button {
+    @apply flex w-full items-center justify-between;
+    @apply px-4 py-3;
+    @apply text-left text-body font-medium text-soft-white;
+    @apply hover:bg-white/5;
+    @apply transition-colors duration-150;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-glass-blue-500;
+  }
+  
+  .disclosure-panel {
+    @apply px-4 pb-4;
+    @apply text-body text-muted;
+    @apply animate-slide-in-from-top;
+  }
+  
+  .disclosure-icon {
+    @apply w-5 h-5 text-muted;
+    @apply transition-transform duration-200;
+    
+    [data-open] & {
+      @apply rotate-180;
+    }
+  }
+
+  /* ----------------------------------------
+     TABS
+     ---------------------------------------- */
+  .tab-list {
+    @apply flex gap-1;
+    @apply border-b border-white/10;
+    @apply px-1;
+  }
+  
+  .tab {
+    @apply relative px-4 py-2;
+    @apply text-label text-muted;
+    @apply transition-colors duration-150;
+    @apply cursor-pointer;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-glass-blue-500 focus-visible:ring-inset;
+    
+    &[data-selected] {
+      @apply text-glass-blue-400;
+    }
+    
+    &[data-selected]::after {
+      content: '';
+      @apply absolute bottom-0 left-0 right-0 h-0.5;
+      @apply bg-glass-blue-500;
+    }
+    
+    &:hover:not([data-selected]) {
+      @apply text-soft-white;
+    }
+  }
+  
+  .tab-panels {
+    @apply mt-4;
+  }
+  
+  .tab-panel {
+    @apply focus:outline-none;
+    @apply animate-fade-in;
+  }
+
+  /* ----------------------------------------
+     TRANSITIONS (Headless UI)
+     ---------------------------------------- */
+  .transition-fade-enter {
+    @apply transition-opacity duration-200 ease-out;
+  }
+  
+  .transition-fade-enter-from {
+    @apply opacity-0;
+  }
+  
+  .transition-fade-enter-to {
+    @apply opacity-100;
+  }
+  
+  .transition-fade-leave {
+    @apply transition-opacity duration-150 ease-in;
+  }
+  
+  .transition-fade-leave-from {
+    @apply opacity-100;
+  }
+  
+  .transition-fade-leave-to {
+    @apply opacity-0;
+  }
+  
+  .transition-scale-enter {
+    @apply transition-all duration-200 ease-out;
+  }
+  
+  .transition-scale-enter-from {
+    @apply opacity-0 scale-95;
+  }
+  
+  .transition-scale-enter-to {
+    @apply opacity-100 scale-100;
+  }
+  
+  .transition-scale-leave {
+    @apply transition-all duration-150 ease-in;
+  }
+  
+  .transition-scale-leave-from {
+    @apply opacity-100 scale-100;
+  }
+  
+  .transition-scale-leave-to {
+    @apply opacity-0 scale-95;
+  }
+}
+
+/* ============================================
+   UTILITIES LAYER
+   ============================================ */
+@layer utilities {
+  /* Glass effects */
+  .glass {
+    @apply bg-midnight/80 backdrop-blur-md border border-white/10;
+  }
+  
+  .glass-heavy {
+    @apply bg-midnight/90 backdrop-blur-[20px] border border-white/15;
+  }
+  
+  /* Focus ring */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-glass-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy;
+  }
+  
+  /* Text utilities */
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  /* Truncate multiline */
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  /* Scrollbar utilities */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #64748B transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #64748B;
+    border-radius: 4px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: #94A3B8;
+  }
+  
+  .scrollbar-hidden {
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Safe area padding for mobile */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-left {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .safe-right {
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ============================================
+   SOUNDHAUS-SPECIFIC COMPONENTS
+   ============================================ */
+@layer components {
+  /* Repository card */
+  .repo-card {
+    @apply bg-midnight rounded-card border border-white/10 p-6 sm:p-4 cursor-pointer;
+    @apply transition-all duration-150 hover:border-white/20 hover:bg-midnight-400;
+    @apply flex flex-col gap-3;
+  }
+  
+  .repo-card-header {
+    @apply flex items-center justify-between;
+  }
+  
+  .repo-card-title {
+    @apply text-body font-semibold text-soft-white;
+    @apply truncate;
+  }
+  
+  .repo-card-meta {
+    @apply flex items-center gap-3 text-caption text-muted;
+  }
+  
+  /* Commit history item */
+  .commit-item {
+    @apply flex items-start gap-3 py-3;
+    @apply border-b border-white/5 last:border-0;
+  }
+  
+  .commit-hash {
+    @apply font-mono text-caption text-glass-cyan-500;
+    @apply bg-charcoal px-2 py-0.5 rounded;
+  }
+  
+  .commit-message {
+    @apply text-body text-soft-white truncate;
+  }
+  
+  .commit-meta {
+    @apply text-caption text-muted;
+  }
+  
+  /* Audio waveform placeholder */
+  .waveform {
+    @apply flex items-end gap-1 h-10;
+  }
+  
+  .waveform-bar {
+    @apply w-1 bg-glass-cyan-500 rounded-full;
+    @apply transition-all duration-150;
+  }
+  
+  /* Sync status indicator */
+  .sync-status {
+    @apply inline-flex items-center gap-2;
+  }
+  
+  .sync-status-dot {
+    @apply w-2 h-2 rounded-full;
+    @apply animate-pulse-subtle;
+  }
+  
+  .sync-status-dot-synced {
+    @apply bg-success-500;
+  }
+  
+  .sync-status-dot-syncing {
+    @apply bg-glass-blue-500;
+  }
+  
+  .sync-status-dot-conflict {
+    @apply bg-warning-500;
+  }
+  
+  .sync-status-dot-error {
+    @apply bg-error-500;
+  }
+}

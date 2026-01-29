@@ -1,0 +1,83 @@
+version: "3.8"
+
+networks:
+  appnet: {}
+
+services:
+  gitea:
+    image: docker.gitea.com/gitea:1.24.6
+    container_name: gitea
+    restart: always
+    networks:
+      - appnet
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      # SSH Configuration
+      - GITEA__server__START_SSH_SERVER=true
+      - GITEA__server__SSH_LISTEN_PORT=2222
+      - GITEA__server__SSH_PORT=2222
+      # LFS Support
+      - GITEA__lfs__START_SERVER=true
+      # Digital Ocean Spaces LFS Storage Configuration
+      # - GITEA__lfs__STORAGE_TYPE=minio
+      # - GITEA__lfs__MINIO_ENDPOINT=${DO_SPACES_ENDPOINT}
+      # - GITEA__lfs__MINIO_ACCESS_KEY_ID=${DO_SPACES_KEY}
+      # - GITEA__lfs__MINIO_SECRET_ACCESS_KEY=${DO_SPACES_SECRET}
+      # - GITEA__lfs__MINIO_BUCKET=${DO_SPACES_BUCKET}
+      # - GITEA__lfs__MINIO_LOCATION=${DO_SPACES_REGION}
+      # - GITEA__lfs__MINIO_USE_SSL=true
+      # Server Configuration
+      - GITEA__server__HTTP_ADDR=0.0.0.0
+      - GITEA__server__ROOT_URL=${ROOT_URL:-http://localhost:3000/}
+      - GITEA__server__SSH_DOMAIN=${DOMAIN:-localhost}
+      - GITEA__server__DOMAIN=${DOMAIN:-localhost}
+      # Supabase PostgreSQL Database Configuration
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=${SUPABASE_DB_HOST}
+      - GITEA__database__NAME=${SUPABASE_DB_NAME}
+      - GITEA__database__USER=${SUPABASE_DB_USER}
+      - GITEA__database__PASSWD=${SUPABASE_DB_PASSWORD}
+      - GITEA__database__SSL_MODE=${SUPABASE_DB_SSL_MODE:-require}
+    volumes:
+      - ./apps/backend/gitea:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+      - "2222:2222"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  fastapi:
+    build:
+      context: ./apps/backend/fastapi
+      dockerfile: Dockerfile
+    image: fastapi:basic
+    container_name: fastapi
+    restart: always
+    networks:
+      - appnet
+    depends_on:
+      - gitea
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/backend/fastapi:/app/fastapi
+      - ./workers:/workers
+    working_dir: /app/fastapi
+    env_file:
+      - .env
+    environment:
+      - GITEA_URL=http://gitea:3000
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
