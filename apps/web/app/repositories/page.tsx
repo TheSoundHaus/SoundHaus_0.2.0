@@ -1,0 +1,137 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+
+/**
+ * Personal Repositories Page - Manage user's remote repositories
+ * Displays authenticated user's repositories with CRUD operations
+ * API Calls:
+ * - Get personal repos (returns array of N personal repos)
+ * - Repository CRUD Operations
+ * - Delete Remote (removes repository from Digital Ocean)
+ */
+export default function RepositoriesPage() {
+  const [view, setView] = useState<"grid" | "list">("grid");
+
+  return (
+    <div className="min-h-screen bg-zinc-900 text-zinc-100">
+      {/* Navigation Header */}
+      <nav className="border-b border-zinc-800 px-6 py-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          <Link href="/" className="text-2xl font-bold tracking-tight">
+            SoundHaus
+          </Link>
+          <div className="flex gap-4">
+            <Link
+              href="/explore"
+              className="rounded-md px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800"
+            >
+              Explore
+            </Link>
+            <Link
+              href="/settings"
+              className="rounded-md px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800"
+            >
+              Settings
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      <main className="mx-auto max-w-7xl px-6 py-12">
+        {/* Page Header */}
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="mb-2 text-4xl font-bold tracking-tight">
+              Your Repositories
+            </h1>
+            <p className="text-lg text-zinc-400">
+              Manage your remote Ableton projects
+            </p>
+          </div>
+          <button className="rounded-md bg-zinc-100 px-6 py-3 font-medium text-zinc-900 transition-colors hover:bg-zinc-200">
+            + New Repository
+          </button>
+        </div>
+
+        {/* View Toggle and Stats */}
+        <div className="mb-8 flex items-center justify-between">
+          <div className="flex gap-6 text-sm text-zinc-400">
+            <span>12 Repositories</span>
+            <span>•</span>
+            <span>3 Collaborations</span>
+            <span>•</span>
+            <span>142 Total Commits</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setView("grid")}
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                view === "grid"
+                  ? "bg-zinc-100 text-zinc-900"
+                  : "bg-zinc-800 hover:bg-zinc-700"
+              }`}
+            >
+              Grid
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                view === "list"
+                  ? "bg-zinc-100 text-zinc-900"
+                  : "bg-zinc-800 hover:bg-zinc-700"
+              }`}
+            >
+              List
+            </button>
+          </div>
+        </div>
+
+        {/* Repository Grid - Placeholder */}
+        <div
+          className={
+            view === "grid"
+              ? "grid gap-6 md:grid-cols-2 lg:grid-cols-3"
+              : "flex flex-col gap-4"
+          }
+        >
+          {/* Placeholder cards - will be populated via API */}
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className={`rounded-lg border border-zinc-800 p-6 transition-colors hover:border-zinc-700 hover:bg-zinc-800/50 ${
+                view === "list" ? "flex items-center justify-between" : ""
+              }`}
+            >
+              <div className={view === "list" ? "flex-1" : ""}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">My Project {i}</h3>
+                  <span className="text-xs text-zinc-500">Private</span>
+                </div>
+                <p className="mb-4 text-sm text-zinc-400">
+                  Last updated 3 days ago
+                </p>
+                <div className="flex gap-4 text-sm text-zinc-400">
+                  <span>🎵 8 tracks</span>
+                  <span>👥 2 collaborators</span>
+                  <span>📊 24 commits</span>
+                </div>
+              </div>
+              {view === "list" && (
+                <div className="flex gap-2">
+                  <button className="rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium hover:bg-zinc-700">
+                    Open in Desktop
+                  </button>
+                  <button className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-800">
+                    Settings
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
