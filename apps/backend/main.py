@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
 from services.auth_service import get_auth_service, SupabaseAuthService
@@ -1049,21 +1050,33 @@ async def delete_file(repo_name: str, file_path: str, req: DeleteFileRequest, to
 # ============== SOUNDHAUS-SPECIFIC ENDPOINTS ==============
 
 @app.get("/repos/public")
-async def get_public_repos(genre: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_public_repos(genres: Optional[str] = None, match: str = "any", db: Session = Depends(get_db)):
     """Get all publicly published repos with audio snippets (Explore page)."""
-    query = db.query(RepoData).filter(RepoData.audio_snippet.isnot(None))
     
-    if genre:
-        query = query.join(repo_genres).join(GenreList).filter(
-            GenreList.genre_name == genre
+    if genres is not None:
+        genre_names = [g.strip() for g in genres.split(",")]
+    query = db.query(RepoData)
+    
+    if genre_names:
+        base = (
+            db.query(RepoData.gitea_id)
+            .join(RepoData.genres)
+            .filter(GenreList.genre_name.in_(genre_names))
         )
-    
-    repos = query.all()
-    
+
+        if match == "all":
+            base = (
+                base
+                .group_by(RepoData.gitea_id)
+                .having(func.count(func.distinct(GenreList.genre_name)) == len(genre_names))
+            )
+
+        subq = base.subquery()
+        query = query.filter(RepoData.gitea_id.in_(subq))
     # Now fetch Gitea metadata for each repo to get rich details
     svc = RepoService()
     result = []
-    for repo in repos:
+    for repo in query:
         # Parse owner/repo from gitea_id (format: "owner/reponame")
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
@@ -1103,6 +1116,7 @@ async def get_public_repos(genre: Optional[str] = None, db: Session = Depends(ge
             })
     
     return {"success": True, "repos": result}
+
 
 
 @app.get("/repos/{owner}/{repo}/stats")
@@ -1176,7 +1190,7 @@ async def get_genres(db: Session = Depends(get_db)):
     return {
         "success": True,
         "genres": [
-            {"genre_id": g.genre_id, "genre_name": g.genre_name}
+            {"genre_id": g.genre_id, "genre_name": g.genre_name, "genre_color": g.genre_color, "genre_icon": g.genre_icon}
             for g in genres
         ]
     }
@@ -1193,6 +1207,9 @@ async def create_genre(
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Must be logged in")
     
+    if not user_res.get("is_admin"):
+        raise HTTPException(status_code=403, detail="User does not have Admin privileges")
+
     genre_name = request.get("genre_name")
     if not genre_name:
         raise HTTPException(status_code=400, detail="genre_name required")
@@ -1213,6 +1230,61 @@ async def create_genre(
             "genre_name": new_genre.genre_name
         }
     }
+
+@app.post("/genres/{genre_id}")
+async def get_genre_details(
+    genre_id: int,
+    db: Session = Depends(get_db)
+):
+    """Users should be able to hover over genre tags and view this data about them,
+        it should show a brief description of the genre, how many songs in soundhaus
+        are under this genre, and the top 3 public repos tagged with said genre 
+    """
+
+    query = db.query(GenreList).filter(GenreList.genre_id==genre_id)
+    genre = query.one()
+# TODO: add this as a return value, more details in models/genre_models.py     
+#   "top_three_songs": genre.top_songs[:3],
+    return {
+        "success":True,
+        "genre_name": genre.genre_name,
+        "description": genre.genre_description,
+        "song_count": genre.song_count,
+        "genre_icon": genre.genre_icon,
+        "genre_color": genre.genre_color,
+    }
+@app.patch("/genres/{genre_id}")
+async def patch_genre_data(
+    genre_id: int,
+    genre_name: Optional[str]=None,
+    genre_description: Optional[str]=None,
+    genre_icon: Optional[str]=None,
+    genre_color: Optional[str]=None,
+    display_order: Optional[int]=None,
+    song_count: Optional[int]=None,
+    db: Session = Depends(get_db),
+):
+    #TODO: Require admin for this endpoint
+
+    query = db.query(GenreList).filter(GenreList.genre_id==genre_id)
+    genre = query.one()
+
+    if genre_name is not None:
+        genre.genre_name = genre_name
+    if genre_description is not None:
+        genre.genre_description = genre_description
+    if genre_icon is not None:
+        genre.genre_icon = genre_icon
+    if genre_color is not None:
+        genre.genre_color = genre_color
+    if display_order is not None:
+        genre.display_order = display_order
+    if song_count is not None:
+        genre.song_count = song_count
+    
+    db.commit()
+
+    return {"status": "success", "description":"changed " }
 
 
 @app.post("/repos/{owner}/{repo}/snippet")

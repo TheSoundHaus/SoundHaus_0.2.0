@@ -271,15 +271,17 @@ class GiteaAdminService:
 		
 		# Try multiple methods to execute the Gitea CLI command
 		gitea_container = os.getenv("GITEA_CONTAINER_NAME", "gitea")
-		gitea_ssh_host = os.getenv("GITEA_SSH_HOST")  # e.g., "user@129.212.182.247"
+		gitea_ssh_host = os.getenv("GITEA_SSH_HOST")  # e.g., "git@localhost" or "user@129.212.182.247"
+		gitea_ssh_port = os.getenv("GITEA_SSH_PORT", "22")  # Default to 22, use 2222 for local Docker
 		
 		try:
 			# Method 1: Try SSH (for remote Gitea servers) - PRIMARY METHOD
 			if gitea_ssh_host:
 				# Build the SSH command to run docker exec on the remote server
 				# Using -u git to run as the git user (Gitea doesn't run as root)
+				ssh_port_arg = f"-p {gitea_ssh_port}" if gitea_ssh_port != "22" else ""
 				ssh_command = (
-					f'ssh {gitea_ssh_host} '
+					f'ssh {ssh_port_arg} {gitea_ssh_host} '
 					f'"docker exec -u git gitea gitea admin user generate-access-token '
 					f'--username \'{username}\' '
 					f'--token-name \'{token_name}\' '
@@ -287,7 +289,7 @@ class GiteaAdminService:
 					f'--raw"'
 				)
 				
-				print(f"  -> Attempting SSH method to {gitea_ssh_host}...")
+				print(f"  -> Attempting SSH method to {gitea_ssh_host} (port {gitea_ssh_port})...")
 				print(f"  -> Command: {ssh_command}")
 				
 				try:
