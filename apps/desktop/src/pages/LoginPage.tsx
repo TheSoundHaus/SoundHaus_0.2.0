@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const LoginPage = () => {
     const [didOpen, setDidOpen] = useState(false);
     const navigate = useNavigate();
+    const autoLoginAttempted = useRef(false);
 
     const handleSignInClick = () => {
         // window.open("http://www.rickleinecker.com/", "_blank");
@@ -13,34 +14,43 @@ const LoginPage = () => {
         }, 1500);
     }
 
-    // useEffect(() => {
-    //     const attemptPATLogin = async () => {
-    //         //const token = window.gitService?.getSoundHausCredentials();
-    //         //if(!token) return;
+    useEffect(() => {
+        // Prevent running twice in development mode
+        if (autoLoginAttempted.current) return;
+        autoLoginAttempted.current = true;
 
-    //         const token = 'soundh_kGykICmPU2cwGUkZQ-pQxUHbhvqIGsajmbBgGkWLuXc'
+        const attemptPATLogin = async () => {
+            const token = await window.gitService?.getSoundHausCredentials();
+            
+            if (!token) {
+                console.log('No saved PAT found');
+                return;
+            }
 
-    //         try{
-    //             const credRes = await fetch('http://localhost:8000/api/desktop/credentials', {
-    //                 method: 'GET',
-    //                 headers: { Authorization: `token ${token}`}
-    //             });
+            console.log('Attempting PAT login with token:', token.substring(0, 20) + '...');
 
-    //             console.log(credRes);
+            try {
+                const credRes = await fetch('http://localhost:8000/api/desktop/credentials', {
+                    method: 'GET',
+                    headers: { Authorization: `token ${token}` }
+                });
 
-    //             if(!credRes.ok) {
-    //                 console.warn('Saved PAT is invalid/expired');
-    //                 return
-    //             }
+                console.log('Response status:', credRes.status);
 
-    //             navigate('/home');
-    //         } catch(err) {
-    //             console.warn('Auto-login failed', err);
-    //         }
-    //     };
+                if (!credRes.ok) {
+                    console.warn('Saved PAT is invalid/expired');
+                    return;
+                }
 
-    //     void attemptPATLogin();
-    // }, [navigate]);
+                console.log('Auto-login successful!');
+                navigate('/home');
+            } catch (err) {
+                console.warn('Auto-login failed', err);
+            }
+        };
+
+        void attemptPATLogin();
+    }, [navigate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()

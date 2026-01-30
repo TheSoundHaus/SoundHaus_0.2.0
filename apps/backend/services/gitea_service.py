@@ -196,10 +196,10 @@ class GiteaAdminService:
 			{"exists": True, "data": user_object} if found
 			{"exists": False} if not found
 		"""
-		print(f"[GiteaAdminService] get_user_by_username: GET /api/v1/admin/users/{username}")
+		print(f"[GiteaAdminService] get_user_by_username: GET /api/v1/users/{username}")
 		try:
 			resp = requests.get(
-				self._url(f"/api/v1/admin/users/{username}"),
+				self._url(f"/api/v1/users/{username}"),
 				headers=self.headers,
 				timeout=10
 			)
@@ -223,6 +223,43 @@ class GiteaAdminService:
 		except requests.RequestException as e:
 			print(f"  -> network error: {e}")
 			return {"exists": False}
+
+	def verify_admin_token(self) -> Dict[str, Any]:
+		"""Verify that the admin token is valid and has necessary permissions.
+		
+		Tests the token by making a simple API call to get the authenticated user.
+		
+		Returns:
+			{"valid": True, "user": user_data} if token works
+			{"valid": False, "error": str} if token is invalid
+		"""
+		print(f"[GiteaAdminService] verify_admin_token: GET /api/v1/user")
+		try:
+			resp = requests.get(
+				self._url("/api/v1/user"),
+				headers=self.headers,
+				timeout=10
+			)
+			
+			print(f"  -> status={resp.status_code}")
+			
+			if resp.status_code == 200:
+				user_data = resp.json()
+				print(f"  -> token is valid")
+				print(f"  -> authenticated as: {user_data.get('login')}")
+				print(f"  -> is_admin: {user_data.get('is_admin')}")
+				return {"valid": True, "user": user_data}
+			elif resp.status_code == 401:
+				print(f"  -> ERROR: 401 Unauthorized - token is invalid or expired")
+				print(f"  -> Response: {resp.text[:200]}")
+				return {"valid": False, "error": "unauthorized"}
+			else:
+				print(f"  -> unexpected status")
+				print(f"  -> Response: {resp.text[:200]}")
+				return {"valid": False, "error": f"status {resp.status_code}"}
+		except requests.RequestException as e:
+			print(f"  -> network error: {e}")
+			return {"valid": False, "error": str(e)}
 
 	def create_or_get_user_token_cli(
 		self,
@@ -269,15 +306,10 @@ class GiteaAdminService:
 		print(f"  token_name={token_name}")
 		print(f"  scopes={scopes_str}")
 		
-		# Try multiple methods to execute the Gitea CLI command
 		gitea_container = os.getenv("GITEA_CONTAINER_NAME", "gitea")
-		gitea_ssh_host = os.getenv("GITEA_SSH_HOST")  # e.g., "user@129.212.182.247"
-		gitea_ssh_password = os.getenv("GITEA_SSH_PASSWORD")
-
-		gitea_ssh_host.split("@")
 		
 		try:			
-			# Try Docker exec
+			# Try Docker exec from host
 			docker_cmd = [
 				"docker", "exec", "-u", "git", gitea_container,
 				"gitea", "admin", "user", "generate-access-token",
@@ -287,7 +319,7 @@ class GiteaAdminService:
 				"--raw"  # Output just the token without extra text
 			]
 			
-			print(f"  -> Attempting local Docker exec method...")
+			print(f"  -> Attempting Docker exec from host...")
 			try:
 				result = subprocess.run(
 					docker_cmd,
@@ -308,18 +340,53 @@ class GiteaAdminService:
 						}
 					}
 				else:
-					print(f"  -> Docker method failed: {result.stderr}")
+					print(f"  -> Docker method failed: {result.stderr[:100]}")
 			except FileNotFoundError:
-				print(f"  -> Docker not found")
+				print(f"  -> Docker not found on host, trying fallback...")
 			except subprocess.TimeoutExpired:
 				print(f"  -> Docker command timeout")
 			except Exception as e:
 				print(f"  -> Docker method error: {e}")
 			
-			# If method failed, return error
+			# Fallback: Use curl to execute command in Gitea container via Docker socket
+			# This works when FastAPI is in the Docker network
+			print(f"  -> Attempting fallback via Gitea internal command...")
+			try:
+				# Try to directly call gitea command if FastAPI is in the same network
+				# This requires that fastapi container can reach gitea container
+				docker_cmd_fallback = [
+					"docker", "exec", gitea_container,
+					"bash", "-c",
+					f"cd /var/lib/gitea && gitea admin user generate-access-token --username {username} --token-name \"{token_name}\" --scopes {scopes_str} --raw"
+				]
+				
+				result = subprocess.run(
+					docker_cmd_fallback,
+					capture_output=True,
+					text=True,
+					timeout=10
+				)
+				
+				if result.returncode == 0:
+					token = result.stdout.strip()
+					print(f"  -> Fallback method succeeded")
+					print(f"  -> Token created: {token[:20]}...")
+					return {
+						"success": True,
+						"token": {
+							"sha1": token,
+							"name": token_name
+						}
+					}
+				else:
+					print(f"  -> Fallback failed: {result.stderr[:100]}")
+			except Exception as e:
+				print(f"  -> Fallback error: {e}")
+			
+			# If both Docker methods failed, return error
 			return {
 				"success": False,
-				"message": "Unable to execute Gitea CLI command. Configure GITEA_CONTAINER_NAME or GITEA_SSH_HOST environment variables."
+				"message": "Unable to execute Gitea CLI command. Ensure GITEA_CONTAINER_NAME is set correctly."
 			}
 			
 		except Exception as e:
@@ -371,6 +438,24 @@ class GiteaAdminService:
 		# Fallback to API method (kept for backwards compatibility)
 		print(f"[GiteaAdminService] CLI method failed, falling back to API method...")
 		
+		# First, verify our admin token is valid
+		token_check = self.verify_admin_token()
+		if not token_check.get("valid"):
+			print(f"  -> CRITICAL: Admin token verification failed!")
+			return {
+				"success": False, 
+				"message": f"Admin token is invalid: {token_check.get('error')}"
+			}
+		
+		# Verify the user exists in Gitea
+		user_check = self.get_user_by_username(username)
+		if not user_check.get("exists"):
+			print(f"  -> CRITICAL: User {username} does not exist in Gitea!")
+			return {
+				"success": False,
+				"message": "User not found in Gitea. Create the user first."
+			}
+		
 		if scopes is None:
 			scopes = ["write:repository", "read:user"]
 		
@@ -380,14 +465,17 @@ class GiteaAdminService:
 		# Documentation: https://docs.gitea.com/api/1.24/
 		# Endpoint: POST /users/{username}/tokens requires Sudo header
 		headers = self.headers.copy()
-		#headers["Sudo"] = username
+		headers["Sudo"] = username
 		
 		payload = {"name": token_name, "scopes": scopes}
 
 		print(f"[GiteaAdminService] create_or_get_user_token (API): POST /api/v1/users/{username}/tokens")
 		print(f"  token_name={token_name}")
 		print(f"  scopes={scopes}")
-		print(f"  Using Sudo mode for user: {username}")
+		print(f"  url={url}")
+		print(f"  Authorization header: {headers['Authorization'][:20]}...")
+		print(f"  Sudo header: {headers['Sudo']}")
+		print(f"  payload={payload}")
 
 		try:
 			resp = requests.post(

@@ -140,7 +140,13 @@ async def verify_token_or_pat(
             auth_type = user_info["auth_type"]  # "jwt" or "pat"
             # ... your endpoint logic
     """
+
+    print(f"[verify_token_or_pat] Authorization header: {authorization[:50] if authorization else 'MISSING'}...")
+
     user_info = await auth_service.verify_token_or_pat(authorization, db)
+
+    print(f"[verify_token_or_pat] Result: {user_info}")
+
     if user_info is None:
         raise HTTPException(
             status_code=401,

@@ -160,3 +160,5 @@ vite.config.ts.timestamp-*
 gitea/
 gitea/ssh/*.key
 gitea/ssh/*.pub
+
+*.pyc

@@ -27,3 +27,5 @@ dist-ssr
 out/
 
 package-lock.json
+
+*.pyc
