@@ -11,8 +11,13 @@ export interface GitService {
   pullRepo: (repoPath: string) => Promise<string>
   commitChange: (repoPath: string) => Promise<string>
   pushRepo: (repoPath: string) => Promise<string>
+}
+
+export interface PatService {
   getSoundHausCredentials: () => Promise<string | null>
   setSoundHausCredentials: (token: string) => Promise<string>
+  getGiteaCredentials: () => Promise<string | null>
+  setGiteaCredentials: (token: string) => Promise<string>
 }
 
 // ALS (Ableton Live Set) types
@@ -94,5 +99,6 @@ declare global {
   interface Window {
     electronAPI?: ElectronAPI
     gitService?: GitService
+    patService?: PatService
   }
 }

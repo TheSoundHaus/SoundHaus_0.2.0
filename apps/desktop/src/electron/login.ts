@@ -45,7 +45,45 @@ function setSoundHausCredentials(token: string): Promise<string> {
     });
 }
 
+function getGiteaCredentials(): Promise<string | null> {
+    return new Promise((resolve) => {
+        try {
+            const credPath = path.join(os.homedir(), '.soundhaus', '.gitea-credentials');
+            
+            if (!fs.existsSync(credPath)) {
+                resolve(null);
+                return;
+            }
+            
+            const token = fs.readFileSync(credPath, 'utf-8').trim();
+            resolve(token || null);
+        } catch (error) {
+            console.warn('Failed to read saved Gitea PAT:', error);
+            resolve(null);
+        }
+    });
+}
+
+function setGiteaCredentials(token: string): Promise<string> {
+    return new Promise(async (resolve, reject) => {
+        try {            
+            // Write credentials to ~/.soundhaus/.git-credentials
+            const soundhausDir = path.join(os.homedir(), '.soundhaus');
+            fs.mkdirSync(soundhausDir, { recursive: true });
+
+            const credPath = path.join(soundhausDir, '.gitea-credentials');
+            fs.writeFileSync(credPath, token);
+            
+            resolve('Credentials saved successfully');
+        } catch (error) {
+            reject(`Failed to set credentials: ${error}`);
+        }
+    });
+}
+
 export {
     getSoundHausCredentials,
-    setSoundHausCredentials
+    setSoundHausCredentials,
+    getGiteaCredentials,
+    setGiteaCredentials
 }

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain } from "electron";
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
-import { getSoundHausCredentials, setSoundHausCredentials } from "./login"; 
+import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
 import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { execFile } from 'child_process';
@@ -117,6 +117,14 @@ ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) =>
 
 ipcMain.handle('set-soundhaus-credentials', async(_event: IpcMainInvokeEvent, token: string) => {
   return await setSoundHausCredentials(token);
+});
+
+ipcMain.handle('get-gitea-credentials', async(_event: IpcMainInvokeEvent) => {
+  return await getGiteaCredentials();
+})
+
+ipcMain.handle('set-gitea-credentials', async(_event: IpcMainInvokeEvent, token: string) => {
+  return await setGiteaCredentials(token);
 });
 
 // This method will be called when Electron has finished

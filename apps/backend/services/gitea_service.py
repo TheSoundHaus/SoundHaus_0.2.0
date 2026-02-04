@@ -224,6 +224,48 @@ class GiteaAdminService:
 			print(f"  -> network error: {e}")
 			return {"exists": False}
 
+	def verify_gitea_token(self, token: str) -> Dict[str, Any]:
+		"""Verify that a Gitea token is valid.
+		
+		Tests any Gitea token (user or admin) by making a simple API call to get the authenticated user.
+		
+		Args:
+			token: The Gitea token to verify
+		
+		Returns:
+			{"valid": True, "user": user_data} if token works
+			{"valid": False, "error": str} if token is invalid
+		"""
+		print(f"[GiteaAdminService] verify_gitea_token: GET /api/v1/user")
+		try:
+			headers = {
+				"Authorization": f"token {token}",
+				"Content-Type": "application/json",
+				"Accept": "application/json",
+			}
+			resp = requests.get(
+				self._url("/api/v1/user"),
+				headers=headers,
+				timeout=10
+			)
+			
+			print(f"  -> status={resp.status_code}")
+			
+			if resp.status_code == 200:
+				user_data = resp.json()
+				print(f"  -> token is valid")
+				print(f"  -> authenticated as: {user_data.get('login')}")
+				return {"valid": True, "user": user_data}
+			elif resp.status_code == 401:
+				print(f"  -> ERROR: 401 Unauthorized - token is invalid or expired")
+				return {"valid": False, "error": "unauthorized"}
+			else:
+				print(f"  -> unexpected status {resp.status_code}")
+				return {"valid": False, "error": f"status {resp.status_code}"}
+		except requests.RequestException as e:
+			print(f"  -> network error: {e}")
+			return {"valid": False, "error": str(e)}
+
 	def verify_admin_token(self) -> Dict[str, Any]:
 		"""Verify that the admin token is valid and has necessary permissions.
 		
@@ -465,7 +507,7 @@ class GiteaAdminService:
 		# Documentation: https://docs.gitea.com/api/1.24/
 		# Endpoint: POST /users/{username}/tokens requires Sudo header
 		headers = self.headers.copy()
-		headers["Sudo"] = username
+		# headers["Sudo"] = username
 		
 		payload = {"name": token_name, "scopes": scopes}
 
@@ -474,11 +516,11 @@ class GiteaAdminService:
 		print(f"  scopes={scopes}")
 		print(f"  url={url}")
 		print(f"  Authorization header: {headers['Authorization'][:20]}...")
-		print(f"  Sudo header: {headers['Sudo']}")
+		# print(f"  Sudo header: {headers['Sudo']}")
 		print(f"  payload={payload}")
 
 		try:
-			resp = requests.post(
+			resp = requests.get(
 				url, 
 				headers=headers, 
 				json=payload, 

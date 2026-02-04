@@ -16,8 +16,12 @@ declare global {
       pullRepo: (repoPath: string) => Promise<string>
       commitChange: (repoPath: string) => Promise<string>
       pushRepo: (repoPath: string) => Promise<string>
+    }
+    patService?: {
       getSoundHausCredentials: () => Promise<string | null>
       setSoundHausCredentials: (token: string) => Promise<string>
+      getGiteaCredentials: () => Promise<string | null>
+      setGiteaCredentials: (token: string) => Promise<string>
     }
     electron?: {
       showProjectSetup: () => Promise<ProjectSetupData | null>

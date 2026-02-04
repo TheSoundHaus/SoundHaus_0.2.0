@@ -1,18 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const LoginPage = () => {
-    const [didOpen, setDidOpen] = useState(false);
     const navigate = useNavigate();
     const autoLoginAttempted = useRef(false);
-
-    const handleSignInClick = () => {
-        // window.open("http://www.rickleinecker.com/", "_blank");
-        setDidOpen(true);
-        setTimeout(() => {
-            navigate('/home');
-        }, 1500);
-    }
 
     useEffect(() => {
         // Prevent running twice in development mode
@@ -20,29 +11,46 @@ const LoginPage = () => {
         autoLoginAttempted.current = true;
 
         const attemptPATLogin = async () => {
-            const token = await window.gitService?.getSoundHausCredentials();
-            
+            const token = await window.patService?.getSoundHausCredentials();
             if (!token) {
-                console.log('No saved PAT found');
+                console.log('No saved SoundHaus PAT');
                 return;
             }
 
-            console.log('Attempting PAT login with token:', token.substring(0, 20) + '...');
+            // Check if we already have a Gitea token
+            const existingGiteaToken = await window.patService?.getGiteaCredentials();
+            
+            console.log('Attempting PAT auto-login...');
 
             try {
-                const credRes = await fetch('http://localhost:8000/api/desktop/credentials', {
+                // Build URL with optional cached_gitea_token parameter
+                let credUrl = 'http://localhost:8000/api/desktop/credentials';
+                if (existingGiteaToken) {
+                    const params = new URLSearchParams({ cached_gitea_token: existingGiteaToken });
+                    credUrl = `${credUrl}?${params.toString()}`;
+                }
+
+                const credRes = await fetch(credUrl, {
                     method: 'GET',
                     headers: { Authorization: `token ${token}` }
                 });
-
-                console.log('Response status:', credRes.status);
 
                 if (!credRes.ok) {
                     console.warn('Saved PAT is invalid/expired');
                     return;
                 }
 
-                console.log('Auto-login successful!');
+                const credData = await credRes.json();
+                
+                // Only save if we don't have a token, or if the returned token is different
+                if (!existingGiteaToken || existingGiteaToken !== credData.token) {
+                    console.log('Saving new Gitea token');
+                    await window.patService?.setGiteaCredentials(credData.token);
+                } else {
+                    console.log('Gitea token validated and reused');
+                }
+
+                console.log('Auto-login successful');
                 navigate('/home');
             } catch (err) {
                 console.warn('Auto-login failed', err);
@@ -95,13 +103,25 @@ const LoginPage = () => {
             const token = patData.token;
 
             try {
-                await window.gitService?.setSoundHausCredentials(token);
+                await window.patService?.setSoundHausCredentials(token);
             } catch (error) {
                 console.error('Failed to configure git credentials:', error);
                 return;
             }
 
-            // Also need to call /api/desktop/credentials for gitea credentials
+            const credRes = await fetch('http://localhost:8000/api/desktop/credentials', {
+                method: 'GET',
+                headers: { Authorization: `token ${token}` }
+            });
+
+            if (credRes.ok) {
+                const credData = await credRes.json();
+                const giteaToken = credData?.token;
+
+                if (giteaToken) {
+                    await window.patService?.setGiteaCredentials(giteaToken);
+                }
+            }
 
             navigate('/home');
 
@@ -113,25 +133,7 @@ const LoginPage = () => {
     return(
         <div>
             <h1>Welcome to SoundHaus</h1>
-            {/* <p>
-                {didOpen
-                    ? 'A browser window should have opened automatically. Please sign in or create an account.'
-                    : 'Click the button below to sign in with your SoundHaus account.'}
-            </p> */}
-
             <p>Please sign in or create an account below</p>
-
-            {/* <button onClick={handleSignInClick}>{didOpen ? 'Open Login Page Again' : 'Sign In with Browser'}</button> */}
-
-            {/* <div>
-                <p>
-                    After signing in, this window will automatically detect your authentication
-                    and you'll be logged into the desktop app.
-                </p>
-            </div> */}
-
-            {/* <p>~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~</p>
-            <p>Pssss. Secret login section here:</p> */}
             <form onSubmit={handleSubmit}>
                 <label htmlFor="username">Username: </label>
                 <input type="text" id="username" name="username"></input>

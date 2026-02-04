@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
+import { getGiteaCredentials } from './login';
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
@@ -59,16 +60,6 @@ interface ProjectSetupData {
     isPublic: boolean;
 }
 
-function getTokenFromCredentials(hostname: string, port: number): string | null {
-    try {
-        const content = fs.readFileSync('~/.soundhaus/.git-credentials', 'utf-8');
-        const regex = new RegExp(`^https?:\\/\\/[^:]+:([^@]+)@${hostname.replace(/\./g, '\\.')}:${port}`, 'm');
-        return content.match(regex)?.[1] || null;
-    } catch {
-        return null;
-    }
-}
-
 function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<string> {
     return new Promise((resolve, reject) => {
         const gitCmd = `"${gitBin}" init -b main`;
@@ -102,12 +93,12 @@ function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<strin
                 default_branch: "main"
             });
 
-            const token = getTokenFromCredentials("129.212.182.247" , 3000);
+            const token = getGiteaCredentials();
             console.log(`Token: ${token}`);
             
             // Use Node.js HTTP request instead of curl to avoid shell escaping issues
             const reqOptions = {
-                hostname: '129.212.182.247',
+                hostname: 'localhost',
                 port: 3000,
                 path: '/api/v1/user/repos',
                 method: 'POST',
