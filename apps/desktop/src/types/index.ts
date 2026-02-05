@@ -4,6 +4,7 @@ export interface ElectronAPI {
   getAlsStruct: (alsPath: string) => Promise<any>
   findAls: (folderPath: string) => Promise<string | null>
   getAlsContent: (alsPath: string) => Promise<any>
+  diffXml: (curAlsPath: string, oldAlsPath: string) => Promise<any>
 }
 
 export interface GitService {
