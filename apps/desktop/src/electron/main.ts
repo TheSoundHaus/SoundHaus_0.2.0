@@ -8,6 +8,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
+import { diffXml } from '@napi-rs/parser'; 
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
@@ -111,6 +112,33 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await push(repoPath);
 });
 
+ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string, oldAlsPath: string) => {
+  try {
+    return await diffXml(curAlsPath, oldAlsPath);
+  } catch (e: any) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+});
+
+ipcMain.handle('get-remote-head-als', async(_event: IpcMainInvokeEvent, alsPath: string) => {
+  try {
+    const startDir = path.dirname(alsPath);
+    const { stdout } = await execFileP('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    const repoRoot = stdout.trim();
+    const relPath = path.relative(repoRoot, alsPath);
+    
+    // Get the remote HEAD version
+    const head = await getAlsFromGitHead(repoRoot, relPath);
+    
+    // Save to a temporary file
+    const tmpPath = path.join(path.dirname(alsPath), `.${path.basename(alsPath)}.remote-head.tmp`);
+    await fs.promises.writeFile(tmpPath, head.buffer);
+    
+    return { ok: true, tmpPath };
+  } catch (e: any) {
+    return { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+});
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
   return await getSoundHausCredentials();
 })

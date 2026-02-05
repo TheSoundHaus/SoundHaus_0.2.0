@@ -4,6 +4,7 @@ import styles from './ProjectPage.module.css'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import gitService from '../services/gitService'
+import electronAPI from '../services/electronAPI';
 
 const ProjectPage = () => {
     const location = useLocation();
@@ -18,6 +19,7 @@ const ProjectPage = () => {
     const [pulling, setPulling] = useState(false)
     const [pushing, setPushing] = useState(false)
     const [comitting, setComitting] = useState(false)
+    const [refreshing, setRefreshing] = useState(false)
 
     const { metadata, findAndParse } = useAlsParser()
     const { getAlsStruct, findAls } = useElectronIPC()
@@ -38,16 +40,49 @@ const ProjectPage = () => {
 
         try {
             const alsPath = await findAls(selectedProject)
-            if (alsPath && typeof getAlsStruct === 'function') {
-                const s = await getAlsStruct(alsPath)
-                setAlsStruct(s)
+            if (alsPath) {
+                // Use diffXml to compare current ALS with HEAD version
+                const result = await electronAPI.diffXml(alsPath, alsPath)
+                // Parse the JSON string if it's a string
+                const parsed = typeof result === 'string' ? JSON.parse(result) : result
+                setAlsStruct(parsed)
             } else {
                 setAlsStruct(null)
             }
         } catch (e) {
             setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
         }
-    }, [findAls, findAndParse, getAlsStruct, selectedProject])
+    }, [findAls, findAndParse, selectedProject])
+
+    const handleRefreshChanges = async () => {
+        if (!selectedProject) return
+        
+        setRefreshing(true)
+        try {
+            const alsPath = await findAls(selectedProject)
+            if (!alsPath) {
+                setAlsStruct({ ok: false, reason: 'No ALS file found' })
+                return
+            }
+
+            // Get remote HEAD version and save it temporarily
+            const remoteResult = await electronAPI.getRemoteHeadAls(alsPath)
+            
+            if (!remoteResult.ok) {
+                setAlsStruct({ ok: false, reason: remoteResult.error || 'Failed to fetch remote HEAD' })
+                return
+            }
+
+            // Compare current file with remote HEAD
+            const diffResult = await electronAPI.diffXml(alsPath, remoteResult.tmpPath)
+            const parsed = typeof diffResult === 'string' ? JSON.parse(diffResult) : diffResult
+            setAlsStruct(parsed)
+        } catch (e) {
+            setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
+        } finally {
+            setRefreshing(false)
+        }
+    }
 
     const handleGitPull = async () => {
         if(!selectedProject) return
@@ -82,7 +117,7 @@ const ProjectPage = () => {
         setPushing(true)
         try {
             const result = await gitService.pushRepo(selectedProject)
-            alert(`Push complete:\n${result}`)
+            alert(`Pull complete:\n${result}`)
             await refreshChanges()
         } catch(error) {
             alert(`Push failed:\n${error}`)
@@ -109,18 +144,32 @@ const ProjectPage = () => {
                     </button>
                     {showTrackInfo && (
                         <div style={{ padding: 12, background: '#fff' }}>
-                            {metadata && (
-                            typeof metadata === 'string' ? (
-                                <div className="als-raw">
-                                <pre style={{ whiteSpace: 'pre-wrap' }}>{metadata}</pre>
+                            {alsStruct == null ? (
+                                <div>
+                                    <p>No ALS loaded</p>
+                                </div>
+                            ) : alsStruct.ok === false ? (
+                                <div className={styles.error}>
+                                    <p>{alsStruct.reason ?? 'An error occurred'}</p>
+                                </div>
+                            ) : alsStruct.project?.Tracks ? (
+                                <div>
+                                    <div style={{ display: 'grid', gap: '8px' }}>
+                                        {alsStruct.project.Tracks.map((track: any, i: number) => (
+                                            <div key={i} className={styles.changeItem}>
+                                                <strong>{track.EffectiveName || 'Unnamed Track'}</strong>
+                                                <div style={{ fontSize: '0.9em', color: '#666' }}>
+                                                    Type: {track.Type} | ID: {track.Id}
+                                                    {track.UserName && ` | User: ${track.UserName}`}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             ) : (
-                                <div className="als-placeholder">
-                                {selectedProject
-                                    ? 'No .als file found in project'
-                                    : 'Select a project to view ALS content'}
+                                <div>
+                                    <p>No tracks found</p>
                                 </div>
-                            )
                             )}
                         </div>
                     )}
@@ -131,45 +180,52 @@ const ProjectPage = () => {
                     <button
                         onClick={() => setShowChanges(s => !s)}
                         aria-expanded={showChanges}
-                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer' }}
+                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                     >
-                        Changes <span style={{ float: 'right' }}>{showChanges ? '▾' : '▸'}</span>
+                        <span>Changes <span style={{ marginLeft: '8px' }}>{showChanges ? '▾' : '▸'}</span></span>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handleRefreshChanges()
+                            }}
+                            disabled={refreshing}
+                            style={{ 
+                                padding: '4px 8px', 
+                                fontSize: '12px', 
+                                background: '#fff', 
+                                border: '1px solid #ccc', 
+                                borderRadius: '4px', 
+                                cursor: refreshing ? 'wait' : 'pointer',
+                                opacity: refreshing ? 0.6 : 1
+                            }}
+                            title="Compare with remote HEAD"
+                        >
+                            {refreshing ? '⟳' : '↻'}
+                        </button>
                     </button>
                     {showChanges && (
                         <div style={{ padding: 12, background: '#fff' }}>
                             {alsStruct == null ? (
-                                    <div>
-                                        <h1>Changes</h1>
-                                        <p>No ALS loaded</p>
+                                <div>
+                                    <p>No ALS loaded</p>
+                                </div>
+                            ) : alsStruct.ok === false ? (
+                                <div className={styles.error}>
+                                    <p>{alsStruct.reason ?? 'An error occurred'}</p>
+                                </div>
+                            ) : alsStruct.summary ? (
+                                <div>
+                                    <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                                        {alsStruct.summary.split('\n').map((line: string, i: number) => (
+                                            <div key={i} style={{ marginBottom: '4px' }}>{line}</div>
+                                        ))}
                                     </div>
-                                ) : alsStruct.ok === false ? (
-                                    <div className={styles.error}>
-                                        <h1>Changes</h1>
-                                        <p>{alsStruct.reason ?? 'An error occurred'}</p>
-                                    </div>
-                                ) : (
-                                    <div className={styles.metadata}>
-                                        {alsStruct && typeof alsStruct === 'object' ? (
-                                            Array.isArray((alsStruct as any).changes) ? (
-                                                <div>
-                                                    <div>
-                                                        {((alsStruct as any).changes as any[]).map((c, i) => (
-                                                            <div key={i} className={styles.changeItem}>
-                                                                <strong>{c.trackName ?? c.trackId ?? `Change ${i + 1}`}</strong>
-                                                                <div>Before: {c.beforeTrackName ?? '—'} {c.before?.name ? `(${c.before.name})` : ''}</div>
-                                                                <div>After: {c.afterTrackName ?? '—'} {c.after?.name ? `(${c.after.name})` : ''}</div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(alsStruct, null, 2)}</pre>
-                                            )
-                                        ) : (
-                                            <pre style={{ whiteSpace: 'pre-wrap' }}>{String(alsStruct)}</pre>
-                                        )}
-                                    </div>
-                                )}
+                                </div>
+                            ) : (
+                                <div>
+                                    <p>No changes detected</p>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

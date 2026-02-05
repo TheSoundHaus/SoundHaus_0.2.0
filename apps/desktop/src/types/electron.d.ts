@@ -10,6 +10,11 @@ declare global {
       isElectron?: () => boolean
       chooseFolder: () => Promise<string | null>
       hasGitFile: (p: string) => Promise<boolean>
+      getAlsContent: (alsPath: string) => Promise<string | null>
+      getAlsStruct: (alsPath: string) => Promise<any>
+      findAls: (folderPath: string) => Promise<string | null>
+      diffXml: (curAlsPath, oldAlsPath) => Promise<any>
+      getRemoteHeadAls: (alsPath: string) => Promise<any>
     }
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
