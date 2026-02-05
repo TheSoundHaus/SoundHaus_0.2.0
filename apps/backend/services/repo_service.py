@@ -1,15 +1,10 @@
 import os
 import requests
-import base64
 from typing import Any, Dict, List, Optional
-from services.gitea_service import GiteaAdminService
-from sqlalchemy.orm import Session
-from models.webhook_models import WebhookConfig
 
 GITEA_URL = os.getenv("GITEA_URL", "").rstrip("/")
 GITEA_ADMIN_TOKEN = os.getenv("GITEA_ADMIN_TOKEN") or os.getenv("GITEA_TOKEN")
-WEBHOOK_BASE_URL = os.getenv("WEBHOOK_BASE_URL", "http://localhost:8000")
-GITEA_WEBHOOK_SECRET = os.getenv("GITEA_WEBHOOK_SECRET", "")
+
 
 class RepoService:
     def __init__(self, base_url: Optional[str] = None, admin_token: Optional[str] = None) -> None:
@@ -86,7 +81,7 @@ class RepoService:
             print(f"[RepoService] Exception getting user ID: {e}")
             return 0
 
-    def create_user_repo(self, username: str, name: str, db: Session, description: str = "", private: bool = True,) -> Dict[str, Any]:
+    def create_user_repo(self, username: str, name: str, description: str = "", private: bool = True) -> Dict[str, Any]:
         """Create a new repository owned by the specified user (admin operation)."""
         payload = {
             "name": name,
@@ -101,51 +96,10 @@ class RepoService:
                 repo_data = resp.json()
                 # Initialize LFS with .gitattributes file
                 self._init_lfs_for_repo(username, name)
-                self._create_repo_webhook(username, name, db)
                 return {"success": True, "repo": repo_data}
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
         except requests.RequestException as e:
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
-    def _create_repo_webhook(self, username: str, repo_name: str, db: Session):
-            try:
-                if not WEBHOOK_BASE_URL or not GITEA_WEBHOOK_SECRET:
-                    print(f"[RepoService] skipping webhook creation")
-                    return
-                
-            
-                gitea_admin_service = GiteaAdminService(
-                    base_url=self.base_url,
-                    admin_token=self.token
-                )
-
-                webhook_url = f"{WEBHOOK_BASE_URL}/api/webhooks/gitea"
-                webhook_result = gitea_admin_service.create_webhook(
-                    owner=username, 
-                    repo=repo_name, 
-                    webhook_url=webhook_url,
-                    secret=GITEA_WEBHOOK_SECRET,
-                    events=["push", "create", "delete", "repository"]
-                )
-                
-                if webhook_result.get("success"):
-                    # Create webhook database entry
-                    webhook_config = WebhookConfig(
-                        repo_id=f"{username}/{repo_name}",
-                        gitea_webhook_id=webhook_result.get("webhook_id"),
-                        webhook_url=webhook_url,
-                        webhook_secret=GITEA_WEBHOOK_SECRET,
-                        is_active=True,
-                        events=["push", "create", "delete", "repository"]
-                    )
-                    db.add(webhook_config)
-                    db.commit()
-                    print(f"[RepoService] Webhook saved to database for {username}/{repo_name}")
-                else:
-                    print(f"[RepoService] Webhook creation failed {webhook_result.get('message')}")
-
-            except Exception as e:
-                print(f"[RepoService] Failed to save webhook to database: {e}")
-                db.rollback()
 
     def update_repo_settings(self, owner: str, repo_name: str, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Update repository settings (e.g., make public/private, change description)."""
@@ -304,6 +258,8 @@ class RepoService:
     def upload_file(self, username: str, repo_name: str, file_path: str, content: str, message: str, branch: str = "main") -> Dict[str, Any]:
         """Upload or update a file in a repository."""
         try:
+            import base64
+            
             # Gitea API endpoint for creating/updating files
             url_path = f"/api/v1/repos/{username}/{repo_name}/contents/{file_path}"
             

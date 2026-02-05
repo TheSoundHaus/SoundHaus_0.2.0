@@ -1,11 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Response, File, UploadFile, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Header, Response, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from typing import Optional, Dict, Any
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
 from services.auth_service import get_auth_service, SupabaseAuthService
@@ -15,17 +14,12 @@ from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList, repo_genres
 from models.pat_models import PersonalAccessToken
-from models.webhook_models import (
-    WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig,
-    validate_webhook_signature, parse_gitea_event, extract_repo_info
-)
 import hashlib
 import os
 import sys
 import uuid
 import secrets
 import subprocess
-import traceback
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
@@ -146,7 +140,13 @@ async def verify_token_or_pat(
             auth_type = user_info["auth_type"]  # "jwt" or "pat"
             # ... your endpoint logic
     """
+
+    print(f"[verify_token_or_pat] Authorization header: {authorization[:50] if authorization else 'MISSING'}...")
+
     user_info = await auth_service.verify_token_or_pat(authorization, db)
+
+    print(f"[verify_token_or_pat] Result: {user_info}")
+
     if user_info is None:
         raise HTTPException(
             status_code=401,
@@ -798,44 +798,36 @@ async def desktop_login(
     
     user_id = result["user"]["id"]
 
-    # Step 2: Revoke any existing desktop PATs (cleanup old sessions)
     pat_service = PATService()
     existing_pats = await pat_service.list_pats(user_id, db)
 
+    # Step 2: Revoke old desktop tokens to prevent sprawl
     for pat in existing_pats:
         if pat.token_name.startswith("Desktop Auto Token"):
-            await pat_service.revoke_pat(str(pat.id), user_id, db)
+            await pat_service.revoke_pat(pat.id, user_id, db)
 
-    # Step 3: Create new desktop PAT automatically
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    token_name = f"Desktop Auto Token {timestamp}"
-    
-    pat_result = await pat_service.create_pat(
+    # Step 3: Create new desktop PAT
+    pat_result = await PATService.create_pat(
         user_id=user_id,
-        token_name=token_name,
+        token_name="Desktop Auto Token",
         db=db,
-        expires_in_days=90  # 3 months, user can stay logged in
+        expires_in_days=90
     )
-    
+
     if not pat_result.get("success"):
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to create desktop credentials"
-        )
-    
-    # Step 4: Return combined response with auto-provisioned PAT
+        raise HTTPException(status_code=500, detail="Failed to create desktop PAT")
+
+    # Step 4: Return both session token and PAT
     return {
         "success": True,
         "user": result["user"],
-        "session": result["session"],  # For UI state management
         "desktop_credentials": {
-            "pat": pat_result["token"],  # ONLY TIME THIS IS VISIBLE!
-            "pat_id": pat_result["token_id"],
-            "expires_at": pat_result["expires_at"]
+            "pat": pat_result["token"],
+            "token_id": pat_result["token_id"],
+            "token_name": pat_result["token_name"]
         },
-        "message": "Desktop login successful. Credentials stored securely."
+        "session": result["session"]
     }
-
 
 
 @app.post("/api/auth/tokens")
@@ -961,11 +953,14 @@ async def revoke_personal_access_token(
 @app.get("/api/desktop/credentials")
 async def get_desktop_credentials(
     user_info: Dict = Depends(verify_token_or_pat),
+    cached_gitea_token: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """
     Get Gitea credentials for desktop Git operations.
-    This endpoint is called by the desktop app after authenticating with a PAT.
+    
+    This endpoint validates the Backend PAT and either reuses a cached Gitea PAT
+    or creates a new one if the cached one is invalid/missing.
     
     IMPORTANT: This endpoint uses Backend PATs for API authentication,
     but returns Gitea PATs for Git operations (clone, push, pull).
@@ -980,9 +975,12 @@ async def get_desktop_credentials(
         4. Uses Gitea credentials for all Git operations
         5. Continues using Backend PAT for FastAPI endpoints
     
+    Query parameters:
+        - cached_gitea_token: (Optional) Gitea PAT from local storage to validate
+    
     Security:
         - Backend PAT authenticates the API request (verify_token_or_pat dependency)
-        - Gitea PAT is for Git operations only
+        - Gitea PAT is validated before reuse, or new one is created
         - Both systems are separate and serve different purposes
     """
 
@@ -990,10 +988,26 @@ async def get_desktop_credentials(
     user_id = user_info["user_id"]
     gitea_admin_service = GiteaAdminService()
 
-    # Create unique token name with timestamp to avoid conflicts
+    # Step 1: Try to reuse cached Gitea token if provided
+    if cached_gitea_token:
+        print(f"[get_desktop_credentials] Validating cached Gitea token...")
+        token_check = gitea_admin_service.verify_gitea_token(cached_gitea_token)
+        if token_check.get("valid"):
+            print(f"[get_desktop_credentials] Cached token is still valid, reusing it")
+            return {
+                "success": True,
+                "gitea_url": GITEA_PUBLIC_URL,
+                "username": user_id,
+                "token": cached_gitea_token,
+                "clone_url_format": f"{GITEA_PUBLIC_URL}/{user_id}/{{repo_name}}.git"
+            }
+        else:
+            print(f"[get_desktop_credentials] Cached token is invalid/expired, creating new one")
+
+    # Step 2: Create a new Gitea token (cached was missing or invalid)
     from datetime import datetime
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    token_name = f"Desktop Access Token {timestamp}"
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
+    token_name = f"Desktop Access Token - {timestamp}"
 
     gitea_result = gitea_admin_service.create_or_get_user_token(
         user_id,
@@ -1050,33 +1064,21 @@ async def delete_file(repo_name: str, file_path: str, req: DeleteFileRequest, to
 # ============== SOUNDHAUS-SPECIFIC ENDPOINTS ==============
 
 @app.get("/repos/public")
-async def get_public_repos(genres: Optional[str] = None, match: str = "any", db: Session = Depends(get_db)):
+async def get_public_repos(genre: Optional[str] = None, db: Session = Depends(get_db)):
     """Get all publicly published repos with audio snippets (Explore page)."""
+    query = db.query(RepoData).filter(RepoData.audio_snippet.isnot(None))
     
-    if genres is not None:
-        genre_names = [g.strip() for g in genres.split(",")]
-    query = db.query(RepoData)
-    
-    if genre_names:
-        base = (
-            db.query(RepoData.gitea_id)
-            .join(RepoData.genres)
-            .filter(GenreList.genre_name.in_(genre_names))
+    if genre:
+        query = query.join(repo_genres).join(GenreList).filter(
+            GenreList.genre_name == genre
         )
-
-        if match == "all":
-            base = (
-                base
-                .group_by(RepoData.gitea_id)
-                .having(func.count(func.distinct(GenreList.genre_name)) == len(genre_names))
-            )
-
-        subq = base.subquery()
-        query = query.filter(RepoData.gitea_id.in_(subq))
+    
+    repos = query.all()
+    
     # Now fetch Gitea metadata for each repo to get rich details
     svc = RepoService()
     result = []
-    for repo in query:
+    for repo in repos:
         # Parse owner/repo from gitea_id (format: "owner/reponame")
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
@@ -1116,7 +1118,6 @@ async def get_public_repos(genres: Optional[str] = None, match: str = "any", db:
             })
     
     return {"success": True, "repos": result}
-
 
 
 @app.get("/repos/{owner}/{repo}/stats")
@@ -1190,7 +1191,7 @@ async def get_genres(db: Session = Depends(get_db)):
     return {
         "success": True,
         "genres": [
-            {"genre_id": g.genre_id, "genre_name": g.genre_name, "genre_color": g.genre_color, "genre_icon": g.genre_icon}
+            {"genre_id": g.genre_id, "genre_name": g.genre_name}
             for g in genres
         ]
     }
@@ -1207,9 +1208,6 @@ async def create_genre(
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Must be logged in")
     
-    if not user_res.get("is_admin"):
-        raise HTTPException(status_code=403, detail="User does not have Admin privileges")
-
     genre_name = request.get("genre_name")
     if not genre_name:
         raise HTTPException(status_code=400, detail="genre_name required")
@@ -1230,61 +1228,6 @@ async def create_genre(
             "genre_name": new_genre.genre_name
         }
     }
-
-@app.post("/genres/{genre_id}")
-async def get_genre_details(
-    genre_id: int,
-    db: Session = Depends(get_db)
-):
-    """Users should be able to hover over genre tags and view this data about them,
-        it should show a brief description of the genre, how many songs in soundhaus
-        are under this genre, and the top 3 public repos tagged with said genre 
-    """
-
-    query = db.query(GenreList).filter(GenreList.genre_id==genre_id)
-    genre = query.one()
-# TODO: add this as a return value, more details in models/genre_models.py     
-#   "top_three_songs": genre.top_songs[:3],
-    return {
-        "success":True,
-        "genre_name": genre.genre_name,
-        "description": genre.genre_description,
-        "song_count": genre.song_count,
-        "genre_icon": genre.genre_icon,
-        "genre_color": genre.genre_color,
-    }
-@app.patch("/genres/{genre_id}")
-async def patch_genre_data(
-    genre_id: int,
-    genre_name: Optional[str]=None,
-    genre_description: Optional[str]=None,
-    genre_icon: Optional[str]=None,
-    genre_color: Optional[str]=None,
-    display_order: Optional[int]=None,
-    song_count: Optional[int]=None,
-    db: Session = Depends(get_db),
-):
-    #TODO: Require admin for this endpoint
-
-    query = db.query(GenreList).filter(GenreList.genre_id==genre_id)
-    genre = query.one()
-
-    if genre_name is not None:
-        genre.genre_name = genre_name
-    if genre_description is not None:
-        genre.genre_description = genre_description
-    if genre_icon is not None:
-        genre.genre_icon = genre_icon
-    if genre_color is not None:
-        genre.genre_color = genre_color
-    if display_order is not None:
-        genre.display_order = display_order
-    if song_count is not None:
-        genre.song_count = song_count
-    
-    db.commit()
-
-    return {"status": "success", "description":"changed " }
 
 
 @app.post("/repos/{owner}/{repo}/snippet")
@@ -1335,248 +1278,6 @@ async def upload_audio_snippet(
     db.commit()
     
     return {"success": True, "url": url}
-
-
-# ============== WEBHOOK ENDPOINTS ==============
-
-@app.post("/api/webhooks/gitea")
-async def receive_gitea_webhook(
-    request: Request,
-    background_tasks: BackgroundTasks,
-):
-    """
-    Webhook receiver endpoint for Gitea events.
-    Validates signatures and processes events in background.
-    """
-    print("🔔 Webhook received!")  # Debug log
-    
-    # Create our own DB session to avoid dependency issues
-    db = SessionLocal()
-    
-    try:
-        # Step 1: Extract signature from headers
-        headers_dict = dict(request.headers)
-        signature = headers_dict.get("x-gitea-signature")
-        
-        # Step 2: Read raw request body
-        body = await request.body()
-        
-        # Step 3: Validate webhook signature
-        webhook_secret = os.getenv("GITEA_WEBHOOK_SECRET")
-        if not webhook_secret or not validate_webhook_signature(body, signature, webhook_secret):
-            raise HTTPException(status_code=401, detail="Invalid webhook signature")
-        
-        # Step 4: Parse webhook payload (from already-read body)
-        import json
-        payload = json.loads(body)
-        event_type = parse_gitea_event(headers_dict)
-        repo_info = extract_repo_info(payload)
-        
-        # Step 5: Log webhook delivery (only if repo exists or create placeholder)
-        delivery = WebhookDelivery(
-            repo_id=repo_info["full_name"],
-            event_type=event_type,
-            payload=payload,
-            signature=signature,
-            processing_status="pending"
-        )
-        db.add(delivery)
-        db.commit()
-        
-        # Step 6: Route to appropriate handler in background
-        if event_type == "push":
-            background_tasks.add_task(handle_push_event, payload, delivery.id)
-        elif event_type == "create":
-            background_tasks.add_task(handle_create_event, payload, delivery.id)
-        elif event_type == "delete":
-            background_tasks.add_task(handle_delete_event, payload, delivery.id)
-        elif event_type == "repository":
-            background_tasks.add_task(handle_repository_event, payload, delivery.id)
-        
-        # Step 7: Return 200 immediately
-        return {"status": "accepted", "delivery_id": delivery.id}
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
-
-
-# ============== WEBHOOK EVENT HANDLERS ==============
-
-async def handle_push_event(payload: Dict[str, Any], delivery_id: str):
-    """Handle push webhook events."""
-    db = SessionLocal()
-    try:
-        repo_info = extract_repo_info(payload)
-        repo_id = repo_info["full_name"]
-        
-        # Extract pusher info
-        pusher = payload.get("pusher", {})
-        pusher_username = pusher.get("username", "unknown")
-        
-        # Extract commit info
-        ref = payload.get("ref", "")
-        before_sha = payload.get("before", "")
-        after_sha = payload.get("after", "")
-        commits = payload.get("commits", [])
-        commit_count = len(commits)
-        
-        # Create PushEvent record
-        push_event = PushEvent(
-            repo_id=repo_id,
-            pusher_id=pusher_username,  # In production, map to Supabase UUID
-            pusher_username=pusher_username,
-            ref=ref,
-            before_sha=before_sha,
-            after_sha=after_sha,
-            commit_count=commit_count
-        )
-        db.add(push_event)
-        
-        # Update RepoData
-        repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
-        if repo_data:
-            repo_data.last_push_at = datetime.utcnow()
-            repo_data.total_commits = (repo_data.total_commits or 0) + commit_count
-            repo_data.last_activity_at = datetime.utcnow()
-        
-        # Update delivery status
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "success"
-        
-        db.commit()
-    except Exception as e:
-        # Update delivery with error
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "failed"
-            delivery.error_message = str(e)
-            db.commit()
-        print(f"Error handling push event: {e}")
-    finally:
-        db.close()
-
-
-async def handle_create_event(payload: Dict[str, Any], delivery_id: str):
-    """Handle create webhook events (branch/tag creation)."""
-    db = SessionLocal()
-    try:
-        repo_info = extract_repo_info(payload)
-        repo_id = repo_info["full_name"]
-        
-        ref_type = payload.get("ref_type", "unknown")
-        sender = payload.get("sender", {})
-        sender_username = sender.get("username", "unknown")
-        
-        # Create RepositoryEvent record
-        repo_event = RepositoryEvent(
-            repo_id=repo_id,
-            event_type=f"{ref_type}_created",
-            actor_id=sender_username,
-            actor_username=sender_username
-        )
-        db.add(repo_event)
-        
-        # Update RepoData activity
-        repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
-        if repo_data:
-            repo_data.last_activity_at = datetime.utcnow()
-        
-        # Update delivery status
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "success"
-        
-        db.commit()
-    except Exception as e:
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "failed"
-            delivery.error_message = str(e)
-            db.commit()
-        print(f"Error handling create event: {e}")
-    finally:
-        db.close()
-
-
-async def handle_delete_event(payload: Dict[str, Any], delivery_id: str):
-    """Handle delete webhook events (branch/tag deletion)."""
-    db = SessionLocal()
-    try:
-        repo_info = extract_repo_info(payload)
-        repo_id = repo_info["full_name"]
-        
-        ref_type = payload.get("ref_type", "unknown")
-        sender = payload.get("sender", {})
-        sender_username = sender.get("username", "unknown")
-        
-        # Create RepositoryEvent record
-        repo_event = RepositoryEvent(
-            repo_id=repo_id,
-            event_type=f"{ref_type}_deleted",
-            actor_id=sender_username,
-            actor_username=sender_username
-        )
-        db.add(repo_event)
-        
-        # Update delivery status
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "success"
-        
-        db.commit()
-    except Exception as e:
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "failed"
-            delivery.error_message = str(e)
-            db.commit()
-        print(f"Error handling delete event: {e}")
-    finally:
-        db.close()
-
-
-async def handle_repository_event(payload: Dict[str, Any], delivery_id: str):
-    """Handle repository webhook events (repo created/deleted)."""
-    db = SessionLocal()
-    try:
-        action = payload.get("action", "unknown")
-        repo_info = extract_repo_info(payload)
-        repo_id = repo_info["full_name"]
-        
-        sender = payload.get("sender", {})
-        sender_username = sender.get("username", "unknown")
-        
-        # Create RepositoryEvent record
-        repo_event = RepositoryEvent(
-            repo_id=repo_id,
-            event_type=f"repository_{action}",
-            actor_id=sender_username,
-            actor_username=sender_username
-        )
-        db.add(repo_event)
-        
-        # Update delivery status
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "success"
-        
-        db.commit()
-    except Exception as e:
-        delivery = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id).first()
-        if delivery:
-            delivery.processing_status = "failed"
-            delivery.error_message = str(e)
-            db.commit()
-        print(f"Error handling repository event: {e}")
-    finally:
-        db.close()
-
 
 # ============== ERROR HANDLERS ==============
 

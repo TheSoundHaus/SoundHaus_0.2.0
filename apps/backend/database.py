@@ -2,12 +2,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set!")
 
@@ -50,13 +47,6 @@ def test_connection():
 def init_db():
     """Create all tables defined in models."""
     # Import all models so they're registered with Base
-    # IMPORTANT: Import webhook_models BEFORE repo_models to avoid circular dependency
-    from models.webhook_models import (
-        WebhookDelivery,
-        PushEvent,
-        RepositoryEvent,
-        WebhookConfig
-    )
     from models.repo_models import RepoData
     from models.clone_models import CloneEvent
     from models.genre_models import GenreList, repo_genres
