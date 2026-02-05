@@ -162,3 +162,5 @@ gitea/ssh/*.key
 gitea/ssh/*.pub
 
 *.pyc
+claude.local.md
+__pycache__/
