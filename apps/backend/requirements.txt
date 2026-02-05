@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+requests
+supabase
+python-dotenv
+pydantic[email]
+psycopg2-binary
+sqlalchemy
+alembic
+python-multipart
+bcrypt
