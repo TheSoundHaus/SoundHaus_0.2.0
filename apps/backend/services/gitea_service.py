@@ -196,10 +196,10 @@ class GiteaAdminService:
 			{"exists": True, "data": user_object} if found
 			{"exists": False} if not found
 		"""
-		print(f"[GiteaAdminService] get_user_by_username: GET /api/v1/admin/users/{username}")
+		print(f"[GiteaAdminService] get_user_by_username: GET /api/v1/users/{username}")
 		try:
 			resp = requests.get(
-				self._url(f"/api/v1/admin/users/{username}"),
+				self._url(f"/api/v1/users/{username}"),
 				headers=self.headers,
 				timeout=10
 			)
@@ -223,6 +223,85 @@ class GiteaAdminService:
 		except requests.RequestException as e:
 			print(f"  -> network error: {e}")
 			return {"exists": False}
+
+	def verify_gitea_token(self, token: str) -> Dict[str, Any]:
+		"""Verify that a Gitea token is valid.
+		
+		Tests any Gitea token (user or admin) by making a simple API call to get the authenticated user.
+		
+		Args:
+			token: The Gitea token to verify
+		
+		Returns:
+			{"valid": True, "user": user_data} if token works
+			{"valid": False, "error": str} if token is invalid
+		"""
+		print(f"[GiteaAdminService] verify_gitea_token: GET /api/v1/user")
+		try:
+			headers = {
+				"Authorization": f"token {token}",
+				"Content-Type": "application/json",
+				"Accept": "application/json",
+			}
+			resp = requests.get(
+				self._url("/api/v1/user"),
+				headers=headers,
+				timeout=10
+			)
+			
+			print(f"  -> status={resp.status_code}")
+			
+			if resp.status_code == 200:
+				user_data = resp.json()
+				print(f"  -> token is valid")
+				print(f"  -> authenticated as: {user_data.get('login')}")
+				return {"valid": True, "user": user_data}
+			elif resp.status_code == 401:
+				print(f"  -> ERROR: 401 Unauthorized - token is invalid or expired")
+				return {"valid": False, "error": "unauthorized"}
+			else:
+				print(f"  -> unexpected status {resp.status_code}")
+				return {"valid": False, "error": f"status {resp.status_code}"}
+		except requests.RequestException as e:
+			print(f"  -> network error: {e}")
+			return {"valid": False, "error": str(e)}
+
+	def verify_admin_token(self) -> Dict[str, Any]:
+		"""Verify that the admin token is valid and has necessary permissions.
+		
+		Tests the token by making a simple API call to get the authenticated user.
+		
+		Returns:
+			{"valid": True, "user": user_data} if token works
+			{"valid": False, "error": str} if token is invalid
+		"""
+		print(f"[GiteaAdminService] verify_admin_token: GET /api/v1/user")
+		try:
+			resp = requests.get(
+				self._url("/api/v1/user"),
+				headers=self.headers,
+				timeout=10
+			)
+			
+			print(f"  -> status={resp.status_code}")
+			
+			if resp.status_code == 200:
+				user_data = resp.json()
+				print(f"  -> token is valid")
+				print(f"  -> authenticated as: {user_data.get('login')}")
+				print(f"  -> is_admin: {user_data.get('is_admin')}")
+				return {"valid": True, "user": user_data}
+			elif resp.status_code == 401:
+				print(f"  -> ERROR: 401 Unauthorized - token is invalid or expired")
+				print(f"  -> Response: {resp.text[:200]}")
+				return {"valid": False, "error": "unauthorized"}
+			else:
+				print(f"  -> unexpected status")
+				print(f"  -> Response: {resp.text[:200]}")
+				return {"valid": False, "error": f"status {resp.status_code}"}
+		except requests.RequestException as e:
+			print(f"  -> network error: {e}")
+			return {"valid": False, "error": str(e)}
 
 	def create_or_get_user_token_cli(
 		self,
@@ -269,67 +348,10 @@ class GiteaAdminService:
 		print(f"  token_name={token_name}")
 		print(f"  scopes={scopes_str}")
 		
-		# Try multiple methods to execute the Gitea CLI command
 		gitea_container = os.getenv("GITEA_CONTAINER_NAME", "gitea")
-		gitea_ssh_host = os.getenv("GITEA_SSH_HOST")  # e.g., "git@localhost" or "user@129.212.182.247"
-		gitea_ssh_port = os.getenv("GITEA_SSH_PORT", "22")  # Default to 22, use 2222 for local Docker
 		
-		try:
-			# Method 1: Try SSH (for remote Gitea servers) - PRIMARY METHOD
-			if gitea_ssh_host:
-				# Build the SSH command to run docker exec on the remote server
-				# Using -u git to run as the git user (Gitea doesn't run as root)
-				ssh_port_arg = f"-p {gitea_ssh_port}" if gitea_ssh_port != "22" else ""
-				ssh_command = (
-					f'ssh {ssh_port_arg} {gitea_ssh_host} '
-					f'"docker exec -u git gitea gitea admin user generate-access-token '
-					f'--username \'{username}\' '
-					f'--token-name \'{token_name}\' '
-					f'--scopes \'{scopes_str}\' '
-					f'--raw"'
-				)
-				
-				print(f"  -> Attempting SSH method to {gitea_ssh_host} (port {gitea_ssh_port})...")
-				print(f"  -> Command: {ssh_command}")
-				
-				try:
-					result = subprocess.run(
-						ssh_command,
-						shell=True,
-						capture_output=True,
-						text=True,
-						timeout=30
-					)
-					
-					if result.returncode == 0:
-						token = result.stdout.strip()
-						if token and len(token) > 20:  # Validate token looks valid
-							print(f"  -> SSH method succeeded")
-							print(f"  -> Token created: {token[:20]}...")
-							return {
-								"success": True,
-								"token": {
-									"sha1": token,
-									"name": token_name
-								}
-							}
-						else:
-							print(f"  -> Invalid token returned: '{token}'")
-							print(f"  -> stderr: {result.stderr}")
-					else:
-						print(f"  -> SSH method failed (exit code {result.returncode})")
-						print(f"  -> stderr: {result.stderr}")
-						print(f"  -> stdout: {result.stdout}")
-				except subprocess.TimeoutExpired:
-					print(f"  -> SSH command timeout (30s)")
-				except Exception as e:
-					print(f"  -> SSH method error: {e}")
-					import traceback
-					traceback.print_exc()
-			else:
-				print(f"  -> GITEA_SSH_HOST not configured, skipping SSH method")
-			
-			# Method 2: Try Docker exec (for local Gitea containers) - FALLBACK
+		try:			
+			# Try Docker exec from host
 			docker_cmd = [
 				"docker", "exec", "-u", "git", gitea_container,
 				"gitea", "admin", "user", "generate-access-token",
@@ -339,7 +361,7 @@ class GiteaAdminService:
 				"--raw"  # Output just the token without extra text
 			]
 			
-			print(f"  -> Attempting local Docker exec method...")
+			print(f"  -> Attempting Docker exec from host...")
 			try:
 				result = subprocess.run(
 					docker_cmd,
@@ -360,18 +382,53 @@ class GiteaAdminService:
 						}
 					}
 				else:
-					print(f"  -> Docker method failed: {result.stderr}")
+					print(f"  -> Docker method failed: {result.stderr[:100]}")
 			except FileNotFoundError:
-				print(f"  -> Docker not found")
+				print(f"  -> Docker not found on host, trying fallback...")
 			except subprocess.TimeoutExpired:
 				print(f"  -> Docker command timeout")
 			except Exception as e:
 				print(f"  -> Docker method error: {e}")
 			
-			# If both methods failed, return error
+			# Fallback: Use curl to execute command in Gitea container via Docker socket
+			# This works when FastAPI is in the Docker network
+			print(f"  -> Attempting fallback via Gitea internal command...")
+			try:
+				# Try to directly call gitea command if FastAPI is in the same network
+				# This requires that fastapi container can reach gitea container
+				docker_cmd_fallback = [
+					"docker", "exec", gitea_container,
+					"bash", "-c",
+					f"cd /var/lib/gitea && gitea admin user generate-access-token --username {username} --token-name \"{token_name}\" --scopes {scopes_str} --raw"
+				]
+				
+				result = subprocess.run(
+					docker_cmd_fallback,
+					capture_output=True,
+					text=True,
+					timeout=10
+				)
+				
+				if result.returncode == 0:
+					token = result.stdout.strip()
+					print(f"  -> Fallback method succeeded")
+					print(f"  -> Token created: {token[:20]}...")
+					return {
+						"success": True,
+						"token": {
+							"sha1": token,
+							"name": token_name
+						}
+					}
+				else:
+					print(f"  -> Fallback failed: {result.stderr[:100]}")
+			except Exception as e:
+				print(f"  -> Fallback error: {e}")
+			
+			# If both Docker methods failed, return error
 			return {
 				"success": False,
-				"message": "Unable to execute Gitea CLI command. Configure GITEA_CONTAINER_NAME or GITEA_SSH_HOST environment variables."
+				"message": "Unable to execute Gitea CLI command. Ensure GITEA_CONTAINER_NAME is set correctly."
 			}
 			
 		except Exception as e:
@@ -392,9 +449,8 @@ class GiteaAdminService:
 		"""
 		Create a Gitea Personal Access Token for a user.
 		
-		Uses SSH CLI method exclusively since Gitea REST API does not support
-		creating tokens for other users via token authentication (requires admin:user
-		scope which is not available in Gitea 1.24.6).
+		This method attempts to use the Gitea CLI command first (more reliable),
+		and falls back to the API method if CLI is not available.
 		
 		Args:
 			username: Gitea username (Supabase UUID)
@@ -416,10 +472,93 @@ class GiteaAdminService:
 			if result["success"]:
 				git_token = result["token"]["sha1"]  # Use this for Git operations
 		"""
-		print(f"[GiteaAdminService] Creating token for user: {username} via SSH CLI")
+		# Try CLI method first (more reliable for admin operations)
+		cli_result = self.create_or_get_user_token_cli(username, token_name, scopes)
+		if cli_result.get("success"):
+			return cli_result
 		
-		# Use SSH CLI method directly (REST API doesn't work with our permissions)
-		return self.create_or_get_user_token_cli(username, token_name, scopes)
+		# Fallback to API method (kept for backwards compatibility)
+		print(f"[GiteaAdminService] CLI method failed, falling back to API method...")
+		
+		# First, verify our admin token is valid
+		token_check = self.verify_admin_token()
+		if not token_check.get("valid"):
+			print(f"  -> CRITICAL: Admin token verification failed!")
+			return {
+				"success": False, 
+				"message": f"Admin token is invalid: {token_check.get('error')}"
+			}
+		
+		# Verify the user exists in Gitea
+		user_check = self.get_user_by_username(username)
+		if not user_check.get("exists"):
+			print(f"  -> CRITICAL: User {username} does not exist in Gitea!")
+			return {
+				"success": False,
+				"message": "User not found in Gitea. Create the user first."
+			}
+		
+		if scopes is None:
+			scopes = ["write:repository", "read:user"]
+		
+		url = f"{self.base_url}/api/v1/users/{username}/tokens"
+		
+		# Use Sudo mode: admin creates token on behalf of user
+		# Documentation: https://docs.gitea.com/api/1.24/
+		# Endpoint: POST /users/{username}/tokens requires Sudo header
+		headers = self.headers.copy()
+		# headers["Sudo"] = username
+		
+		payload = {"name": token_name, "scopes": scopes}
+
+		print(f"[GiteaAdminService] create_or_get_user_token (API): POST /api/v1/users/{username}/tokens")
+		print(f"  token_name={token_name}")
+		print(f"  scopes={scopes}")
+		print(f"  url={url}")
+		print(f"  Authorization header: {headers['Authorization'][:20]}...")
+		# print(f"  Sudo header: {headers['Sudo']}")
+		print(f"  payload={payload}")
+
+		try:
+			resp = requests.get(
+				url, 
+				headers=headers, 
+				json=payload, 
+				timeout=10
+			)
+			
+			print(f"  -> status={resp.status_code}")
+			
+			if resp.status_code in (200, 201):
+				token_data = resp.json()
+				print(f"  -> token created successfully")
+				print(f"  -> token_id={token_data.get('id')}")
+				print(f"  -> token_name={token_data.get('name')}")
+				return {"success": True, "token": token_data}
+			elif resp.status_code == 404:
+				print(f"  -> error: User not found in Gitea")
+				return {"success": False, "message": "User not found in Gitea"}
+			elif resp.status_code == 422:
+				print(f"  -> error: Token name already exists")
+				return {"success": False, "message": "Token name already exists"}
+			elif resp.status_code in (401, 403):
+				print(f"  -> error: Admin authentication failed")
+				print(f"  -> Response: {resp.text[:200]}")
+				return {"success": False, "message": "Admin authentication failed"}
+			else:
+				print(f"  -> error: {resp.text[:200]}")
+				return {"success": False, "message": f"Gitea API error: {resp.text}"}
+		except requests.Timeout:
+			print(f"  -> timeout error")
+			return {"success": False, "status": 504, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			print(f"  -> network error: {e}")
+			return {"success": False, "status": 0, "message": f"Network error: {e}"}
+		except Exception as e:
+			print(f"  -> unexpected error: {e}")
+			import traceback
+			traceback.print_exc()
+			return {"success": False, "status": 500, "message": f"Unexpected error: {e}"}
 
 	def list_user_tokens(self, username: str) -> Dict[str, Any]:
 		"""
@@ -506,272 +645,3 @@ class GiteaAdminService:
 			return {"success": False, "status": 0, "message": f"Network error: {e}"}
 		except Exception as e:
 			return {"success": False, "status": 500, "message": f"Unexpected error: {e}"}
-
-
-	# ============== WEBHOOK MANAGEMENT METHODS ==============
-
-	def create_webhook(
-		self,
-		owner: str,
-		repo: str,
-		webhook_url: str,
-		secret: str,
-		events: list[str] = None
-	) -> Dict[str, Any]:
-		"""
-		Create a webhook for a repository.
-		
-		Args:
-			owner: Repository owner username (Supabase UUID)
-			repo: Repository name
-			webhook_url: URL to send webhook events
-			secret: Secret for HMAC signature validation
-			events: List of events to subscribe to
-		
-		Returns:
-			Dictionary with success status and webhook details
-		"""
-		if events is None:
-			events = ["push", "create", "delete", "repository"]
-		
-		payload = {
-			"type": "gitea",
-			"config": {
-				"url": webhook_url,
-				"content_type": "json",
-				"secret": secret
-			},
-			"events": events,
-			"active": True
-		}
-		
-		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks")
-		print(f"[GiteaAdminService] create_webhook: POST {url}")
-		
-		try:
-			resp = requests.post(url, json=payload, headers=self.headers, timeout=10)
-			
-			if resp.status_code == 201:
-				webhook_data = resp.json()
-				return {
-					"success": True,
-					"webhook_id": webhook_data.get("id"),
-					"url": webhook_data.get("config", {}).get("url"),
-					"events": webhook_data.get("events", []),
-					"created_at": webhook_data.get("created_at")
-				}
-			elif resp.status_code == 404:
-				return {"success": False, "message": "Repository not found"}
-			elif resp.status_code == 409:
-				return {"success": False, "message": "Webhook already exists"}
-			elif resp.status_code in (401, 403):
-				return {"success": False, "message": "Authentication failed"}
-			else:
-				return {"success": False, "message": f"Error: {resp.text}"}
-		except requests.Timeout:
-			return {"success": False, "message": "Gitea API timeout"}
-		except requests.RequestException as e:
-			return {"success": False, "message": f"Network error: {e}"}
-		except Exception as e:
-			return {"success": False, "message": f"Unexpected error: {e}"}
-
-
-	def list_webhooks(self, owner: str, repo: str) -> Dict[str, Any]:
-		"""
-		List all webhooks for a repository.
-		
-		Args:
-			owner: Repository owner username
-			repo: Repository name
-		
-		Returns:
-			Dictionary with success status and list of webhooks
-		"""
-		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks")
-		print(f"[GiteaAdminService] list_webhooks: GET {url}")
-		
-		try:
-			resp = requests.get(url, headers=self.headers, timeout=10)
-			
-			if resp.status_code == 200:
-				webhooks = resp.json()
-				return {
-					"success": True,
-					"webhooks": webhooks
-				}
-			elif resp.status_code == 404:
-				return {"success": False, "message": "Repository not found"}
-			elif resp.status_code in (401, 403):
-				return {"success": False, "message": "Authentication failed"}
-			else:
-				return {"success": False, "message": f"Error: {resp.text}"}
-		except requests.Timeout:
-			return {"success": False, "message": "Gitea API timeout"}
-		except requests.RequestException as e:
-			return {"success": False, "message": f"Network error: {e}"}
-		except Exception as e:
-			return {"success": False, "message": f"Unexpected error: {e}"}
-
-
-	def get_webhook(self, owner: str, repo: str, webhook_id: int) -> Dict[str, Any]:
-		"""
-		Get details of a specific webhook.
-		
-		Args:
-			owner: Repository owner username
-			repo: Repository name
-			webhook_id: Gitea webhook ID
-		
-		Returns:
-			Dictionary with webhook details
-		"""
-		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}")
-		print(f"[GiteaAdminService] get_webhook: GET {url}")
-		
-		try:
-			resp = requests.get(url, headers=self.headers, timeout=10)
-			
-			if resp.status_code == 200:
-				return {
-					"success": True,
-					"webhook": resp.json()
-				}
-			elif resp.status_code == 404:
-				return {"success": False, "message": "Webhook not found"}
-			elif resp.status_code in (401, 403):
-				return {"success": False, "message": "Authentication failed"}
-			else:
-				return {"success": False, "message": f"Error: {resp.text}"}
-		except requests.Timeout:
-			return {"success": False, "message": "Gitea API timeout"}
-		except requests.RequestException as e:
-			return {"success": False, "message": f"Network error: {e}"}
-		except Exception as e:
-			return {"success": False, "message": f"Unexpected error: {e}"}
-
-
-	def update_webhook(
-		self,
-		owner: str,
-		repo: str,
-		webhook_id: int,
-		webhook_url: Optional[str] = None,
-		events: Optional[list[str]] = None,
-		active: Optional[bool] = None
-	) -> Dict[str, Any]:
-		"""
-		Update an existing webhook.
-		
-		Args:
-			owner: Repository owner username
-			repo: Repository name
-			webhook_id: Gitea webhook ID
-			webhook_url: New webhook URL (optional)
-			events: New event list (optional)
-			active: Enable/disable webhook (optional)
-		
-		Returns:
-			Dictionary with success status and updated webhook details
-		"""
-		# Build PATCH payload with only provided fields
-		payload: Dict[str, Any] = {}
-		
-		if webhook_url is not None:
-			payload["config"] = {"url": webhook_url, "content_type": "json"}
-		if events is not None:
-			payload["events"] = events
-		if active is not None:
-			payload["active"] = active
-		
-		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}")
-		print(f"[GiteaAdminService] update_webhook: PATCH {url}")
-		
-		try:
-			resp = requests.patch(url, json=payload, headers=self.headers, timeout=10)
-			
-			if resp.status_code == 200:
-				return {
-					"success": True,
-					"webhook": resp.json()
-				}
-			elif resp.status_code == 404:
-				return {"success": False, "message": "Webhook not found"}
-			elif resp.status_code in (401, 403):
-				return {"success": False, "message": "Authentication failed"}
-			else:
-				return {"success": False, "message": f"Error: {resp.text}"}
-		except requests.Timeout:
-			return {"success": False, "message": "Gitea API timeout"}
-		except requests.RequestException as e:
-			return {"success": False, "message": f"Network error: {e}"}
-		except Exception as e:
-			return {"success": False, "message": f"Unexpected error: {e}"}
-
-
-	def delete_webhook(self, owner: str, repo: str, webhook_id: int) -> Dict[str, Any]:
-		"""
-		Delete a webhook from a repository.
-		
-		Args:
-			owner: Repository owner username
-			repo: Repository name
-			webhook_id: Gitea webhook ID
-		
-		Returns:
-			Dictionary with success status
-		"""
-		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}")
-		print(f"[GiteaAdminService] delete_webhook: DELETE {url}")
-		
-		try:
-			resp = requests.delete(url, headers=self.headers, timeout=10)
-			
-			if resp.status_code == 204:
-				return {"success": True, "message": "Webhook deleted"}
-			elif resp.status_code == 404:
-				return {"success": False, "message": "Webhook not found"}
-			elif resp.status_code in (401, 403):
-				return {"success": False, "message": "Authentication failed"}
-			else:
-				return {"success": False, "message": f"Error: {resp.text}"}
-		except requests.Timeout:
-			return {"success": False, "message": "Gitea API timeout"}
-		except requests.RequestException as e:
-			return {"success": False, "message": f"Network error: {e}"}
-		except Exception as e:
-			return {"success": False, "message": f"Unexpected error: {e}"}
-
-
-	def test_webhook(self, owner: str, repo: str, webhook_id: int) -> Dict[str, Any]:
-		"""
-		Trigger a test delivery for a webhook.
-		
-		Args:
-			owner: Repository owner username
-			repo: Repository name
-			webhook_id: Gitea webhook ID
-		
-		Returns:
-			Dictionary with test delivery status
-		"""
-		url = self._url(f"/api/v1/repos/{owner}/{repo}/hooks/{webhook_id}/tests")
-		print(f"[GiteaAdminService] test_webhook: POST {url}")
-		
-		try:
-			resp = requests.post(url, headers=self.headers, timeout=10)
-			
-			if resp.status_code == 204:
-				return {"success": True, "message": "Test webhook delivered"}
-			elif resp.status_code == 404:
-				return {"success": False, "message": "Webhook not found"}
-			elif resp.status_code in (401, 403):
-				return {"success": False, "message": "Authentication failed"}
-			else:
-				return {"success": False, "message": f"Error: {resp.text}"}
-		except requests.Timeout:
-			return {"success": False, "message": "Gitea API timeout"}
-		except requests.RequestException as e:
-			return {"success": False, "message": f"Network error: {e}"}
-		except Exception as e:
-			return {"success": False, "message": f"Unexpected error: {e}"}
-

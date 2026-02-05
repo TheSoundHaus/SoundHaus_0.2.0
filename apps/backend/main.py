@@ -146,7 +146,13 @@ async def verify_token_or_pat(
             auth_type = user_info["auth_type"]  # "jwt" or "pat"
             # ... your endpoint logic
     """
+
+    print(f"[verify_token_or_pat] Authorization header: {authorization[:50] if authorization else 'MISSING'}...")
+
     user_info = await auth_service.verify_token_or_pat(authorization, db)
+
+    print(f"[verify_token_or_pat] Result: {user_info}")
+
     if user_info is None:
         raise HTTPException(
             status_code=401,
@@ -798,44 +804,36 @@ async def desktop_login(
     
     user_id = result["user"]["id"]
 
-    # Step 2: Revoke any existing desktop PATs (cleanup old sessions)
     pat_service = PATService()
     existing_pats = await pat_service.list_pats(user_id, db)
 
+    # Step 2: Revoke old desktop tokens to prevent sprawl
     for pat in existing_pats:
         if pat.token_name.startswith("Desktop Auto Token"):
-            await pat_service.revoke_pat(str(pat.id), user_id, db)
+            await pat_service.revoke_pat(pat.id, user_id, db)
 
-    # Step 3: Create new desktop PAT automatically
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    token_name = f"Desktop Auto Token {timestamp}"
-    
-    pat_result = await pat_service.create_pat(
+    # Step 3: Create new desktop PAT
+    pat_result = await PATService.create_pat(
         user_id=user_id,
-        token_name=token_name,
+        token_name="Desktop Auto Token",
         db=db,
-        expires_in_days=90  # 3 months, user can stay logged in
+        expires_in_days=90
     )
-    
+
     if not pat_result.get("success"):
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to create desktop credentials"
-        )
-    
-    # Step 4: Return combined response with auto-provisioned PAT
+        raise HTTPException(status_code=500, detail="Failed to create desktop PAT")
+
+    # Step 4: Return both session token and PAT
     return {
         "success": True,
         "user": result["user"],
-        "session": result["session"],  # For UI state management
         "desktop_credentials": {
-            "pat": pat_result["token"],  # ONLY TIME THIS IS VISIBLE!
-            "pat_id": pat_result["token_id"],
-            "expires_at": pat_result["expires_at"]
+            "pat": pat_result["token"],
+            "token_id": pat_result["token_id"],
+            "token_name": pat_result["token_name"]
         },
-        "message": "Desktop login successful. Credentials stored securely."
+        "session": result["session"]
     }
-
 
 
 @app.post("/api/auth/tokens")
@@ -961,11 +959,14 @@ async def revoke_personal_access_token(
 @app.get("/api/desktop/credentials")
 async def get_desktop_credentials(
     user_info: Dict = Depends(verify_token_or_pat),
+    cached_gitea_token: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """
     Get Gitea credentials for desktop Git operations.
-    This endpoint is called by the desktop app after authenticating with a PAT.
+    
+    This endpoint validates the Backend PAT and either reuses a cached Gitea PAT
+    or creates a new one if the cached one is invalid/missing.
     
     IMPORTANT: This endpoint uses Backend PATs for API authentication,
     but returns Gitea PATs for Git operations (clone, push, pull).
@@ -980,9 +981,12 @@ async def get_desktop_credentials(
         4. Uses Gitea credentials for all Git operations
         5. Continues using Backend PAT for FastAPI endpoints
     
+    Query parameters:
+        - cached_gitea_token: (Optional) Gitea PAT from local storage to validate
+    
     Security:
         - Backend PAT authenticates the API request (verify_token_or_pat dependency)
-        - Gitea PAT is for Git operations only
+        - Gitea PAT is validated before reuse, or new one is created
         - Both systems are separate and serve different purposes
     """
 
@@ -990,10 +994,26 @@ async def get_desktop_credentials(
     user_id = user_info["user_id"]
     gitea_admin_service = GiteaAdminService()
 
-    # Create unique token name with timestamp to avoid conflicts
+    # Step 1: Try to reuse cached Gitea token if provided
+    if cached_gitea_token:
+        print(f"[get_desktop_credentials] Validating cached Gitea token...")
+        token_check = gitea_admin_service.verify_gitea_token(cached_gitea_token)
+        if token_check.get("valid"):
+            print(f"[get_desktop_credentials] Cached token is still valid, reusing it")
+            return {
+                "success": True,
+                "gitea_url": GITEA_PUBLIC_URL,
+                "username": user_id,
+                "token": cached_gitea_token,
+                "clone_url_format": f"{GITEA_PUBLIC_URL}/{user_id}/{{repo_name}}.git"
+            }
+        else:
+            print(f"[get_desktop_credentials] Cached token is invalid/expired, creating new one")
+
+    # Step 2: Create a new Gitea token (cached was missing or invalid)
     from datetime import datetime
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    token_name = f"Desktop Access Token {timestamp}"
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
+    token_name = f"Desktop Access Token - {timestamp}"
 
     gitea_result = gitea_admin_service.create_or_get_user_token(
         user_id,
@@ -1116,7 +1136,6 @@ async def get_public_repos(genres: Optional[str] = None, match: str = "any", db:
             })
     
     return {"success": True, "repos": result}
-
 
 
 @app.get("/repos/{owner}/{repo}/stats")

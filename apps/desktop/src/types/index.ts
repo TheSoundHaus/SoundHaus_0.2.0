@@ -1,13 +1,23 @@
-// Project/Repository types
-export interface Project {
-  name: string
-  path: string
-  lastOpened?: Date
+export interface ElectronAPI {
+  chooseFolder: () => Promise<string | null>
+  hasGitFile: (folderPath: string) => Promise<boolean>
+  getAlsStruct: (alsPath: string) => Promise<any>
+  findAls: (folderPath: string) => Promise<string | null>
+  getAlsContent: (alsPath: string) => Promise<any>
 }
 
-export interface RepoVersion {
-  repoPath: string
-  version: string
+export interface GitService {
+  initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
+  pullRepo: (repoPath: string) => Promise<string>
+  commitChange: (repoPath: string) => Promise<string>
+  pushRepo: (repoPath: string) => Promise<string>
+}
+
+export interface PatService {
+  getSoundHausCredentials: () => Promise<string | null>
+  setSoundHausCredentials: (token: string) => Promise<string>
+  getGiteaCredentials: () => Promise<string | null>
+  setGiteaCredentials: (token: string) => Promise<string>
 }
 
 // ALS (Ableton Live Set) types
@@ -26,32 +36,69 @@ export interface AlsMetadata {
   }>
 }
 
-// Git types
-export interface GitStatus {
-  raw: string
-  modified: string[]
-  added: string[]
-  deleted: string[]
-  untracked: string[]
-  hasChanges: boolean
+export interface DecompressedAls {
+  buffer: Buffer,
+  text: string,
+  hash: string
 }
 
-// Electron API types
-export interface ElectronAPI {
-  chooseFolder: () => Promise<string | null>
-  chooseFile: () => Promise<string | null>
-  cloneRepo: (url: string, path: string) => void
-  getStatus: (path: string) => Promise<string>
-  pullRepo: (path: string) => Promise<string>
-  pushRepo: (path: string) => Promise<string>
-  getAlsContent: (path: string) => Promise<AlsMetadata | null>
-  findAls: (path: string) => Promise<string | null>
-  openExternal: (url: string) => void
-  onOpenProject: (callback: (projectPath: string) => void) => void
+export interface AlsCompareOptions {
+  allowTrackNameFallback?: boolean;
+}
+
+export interface AlsDeviceHint {
+  name?: string | null;
+  trackHint?: string | null;
+}
+
+export interface AlsChange {
+  trackId: string | number | null;
+  trackName: string;
+  beforeTrackName: string | null;
+  afterTrackName: string | null;
+  before: AlsDeviceHint;
+  after: AlsDeviceHint;
+}
+
+export type StructuralCompareResult =
+  | { ok: true; changes: AlsChange[] }
+  | { ok: false; reason: string }
+
+type TrackEntryBase = {
+  id: string | number | null;
+  name: string;
+  node: any;
+};
+
+export type AudioTrackEntry = TrackEntryBase & {
+  type: 'Audio';
+  typeIndex: number;
+};
+
+export type MidiTrackEntry = TrackEntryBase & {
+  type: 'MIDI';
+  typeIndex: number;
+};
+
+export type AnyTrackEntry = AudioTrackEntry | MidiTrackEntry;
+
+export type MainInstrumentInfo = {
+  deviceType: string | null;
+  preset: string | null;
+  name: string | null;
+  path: string | null;
+};
+
+export interface ProjectSetupData {
+  name: string;
+  description: string;
+  isPublic: boolean;
 }
 
 declare global {
   interface Window {
     electronAPI?: ElectronAPI
+    gitService?: GitService
+    patService?: PatService
   }
 }

@@ -1,30 +1,23 @@
-import { useState, useEffect } from 'react'
 import electronAPI from '../services/electronAPI'
+import gitService from '../services/gitService';
 
-/**
- * Hook for Electron IPC operations
- * Provides easy access to all IPC functions
- */
 export function useElectronIPC() {
-  const [isElectron, setIsElectron] = useState(false)
+    const showProjectSetup = async () => {
+        return await window.electron?.showProjectSetup();
+    };
 
-  useEffect(() => {
-    setIsElectron(electronAPI.isElectron())
-  }, [])
-
-  return {
-    isElectron,
-    chooseFolder: electronAPI.chooseFolder,
-    chooseFile: electronAPI.chooseFile,
-    cloneRepo: electronAPI.cloneRepo,
-    getStatus: electronAPI.getStatus,
-    pullRepo: electronAPI.pullRepo,
-    pushRepo: electronAPI.pushRepo,
-    getAlsContent: electronAPI.getAlsContent,
-    findAls: electronAPI.findAls,
-    openExternal: electronAPI.openExternal,
-    onOpenProject: electronAPI.onOpenProject
-  }
+    return {
+        chooseFolder: electronAPI.chooseFolder,
+        hasGitFile: electronAPI.hasGitFile,
+        getAlsContent: electronAPI.getAlsContent,
+        findAls: electronAPI.findAls,
+        getAlsStruct: electronAPI.getAlsStruct,
+        initRepo: gitService.initRepo,
+        pullRepo: gitService.pullRepo,
+        commitChange: gitService.commitChange,
+        pushRepo: gitService.pushRepo,
+        showProjectSetup
+    }
 }
 
-export default useElectronIPC
+export default useElectronIPC;

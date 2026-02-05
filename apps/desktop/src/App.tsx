@@ -1,51 +1,20 @@
-import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
+import { HashRouter as Router, Routes, Route } from 'react-router-dom'
 import './App.css'
-import MainPage from './pages/MainPage'
-import GitPage from './pages/GitPage'
-import WebAppPage from './pages/WebAppPage'
 
-function TabNavigation() {
-  const location = useLocation()
-
-  const isActive = (path: string) => location.pathname === path
-
-  return (
-    <div className="tab-nav">
-      <Link
-        to="/"
-        className={`tab-link ${isActive('/') ? 'active' : ''}`}
-      >
-        Main
-      </Link>
-      <Link
-        to="/git"
-        className={`tab-link ${isActive('/git') ? 'active' : ''}`}
-      >
-        Git
-      </Link>
-      <Link
-        to="/webapp"
-        className={`tab-link ${isActive('/webapp') ? 'active' : ''}`}
-      >
-        Web App
-      </Link>
-    </div>
-  )
-}
+import HomePage from './pages/HomePage'
+import LoginPage from './pages/LoginPage'
+import ProjectPage from './pages/ProjectPage'
+import ProjectInitDialog from './pages/ProjectInitDialog'
 
 function App() {
   return (
     <Router>
-      <div className="app">
-        <TabNavigation />
-        <div className="app-content">
-          <Routes>
-            <Route path="/" element={<MainPage />} />
-            <Route path="/git" element={<GitPage />} />
-            <Route path="/webapp" element={<WebAppPage />} />
-          </Routes>
-        </div>
-      </div>
+      <Routes>
+        <Route path="/" element={<LoginPage />} />
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/project" element={<ProjectPage />} />
+        <Route path="/project-setup" element={<ProjectInitDialog />} />
+      </Routes>
     </Router>
   )
 }
