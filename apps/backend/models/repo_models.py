@@ -6,7 +6,7 @@ TODO: Add the following imports for webhook integration:
     from sqlalchemy import DateTime
     from sqlalchemy.sql import func
 """
-from sqlalchemy import Column, String, Integer, Table, DateTime
+from sqlalchemy import Column, String, Integer, Float, Table, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -32,6 +32,13 @@ class RepoData(Base):
     
     # URL to audio snippet (stored in DigitalOcean Spaces)
     audio_snippet = Column(String(500), nullable=True)
+    
+    # Snippet metadata (for progress bar, display)
+    snippet_duration = Column(Float, nullable=True)  # Duration in seconds
+    snippet_file_size = Column(Integer, nullable=True)  # File size in bytes
+    snippet_format = Column(String(20), nullable=True)  # e.g., "mp3", "wav"
+    snippet_sample_rate = Column(Integer, nullable=True)  # e.g., 44100, 48000
+    snippet_channels = Column(Integer, nullable=True)  # 1=mono, 2=stereo
     
     # Total number of unique cloners
     clone_count = Column(Integer, default=0, nullable=False)
