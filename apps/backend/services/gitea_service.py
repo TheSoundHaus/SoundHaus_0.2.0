@@ -338,7 +338,7 @@ class GiteaAdminService:
 		import json as json_lib
 		
 		if scopes is None:
-			scopes = ["write:repository", "read:user"]
+			scopes = ["write:repository", "read:user", "write:user"]
 		
 		# Join scopes with commas for CLI
 		scopes_str = ",".join(scopes)

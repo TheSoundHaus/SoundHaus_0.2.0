@@ -315,13 +315,7 @@ function commit(repoPath: string) {
 
 function push(repoPath: string) {
   return new Promise((resolve, reject) => {
-    const cmds = [
-      `"${gitBin}" add .`,
-      `"${gitBin}" commit -m "Auto-commit from Electron app"`,
-      `"${gitBin}" push origin HEAD`
-    ];
-    const cmd = cmds.join(' && ');
-
+    const cmd = `"${gitBin}" push origin HEAD`;
     exec(cmd, { cwd: repoPath }, (err, stdout, stderr) => {
       if(err) {
         reject(stderr);

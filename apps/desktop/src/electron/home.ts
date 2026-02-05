@@ -60,106 +60,123 @@ interface ProjectSetupData {
     isPublic: boolean;
 }
 
-function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const gitCmd = `"${gitBin}" init -b main`;
-        exec(gitCmd, { cwd: folderPath }, (gitErr, _gitStdout, gitStderr) => {
-            if (gitErr) {
-                reject(gitStderr || gitErr.message);
-                return;
+async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<string> {
+    const gitCmd = `"${gitBin}" init -b main`;
+    exec(gitCmd, { cwd: folderPath }, async (gitErr, _gitStdout, gitStderr) => {
+        if (gitErr) {
+            return gitStderr || gitErr.message;
+        }
+
+        const repoName = path.basename(folderPath).replace(/\s+/g, '_');
+        
+        // Use project info if provided, otherwise use defaults
+        // Sanitize name to only allow alphanumeric, dashes, and dots (API requirement)
+        const sanitizeName = (name: string): string => {
+            return name
+                .replace(/\s+/g, '-')           // Replace spaces with dashes
+                .replace(/[^a-zA-Z0-9\-\.]/g, '') // Remove anything that's not alphanumeric, dash, or dot
+                .replace(/^-+|-+$/g, '');        // Remove leading/trailing dashes
+        };
+        
+        const finalRepoName = projectInfo ? sanitizeName(projectInfo.name) : repoName;
+        const finalDescription = projectInfo?.description || '';
+        const isPrivate = projectInfo?.isPublic === false; // private if not explicitly public
+        
+        // Build JSON payload
+        const payload = JSON.stringify({
+            name: finalRepoName,
+            description: finalDescription,
+            private: isPrivate,
+            auto_init: false,
+            default_branch: "main"
+        });
+
+        const token = await getGiteaCredentials();
+        
+        // Use Node.js HTTP request instead of curl to avoid shell escaping issues
+        const reqOptions = {
+            hostname: 'localhost',
+            port: 3000,
+            path: '/api/v1/user/repos',
+            method: 'POST',
+            headers: {
+                'Authorization': `token ${token}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Content-Length': Buffer.byteLength(payload)
             }
+        };
 
-            const repoName = path.basename(folderPath).replace(/\s+/g, '_');
-            
-            // Use project info if provided, otherwise use defaults
-            // Sanitize name to only allow alphanumeric, dashes, and dots (API requirement)
-            const sanitizeName = (name: string): string => {
-                return name
-                    .replace(/\s+/g, '-')           // Replace spaces with dashes
-                    .replace(/[^a-zA-Z0-9\-\.]/g, '') // Remove anything that's not alphanumeric, dash, or dot
-                    .replace(/^-+|-+$/g, '');        // Remove leading/trailing dashes
-            };
-            
-            const finalRepoName = projectInfo ? sanitizeName(projectInfo.name) : repoName;
-            const finalDescription = projectInfo?.description || '';
-            const isPrivate = projectInfo?.isPublic === false; // private if not explicitly public
-            
-            // Build JSON payload
-            const payload = JSON.stringify({
-                name: finalRepoName,
-                description: finalDescription,
-                private: isPrivate,
-                auto_init: false,
-                default_branch: "main"
+        const req = http.request(reqOptions, (res) => {
+            let data = '';
+            res.on('data', (chunk) => {
+                data += chunk;
             });
-
-            const token = getGiteaCredentials();
-            console.log(`Token: ${token}`);
-            
-            // Use Node.js HTTP request instead of curl to avoid shell escaping issues
-            const reqOptions = {
-                hostname: 'localhost',
-                port: 3000,
-                path: '/api/v1/user/repos',
-                method: 'POST',
-                headers: {
-                    'Authorization': `token ${token}`,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'Content-Length': Buffer.byteLength(payload)
+            res.on('end', () => {
+                let remoteURL = '';
+                try {
+                    const parsed = JSON.parse(data);
+                    remoteURL = parsed.clone_url || parsed.url || '';
+                } catch (parseErr) {
+                    return `Failed to parse repo creation response: ${parseErr}\nResponse: ${data}`;
                 }
-            };
 
-            const req = http.request(reqOptions, (res) => {
-                let data = '';
-                res.on('data', (chunk) => {
-                    data += chunk;
-                });
-                res.on('end', () => {
-                    let remoteURL = '';
-                    try {
-                        const parsed = JSON.parse(data);
-                        remoteURL = parsed.clone_url || parsed.url || '';
-                    } catch (parseErr) {
-                        reject(`Failed to parse repo creation response: ${parseErr}\nResponse: ${data}`);
-                        return;
+                if (!remoteURL) {
+                    return `Repo creation did not return a url. Response: ${data}`;
+                }
+
+                const repoUrl = new URL(remoteURL);
+                const repoPathParts = repoUrl.pathname.split('/').filter(Boolean);
+                const repoOwner = repoPathParts[0] || '';
+
+                // Store credentials only for this repo
+                const setHelperCmd = `"${gitBin}" config --local credential.helper store`;
+                exec(setHelperCmd, { cwd: folderPath }, (helperErr, _helperStdout, helperStderr) => {
+                    if (helperErr) {
+                        return helperStderr || helperErr.message;
                     }
 
-                    if (!remoteURL) {
-                        reject(`Repo creation did not return a url. Response: ${data}`);
-                        return;
-                    }
+                    const approveCmd =
+                        `printf "protocol=${repoUrl.protocol.replace(':', '')}\n` +
+                        `host=${repoUrl.host}\n` +
+                        `username=${repoOwner}\n` +
+                        `password=${token}\n\n" | "${gitBin}" credential approve`;
 
-                    const setRemoteCmd = `git remote add origin ${remoteURL}`;
-                    exec(setRemoteCmd, { cwd: folderPath }, (remoteErr, _remoteStdout, remoteStderr) => {
-                        if (remoteErr) {
-                            reject(remoteStderr || remoteErr.message);
-                            return;
+                    exec(approveCmd, { cwd: folderPath }, (approveErr, _approveStdout, approveStderr) => {
+                        if (approveErr) {
+                            return approveStderr || approveErr.message;
                         }
 
-                        // Set upstream tracking for main branch
-                        const setUpstreamCmd = `git branch --set-upstream-to=origin/main main`;
-                        exec(setUpstreamCmd, { cwd: folderPath }, (upstreamErr, _upstreamStdout, upstreamStderr) => {
-                            // Ignore error if branch doesn't exist yet - will be set on first push
-                            if (upstreamErr) {
-                                console.warn('Could not set upstream tracking:', upstreamStderr);
-                                return;
+                        const setRemoteCmd = `"${gitBin}" remote add origin ${remoteURL}`;
+                        exec(setRemoteCmd, { cwd: folderPath }, (remoteErr, _remoteStdout, remoteStderr) => {
+                            if (remoteErr) {
+                                return remoteStderr || remoteErr.message;
                             }
 
-                            resolve(remoteURL);
+                            // Set upstream tracking for main branch
+                            const setUpstreamCmd = `"${gitBin}" branch --set-upstream-to=origin/main main`;
+                            exec(setUpstreamCmd, { cwd: folderPath }, (upstreamErr, _upstreamStdout, upstreamStderr) => {
+                                // Ignore error if branch doesn't exist yet - will be set on first push
+                                if (upstreamErr) {
+                                    return `Could not set upstream tracking: ${upstreamStderr}`;
+                                }
+
+                                return remoteURL;
+                            });
                         });
                     });
                 });
             });
-
-            req.on('error', (error) => {
-                reject(`HTTP request error: ${error.message}`);
-            });
-
-            req.write(payload);
-            req.end();
         });
+
+        req.on('error', (error) => {
+            return `HTTP request error: ${error.message}`;
+        });
+
+        req.write(payload);
+        req.end();
     });
+    return '';
 }
 
 export {

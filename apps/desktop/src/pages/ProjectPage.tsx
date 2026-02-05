@@ -82,7 +82,7 @@ const ProjectPage = () => {
         setPushing(true)
         try {
             const result = await gitService.pushRepo(selectedProject)
-            alert(`Pull complete:\n${result}`)
+            alert(`Push complete:\n${result}`)
             await refreshChanges()
         } catch(error) {
             alert(`Push failed:\n${error}`)
