@@ -10,6 +10,8 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from sqlalchemy.orm import Session
+from .pat_service import PATService
 
 # Load environment variables
 load_dotenv()
@@ -22,20 +24,14 @@ class SupabaseAuthService:
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_PUB_KEY")
         service_key = os.getenv("SUPABASE_SERVICE_KEY")
-
+        
         if not supabase_url or not supabase_key:
             raise ValueError(
                 "Missing Supabase credentials. Please set SUPABASE_URL and SUPABASE_PUB_KEY in .env file"
             )
-
+        
         self.client: Client = create_client(supabase_url, supabase_key)
 
-        # Initialize admin client with service role key for privileged operations
-        if service_key:
-            self.admin_client: Optional[Client] = create_client(supabase_url, service_key)
-        else:
-            self.admin_client = None
-    
     async def sign_up(self, email: str, password: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Register a new user with email and password.
@@ -52,42 +48,53 @@ class SupabaseAuthService:
             Exception: If signup fails
         """
         try:
+            # Build sign up credentials
             credentials: Dict[str, Any] = {
                 "email": email,
                 "password": password,
             }
             
+            # Add metadata if provided
             if metadata:
                 credentials["options"] = {"data": metadata}
             
-            response = self.client.auth.sign_up(credentials)  # type: ignore
+            print(f"[auth_service] sign_up credentials: {credentials}")
             
-            if response.user:
+            response = self.client.auth.sign_up(credentials)
+            
+            print(f"[auth_service] sign_up response type: {type(response)}")
+            print(f"[auth_service] sign_up response: {response}")
+            
+            # Check if response has user attribute
+            if response and hasattr(response, 'user') and response.user:
                 return {
                     "success": True,
                     "user": {
                         "id": response.user.id,
                         "email": response.user.email,
-                        "created_at": response.user.created_at,
-                        "user_metadata": response.user.user_metadata,
+                        "created_at": str(response.user.created_at) if response.user.created_at else None,
                     },
                     "session": {
                         "access_token": response.session.access_token if response.session else None,
                         "refresh_token": response.session.refresh_token if response.session else None,
-                        "expires_at": response.session.expires_at if response.session else None,
-                    } if response.session else None,
-                    "message": "User registered successfully. Please check email for verification."
+                    } if response.session else None
                 }
-            else:
-                raise Exception("Failed to create user")
-                
-        except Exception as e:
+            
+            # If no user but no exception, might be email confirmation required
+            print(f"[auth_service] sign_up - no user in response, checking for confirmation requirement")
             return {
-                "success": False,
-                "error": str(e),
-                "message": "Registration failed"
+                "success": True,
+                "message": "Please check your email to confirm your account",
+                "requires_confirmation": True
             }
-    
+            
+        except Exception as e:
+            # Log the full error for debugging
+            print(f"[auth_service] sign_up error: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": f"Registration failed: {str(e)}"}
+
     async def sign_in(self, email: str, password: str) -> Dict[str, Any]:
         """
         Sign in an existing user with email and password.
@@ -334,10 +341,10 @@ class SupabaseAuthService:
     async def sign_in_with_oauth(self, provider: str) -> Dict[str, Any]:
         """
         Initiate OAuth sign in with a provider (Google, GitHub, etc.).
-
+        
         Args:
             provider: OAuth provider name (e.g., 'google', 'github', 'discord')
-
+        
         Returns:
             Dict containing the OAuth URL to redirect to
         """
@@ -345,7 +352,7 @@ class SupabaseAuthService:
             # Cast provider to Any to avoid type checking issues with literal types
             oauth_credentials: Dict[str, Any] = {"provider": provider}
             response = self.client.auth.sign_in_with_oauth(oauth_credentials)  # type: ignore
-
+            
             return {
                 "success": True,
                 "url": response.url if hasattr(response, 'url') else "",
@@ -357,75 +364,56 @@ class SupabaseAuthService:
                 "error": str(e),
                 "message": f"Failed to initiate {provider} OAuth"
             }
-
-    async def generate_magic_link(self, email: str) -> Dict[str, Any]:
-        """
-        Generate a magic link/hash for desktop authentication (service role only).
-
-        This method uses the Supabase Admin API to generate a magic link token
-        that can be used for passwordless authentication in the desktop app.
-
-        Args:
-            email: User's email address
-
-        Returns:
-            Dict containing the hashed_token or error information
-
-        Raises:
-            Exception: If admin client is not initialized or generation fails
-        """
-        try:
-            if not self.admin_client:
-                raise ValueError(
-                    "Admin client not initialized. Please set SUPABASE_SERVICE_KEY in .env file"
-                )
-
-            # Use the admin API to generate a magic link
-            # Note: The Python Supabase client may not have direct admin.generateLink support
-            # We'll need to use the REST API directly
-            supabase_url = os.getenv("SUPABASE_URL")
-            service_key = os.getenv("SUPABASE_SERVICE_KEY")
-
-            # Call Supabase Admin API directly
-            response = requests.post(
-                f"{supabase_url}/auth/v1/admin/generate_link",
-                headers={
-                    "apikey": service_key,
-                    "Authorization": f"Bearer {service_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "type": "magiclink",
-                    "email": email
-                }
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                hashed_token = data.get("hashed_token")
-
-                if hashed_token:
-                    return {
-                        "success": True,
-                        "hashed_token": hashed_token,
-                        "email": email,
-                        "message": "Magic link generated successfully"
-                    }
-                else:
-                    raise Exception("No hashed_token in response")
-            else:
-                error_data = response.json() if response.text else {}
-                raise Exception(f"API error: {error_data.get('message', response.text)}")
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Failed to generate magic link"
-            }
-
     
+    async def verify_token_or_pat(self, authorization: Optional[str], db: Session) -> Optional[Dict[str, Any]]:
+        """
+        Verify either a Supabase JWT token or a Personal Access Token.
+        This method enables dual authentication - web users with JWTs, desktop users with PATs.
+        
+        Args:
+            authorization: The Authorization header value (e.g., "Bearer <jwt>" or "token <pat>")
+            db: SQLAlchemy database session for PAT lookups
+        
+        Returns:
+            Dict with user_id, email/pat_id, and auth_type if valid, None if invalid
+        
+        Example return values:
+            JWT: {"user_id": "uuid", "email": "user@example.com", "auth_type": "jwt"}
+            PAT: {"user_id": "uuid", "pat_id": "uuid", "token_name": "My Token", "auth_type": "pat"}
+            Invalid: None
+        """
+        if authorization is None:
+            return None
+        
+        # Check JWT first (for web users)
+        jwt_prefix = "Bearer "
+        if authorization.startswith(jwt_prefix):
+            token = authorization.replace(jwt_prefix, "", 1)
+            user_result = await self.get_user(token)
+            if user_result and user_result.get("success"):
+                user = user_result.get("user", {})
+                return {
+                    "user_id": user.get("id"),
+                    "email": user.get("email"),
+                    "auth_type": "jwt"
+                }
 
+        # If no JWT return, check for PAT (for desktop users)
+        pat_prefix = "token "
+        if authorization.startswith(pat_prefix):
+            pat_token = authorization.replace(pat_prefix, "", 1)
+            pat_service = PATService()
+            pat_result = await pat_service.verify_pat(pat_token, db)
+            if pat_result is not None:
+                return {
+                    "user_id": pat_result.get("user_id"),
+                    "pat_id": pat_result.get("pat_id"),
+                    "token_name": pat_result.get("token_name"),
+                    "auth_type": "pat"
+                }
+
+        # If neither returns, invalid credentials
+        return None
 # Singleton instance
 _auth_service: Optional[SupabaseAuthService] = None
 
