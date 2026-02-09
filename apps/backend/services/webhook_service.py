@@ -1,6 +1,10 @@
 """
 Webhook Service - Processes incoming Gitea webhook events.
 
+=============================================================================
+ARCHITECTURE OVERVIEW
+=============================================================================
+
 Gitea sends webhook POST requests when events occur (push, create branch, delete, etc.)
 This service:
 1. Validates the webhook HMAC-SHA256 signature
@@ -8,8 +12,82 @@ This service:
 3. Stores delivery records and parsed event data in the database
 4. Updates RepoData activity timestamps
 
-Flow:
-  Gitea -> POST /api/webhooks/gitea -> validate_signature -> process_event -> store in DB
+Data Flow:
+  Gitea (Docker) --> ngrok tunnel (dev) --> POST /api/webhooks/gitea
+                                              |
+                                              v
+                                    validate_signature()
+                                              |
+                                              v
+                                     process_event()
+                                     /    |    |    \
+                                push  create delete fork  ...
+                                     |    |    |    |
+                                     v    v    v    v
+                                  [PostgreSQL: push_events, repository_events,
+                                   webhook_deliveries, repo_data updates]
+
+=============================================================================
+DESKTOP TEAM INTEGRATION GUIDE
+=============================================================================
+
+The webhook system is a BACKEND-ONLY concern. The desktop app does NOT receive
+webhooks directly. Instead, the desktop app consumes the *results* of webhook
+processing via REST endpoints. Here's how to integrate:
+
+1. ACTIVITY FEED (push history):
+   GET /api/webhooks/repo/{owner}/{repo}/activity
+   - No auth required (public endpoint)
+   - Returns recent pushes with commit counts, SHAs, pusher info, timestamps
+   - Poll this endpoint every 30-60s to show real-time activity in the desktop UI
+   - Use `limit` query param to control result count (default 20, max 50)
+   
+   Example response:
+   {
+     "success": true,
+     "repo": "uuid-123/my-beats",
+     "count": 2,
+     "activity": [
+       {"id": 1, "ref": "refs/heads/main", "before_sha": "abc12345",
+        "after_sha": "def67890", "commit_count": 3, "pusher": "nathan",
+        "pushed_at": "2025-01-15 10:30:00+00:00"}
+     ]
+   }
+
+2. REPO EVENTS (branch creates/deletes, lifecycle):
+   GET /api/webhooks/repo/{owner}/{repo}/events
+   - No auth required (public endpoint)
+   - Returns branch_created, branch_deleted, tag_created, etc.
+   - Useful for showing "Nathan created branch 'feature/drums'"
+   
+   Example response:
+   {
+     "success": true,
+     "repo": "uuid-123/my-beats",
+     "count": 1,
+     "events": [
+       {"id": 1, "event_type": "branch_created", "actor": "nathan",
+        "occurred_at": "2025-01-15 10:25:00+00:00"}
+     ]
+   }
+
+3. DELIVERY LOG (debugging, admin):
+   GET /api/webhooks/deliveries
+   - REQUIRES auth token (admin/debugging only)
+   - Shows all raw webhook deliveries, their processing status, errors
+   - Query params: repo, event_type, status, limit
+   - Desktop team probably won't need this — it's for backend debugging
+
+4. DESKTOP POLLING STRATEGY:
+   - On repo page load: fetch /activity and /events once
+   - Set up a 30s interval to re-fetch while the user is on that page
+   - Clear interval when navigating away
+   - The activity endpoint is rate-limited to 30/minute so 30s polling is safe
+   - No WebSocket/SSE is implemented — polling is the current approach
+
+5. IMPORTANT: The desktop app should NEVER call POST /api/webhooks/gitea.
+   That endpoint is exclusively for Gitea to POST to. Desktop reads the
+   *processed results* via the GET endpoints above.
 """
 import hmac
 import hashlib
@@ -30,11 +108,17 @@ class WebhookService:
     Service for processing incoming Gitea webhooks.
 
     Supported events:
-    - push: Code pushed to a branch (commits)
-    - create: Branch or tag created
-    - delete: Branch or tag deleted
-    - repository: Repo created, deleted, or renamed
-    - fork: Repository forked
+    - push:       Code pushed to a branch (commits) → stored in push_events table
+    - create:     Branch or tag created             → stored in repository_events table
+    - delete:     Branch or tag deleted              → stored in repository_events table
+    - repository: Repo created, deleted, or renamed  → stored in repository_events table
+    - fork:       Repository forked                  → increments clone_count on RepoData
+
+    DESKTOP TEAM NOTE:
+    This class is instantiated once as a singleton (`webhook_service` at bottom of file).
+    It is imported by main.py and called from the webhook receiver endpoint.
+    The desktop app does NOT interact with this class directly — it consumes the
+    processed data via the GET endpoints in main.py (see module docstring above).
     """
 
     def validate_signature(self, payload: bytes, signature: str) -> bool:
@@ -415,16 +499,34 @@ class WebhookService:
         """
         Create a Gitea webhook for a repo and store the config in our DB.
 
-        Called automatically when a new repo is created.
+        Called automatically when a new repo is created via POST /api/repos.
+        You do NOT need to call this manually — it's wired into the repo
+        creation flow in main.py.
+
+        INFRASTRUCTURE NOTES:
+        - The webhook URL is built from settings.webhook_base_url + "/api/webhooks/gitea"
+        - In development: webhook_base_url must be an ngrok tunnel URL because
+          Gitea runs inside Docker and can't reach 'localhost:8000' on the host.
+          Example: https://untwitching-knobbly-emile.ngrok-free.dev
+        - In production: webhook_base_url should be your production API domain.
+          Example: https://api.soundhaus.dev
+        - The webhook secret (GITEA_WEBHOOK_SECRET) must match between .env.docker
+          and what gets registered in Gitea. This is handled automatically.
+        - Events subscribed: push, create, delete, repository, fork
+
+        DESKTOP TEAM NOTE:
+        This method is called server-side only. When the desktop app creates a
+        repo via POST /api/repos, the webhook is automatically set up. The
+        desktop team does not need to do anything for webhook registration.
 
         Args:
-            owner: Repository owner (Supabase UUID)
+            owner: Repository owner (Supabase UUID used as Gitea username)
             repo: Repository name
-            gitea_admin: GiteaAdminService instance
+            gitea_admin: GiteaAdminService instance (has the admin API token)
             db: Database session
 
         Returns:
-            Dict with success status and details
+            Dict with success status and webhook details
         """
         webhook_url = f"{settings.webhook_base_url}/api/webhooks/gitea"
         secret = settings.gitea_webhook_secret
