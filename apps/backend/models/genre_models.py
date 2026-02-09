@@ -5,6 +5,7 @@ Stores genre master list and genre-to-repo associations.
 from sqlalchemy import Column, Integer, String, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from database import Base
+from sqlalchemy.ext.hybrid import hybrid_property
 
 
 # Association table for many-to-many relationship between repos and genres
@@ -34,13 +35,27 @@ class GenreList(Base):
     
     # Genre name (must be unique, indexed for fast lookups)
     genre_name = Column(String(100), unique=True, nullable=False, index=True)
+    genre_description = Column(String(500), nullable=False, default="")
 
-    # Relationship: Many-to-many with repos through repo_genres junction table
+    genre_icon = Column(String(50), nullable=True)
+    genre_color = Column(String(7), nullable=True)
+    display_order = Column(Integer, default=0)
+
     repos = relationship(
         "RepoData",
-        secondary=repo_genres,      # FIXED: Was "second", should be "secondary"
+        secondary=repo_genres,
         back_populates="genres"
     )
+
+    @hybrid_property
+    def song_count(self):
+        return len(self.repos)
+
+    # TODO: track what top song in genre is, ie most downloads, 
+    # create one to many relationship, between genre and top song list
+    # 
+    # top_repo_in_genre = Column(String, nullable=True, default=None)
+
   
     def __repr__(self):
         return f"<GenreList(id={self.genre_id}, name='{self.genre_name}')>"

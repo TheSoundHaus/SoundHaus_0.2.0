@@ -1,0 +1,43 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 
+    'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', 
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Theme variables */
+  --color-bg: #1e1e1e;           /* dark grey */
+  --color-bg-elev: #242424;      /* elevated surfaces */
+  --color-text: #e5e7eb;         /* light grey text */
+  --color-text-muted: #9ca3af;   /* muted text */
+  --color-border: #2f2f2f;       /* subtle borders */
+  --color-accent: #a3e635;       /* lime 300 (unsaturated lime) */
+  --color-accent-strong: #84cc16;/* lime 500 */
+  --color-danger-bg: #3b1f1f;    /* dark red bg */
+  --color-danger: #f87171;       /* red-400 */
+  --color-danger-light: #fca5a5; /* lighter red (hover) */
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}

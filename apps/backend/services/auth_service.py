@@ -1,4 +1,4 @@
-"""
+""" 
 Supabase Authentication Service
 Handles user authentication, registration, and session management using Supabase Auth.
 """
@@ -9,21 +9,22 @@ from urllib.parse import quote
 from typing import Optional, Dict, Any
 from datetime import datetime
 from supabase import create_client, Client
-from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from .pat_service import PATService
+from logging_config import get_logger
+from config import settings
 
-# Load environment variables
-load_dotenv()
+# Initialize logger
+logger = get_logger(__name__)
 
 class SupabaseAuthService:
     """Service for managing authentication with Supabase."""
     
     def __init__(self):
         """Initialize Supabase client with credentials from environment variables."""
-        supabase_url = os.getenv("SUPABASE_URL")
-        supabase_key = os.getenv("SUPABASE_PUB_KEY")
-        service_key = os.getenv("SUPABASE_SERVICE_KEY")
+        supabase_url = settings.supabase_url
+        supabase_key = settings.supabase_pub_key
+        service_key = settings.supabase_service_key
         
         if not supabase_url or not supabase_key:
             raise ValueError(
@@ -58,12 +59,11 @@ class SupabaseAuthService:
             if metadata:
                 credentials["options"] = {"data": metadata}
             
-            print(f"[auth_service] sign_up credentials: {credentials}")
+            logger.debug("sign_up", email=email, has_metadata=bool(metadata))
             
             response = self.client.auth.sign_up(credentials)
             
-            print(f"[auth_service] sign_up response type: {type(response)}")
-            print(f"[auth_service] sign_up response: {response}")
+            logger.debug("sign_up", response_type=type(response).__name__)
             
             # Check if response has user attribute
             if response and hasattr(response, 'user') and response.user:
@@ -81,7 +81,7 @@ class SupabaseAuthService:
                 }
             
             # If no user but no exception, might be email confirmation required
-            print(f"[auth_service] sign_up - no user in response, checking for confirmation requirement")
+            logger.info("sign_up", status="requires_confirmation", email=email)
             return {
                 "success": True,
                 "message": "Please check your email to confirm your account",
@@ -90,9 +90,7 @@ class SupabaseAuthService:
             
         except Exception as e:
             # Log the full error for debugging
-            print(f"[auth_service] sign_up error: {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error("sign_up", error=str(e), error_type=type(e).__name__, exc_info=True)
             return {"success": False, "message": f"Registration failed: {str(e)}"}
 
     async def sign_in(self, email: str, password: str) -> Dict[str, Any]:
@@ -214,10 +212,10 @@ class SupabaseAuthService:
             Dict containing user information
         """
         try:
-            print(f"[auth_service] get_user called with token: {access_token[:20]}...")
+            logger.debug("get_user", token_prefix=access_token[:20])
             # Get user directly with the token
             response = self.client.auth.get_user(access_token)
-            print(f"[auth_service] get_user response: {response}")
+            logger.debug("get_user", has_response=bool(response))
             
             if response and hasattr(response, 'user') and response.user:
                 user_data = {
@@ -232,14 +230,14 @@ class SupabaseAuthService:
                         "user_metadata": response.user.user_metadata,
                     }
                 }
-                print(f"[auth_service] get_user success: {user_data['user']['email']}")
+                logger.debug("get_user", status="success", email=user_data['user']['email'])
                 return user_data
             else:
-                print("[auth_service] get_user - no user in response")
+                logger.warning("get_user", status="no_user_in_response")
                 raise Exception("User not found")
                 
         except Exception as e:
-            print(f"[auth_service] get_user error: {e}")
+            logger.error("get_user", error=str(e))
             return {
                 "success": False,
                 "error": str(e),
@@ -327,15 +325,15 @@ class SupabaseAuthService:
             True if token is valid, False otherwise
         """
         try:
-            print(f"[auth_service] verify_token called with token: {access_token[:20]}...")
+            logger.debug("verify_token", token_prefix=access_token[:20])
             # Get user directly with the token without setting full session
             response = self.client.auth.get_user(access_token)
-            print(f"[auth_service] get_user response: {response}")
+            logger.debug("verify_token", has_response=bool(response))
             is_valid = response is not None and hasattr(response, 'user') and response.user is not None
-            print(f"[auth_service] token is_valid: {is_valid}")
+            logger.debug("verify_token", is_valid=is_valid)
             return is_valid
         except Exception as e:
-            print(f"[auth_service] verify_token error: {e}")
+            logger.error("verify_token", error=str(e))
             return False
     
     async def sign_in_with_oauth(self, provider: str) -> Dict[str, Any]:
