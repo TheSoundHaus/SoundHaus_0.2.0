@@ -1,0 +1,25 @@
+import React from "react"
+import { Link, useLocation } from "react-router-dom"
+
+export default function TopNav() {
+  const location = useLocation()
+
+  return (
+    <header className="nav" role="banner">
+      <div className="nav-container">
+        <div className="logo">
+          <Link to="/repos" className="logo-link">SoundHaus</Link>
+        </div>
+
+        <nav className="nav-links" role="navigation" aria-label="Main">
+          <Link to="/repos" className={location.pathname.startsWith("/repos") ? "nav-link active" : "nav-link"}>
+            Repositories
+          </Link>
+          <Link to="/" className={location.pathname === "/home" ? "nav-link active" : "nav-link"}>
+            Dashboard
+          </Link>
+        </nav>
+      </div>
+    </header>
+  )
+}

@@ -1,0 +1,29 @@
+import React from "react"
+
+interface GenreTagsProps {
+  genres: string[]
+  onSelectGenre?: (genre: string) => void
+}
+
+export default function GenreTags({ genres, onSelectGenre }: GenreTagsProps){
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {genres.map((genre) => (
+        <span
+          key={genre}
+          onClick={() => onSelectGenre?.(genre)}
+          style={{
+            padding: "2px 8px",
+            background: "#f0f0f0",
+            borderRadius: 12,
+            fontSize: 13,
+            color: "#666",
+            cursor: onSelectGenre ? "pointer" : "default",
+          }}
+        >
+          {genre}
+        </span>
+      ))}
+    </div>
+  )
+}

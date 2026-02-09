@@ -10,6 +10,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from models.pat_models import PersonalAccessToken
+from logging_config import get_logger
+
+logger = get_logger("soundhaus.pat")
 
 class PATService:
     """Service for managing Personal Access Tokens"""
@@ -70,7 +73,7 @@ class PATService:
             hash_bytes = token_hash.encode('utf-8')
             return bcrypt.checkpw(plaintext_bytes, hash_bytes)
         except Exception as e:
-            print(f"[PATService] Token verification error: {e}")
+            logger.error("token_verification_error", error=str(e))
             return False
 
     
@@ -161,7 +164,7 @@ class PATService:
                 if PATService.verify_token(token, pat.token_hash):
                     # Check if token is expired
                     if pat.expires_at is not None and datetime.now(timezone.utc) > pat.expires_at:
-                        print(f"[PATService] Token {pat.token_prefix} expired")
+                        logger.info("pat_expired", token_prefix=pat.token_prefix)
                         return None
                     
                     # Update last_used and usage_count
@@ -180,7 +183,7 @@ class PATService:
             return None
             
         except Exception as e:
-            print(f"[PATService] Error verifying PAT: {e}")
+            logger.error("pat_verification_error", error=str(e))
             return None
     
     @staticmethod
