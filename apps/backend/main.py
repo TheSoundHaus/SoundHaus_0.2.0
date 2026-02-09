@@ -1725,7 +1725,31 @@ async def delete_repo_snippet(
     return {"success": True, "message": "Snippet deleted"}
 
 
-# ============== WEBHOOK ENDPOINTS ==============
+# ==============================================================================
+# WEBHOOK ENDPOINTS
+# ==============================================================================
+#
+# DESKTOP TEAM INTEGRATION GUIDE:
+#
+# These endpoints power the real-time activity system. Gitea fires webhooks
+# to the receiver endpoint below, and the backend stores the parsed data.
+# The desktop app then reads that data via the GET endpoints.
+#
+# Endpoints for desktop app to consume:
+#   GET /api/webhooks/repo/{owner}/{repo}/activity  → Push/commit feed (public)
+#   GET /api/webhooks/repo/{owner}/{repo}/events    → Branch/tag lifecycle (public)
+#   GET /api/webhooks/deliveries                    → Raw delivery log (auth required)
+#
+# Endpoint the desktop app should NEVER call:
+#   POST /api/webhooks/gitea  → Gitea-only receiver (webhook signature required)
+#
+# Suggested polling strategy for desktop app:
+#   1. On repo page mount: fetch /activity and /events once
+#   2. Set interval every 30 seconds to re-fetch
+#   3. Clear interval on unmount / page navigation
+#   4. Rate limit: 30 requests/minute per endpoint (safe with 30s polling)
+#
+# ==============================================================================
 
 @app.post("/api/webhooks/gitea")
 async def receive_gitea_webhook(
@@ -1735,7 +1759,10 @@ async def receive_gitea_webhook(
     """
     Receive and process Gitea webhook events.
 
-    Gitea sends POST requests here when events occur (push, create, delete, etc.)
+    DESKTOP TEAM: Do NOT call this endpoint from the desktop app.
+    This is called exclusively by Gitea when git events occur (push, branch
+    create/delete, etc.). It requires a valid HMAC-SHA256 signature that
+    only Gitea can produce using the shared webhook secret.
 
     Headers from Gitea:
       - X-Gitea-Event: Event type (push, create, delete, repository, fork)
@@ -1747,6 +1774,9 @@ async def receive_gitea_webhook(
       2. Parse event type from headers
       3. Route to webhook_service.process_event()
       4. Return 200 (always, to prevent Gitea retry storms)
+
+    Returns 200 even on invalid signatures to prevent Gitea from endlessly
+    retrying failed deliveries. The response body indicates success/rejection.
     """
     # Step 1: Read raw body for signature validation
     body = await request.body()
@@ -1795,13 +1825,39 @@ async def list_webhook_deliveries(
     db: Session = Depends(get_db)
 ):
     """
-    List recent webhook deliveries for debugging.
+    List recent webhook deliveries for debugging and monitoring.
+
+    DESKTOP TEAM: This is a debugging/admin endpoint. You probably don't need
+    this in the main UI, but it could be useful for a "Webhook Health" panel
+    in an admin/settings view. Requires authentication.
 
     Query params:
-      - repo: Filter by repo name (e.g., "owner/repo")
-      - event_type: Filter by event type (e.g., "push")
+      - repo: Filter by repo full name (e.g., "uuid-123/my-beats")
+      - event_type: Filter by event type (e.g., "push", "create", "delete")
       - status: Filter by processing status ("success", "failed", "pending")
-      - limit: Max results (default 50)
+      - limit: Max results (default 50, capped at 100)
+
+    Example desktop fetch:
+      const res = await fetch(
+        `${API_URL}/api/webhooks/deliveries?repo=${encodeURIComponent(repoId)}&limit=20`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+    Response shape:
+      {
+        "success": true,
+        "count": 3,
+        "deliveries": [
+          {
+            "id": "uuid-string",
+            "event_type": "push",
+            "repo_id": "uuid-123/my-beats",
+            "status": "success",
+            "delivered_at": "2025-01-15T10:30:00+00:00",
+            "error_message": null
+          }
+        ]
+      }
     """
     query = db.query(WebhookDelivery).order_by(WebhookDelivery.delivered_at.desc())
 
@@ -1841,9 +1897,50 @@ async def get_repo_activity(
     db: Session = Depends(get_db)
 ):
     """
-    Get recent push activity for a repo (public endpoint for activity feed).
+    Get recent push activity for a repo — the main activity feed.
 
-    Returns recent pushes with commit counts, refs, and timestamps.
+    DESKTOP TEAM: This is the PRIMARY endpoint for showing repo activity.
+    Use this to build a commit/push timeline in the desktop UI.
+
+    No authentication required — this is a public endpoint.
+
+    URL params:
+      - owner: Gitea username (the user's Supabase UUID)
+      - repo:  Repository name (e.g., "my-beats")
+    
+    Query params:
+      - limit: Max results (default 20, capped at 50)
+
+    Example desktop fetch:
+      const res = await fetch(
+        `${API_URL}/api/webhooks/repo/${owner}/${repoName}/activity?limit=10`
+      );
+      const data = await res.json();
+      // data.activity = array of push events
+
+    Response shape:
+      {
+        "success": true,
+        "repo": "uuid-123/my-beats",
+        "count": 2,
+        "activity": [
+          {
+            "id": 1,
+            "ref": "refs/heads/main",          // branch that was pushed to
+            "before_sha": "abc12345",           // SHA before push (first 8 chars)
+            "after_sha": "def67890",            // SHA after push (first 8 chars)
+            "commit_count": 3,                  // number of commits in this push
+            "pusher": "nathan",                 // Gitea username who pushed
+            "pushed_at": "2025-01-15 10:30:00+00:00"
+          }
+        ]
+      }
+
+    UI suggestions:
+      - Show as "Nathan pushed 3 commits to main • 2 hours ago"
+      - Use `commit_count` for display, `ref` to extract branch name
+      - `ref` format is "refs/heads/branch-name" — strip "refs/heads/" for display
+      - Poll every 30 seconds while user is viewing the repo page
     """
     repo_id = f"{owner}/{repo}"
 
@@ -1884,7 +1981,53 @@ async def get_repo_events(
     db: Session = Depends(get_db)
 ):
     """
-    Get repository lifecycle events (branch creates, deletes, etc.).
+    Get repository lifecycle events (branch creates, deletes, tags, etc.).
+
+    DESKTOP TEAM: Use this alongside /activity to build a complete
+    repo timeline. This shows structural changes (branches/tags), while
+    /activity shows content changes (pushes/commits).
+
+    No authentication required — this is a public endpoint.
+
+    URL params:
+      - owner: Gitea username (the user's Supabase UUID)
+      - repo:  Repository name
+
+    Query params:
+      - limit: Max results (default 20, capped at 50)
+
+    Example desktop fetch:
+      const res = await fetch(
+        `${API_URL}/api/webhooks/repo/${owner}/${repoName}/events?limit=10`
+      );
+
+    Response shape:
+      {
+        "success": true,
+        "repo": "uuid-123/my-beats",
+        "count": 2,
+        "events": [
+          {
+            "id": 1,
+            "event_type": "branch_created",    // or "branch_deleted", "tag_created", etc.
+            "actor": "nathan",                 // Gitea username who performed the action
+            "occurred_at": "2025-01-15 10:25:00+00:00"
+          }
+        ]
+      }
+
+    Possible event_type values:
+      - "branch_created"     → New branch created
+      - "branch_deleted"     → Branch deleted
+      - "tag_created"        → New tag created
+      - "tag_deleted"        → Tag deleted
+      - "repository_created" → Repo created (from repo lifecycle webhook)
+      - "repository_deleted" → Repo deleted
+      - "repository_renamed" → Repo renamed
+
+    UI suggestions:
+      - Show as "Nathan created branch 'feature/drums' • 5 min ago"
+      - Combine with /activity data and sort by timestamp for a unified feed
     """
     repo_id = f"{owner}/{repo}"
 
