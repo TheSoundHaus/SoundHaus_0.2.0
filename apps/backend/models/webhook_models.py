@@ -1,5 +1,34 @@
 """
 Webhook event models for Gitea webhook integration.
+
+=============================================================================
+DATABASE TABLES CREATED BY THESE MODELS
+=============================================================================
+
+1. webhook_deliveries  → Raw log of every webhook POST received from Gitea.
+                         Used for debugging webhook health. Each row is one
+                         HTTP delivery from Gitea. FK to repo_data.gitea_id.
+
+2. push_events         → Parsed push events (commits pushed to a branch).
+                         This is what the desktop app reads via
+                         GET /api/webhooks/repo/{owner}/{repo}/activity.
+                         FK to repo_data.gitea_id.
+
+3. repository_events   → Parsed lifecycle events (branch/tag create/delete).
+                         This is what the desktop app reads via
+                         GET /api/webhooks/repo/{owner}/{repo}/events.
+                         FK to repo_data.gitea_id.
+
+4. webhook_configs     → Stores the Gitea webhook ID and secret per repo.
+                         One-to-one with repo_data. Created automatically
+                         when a new repo is made via POST /api/repos.
+
+All tables use CASCADE DELETE tied to repo_data.gitea_id — when a repo is
+deleted, all associated webhook data is automatically cleaned up.
+
+DESKTOP TEAM: You don't interact with these models directly. The backend
+service (webhook_service.py) writes to these tables, and the main.py GET
+endpoints read from them and return JSON responses.
 """
 
 from sqlalchemy import Column, String, Integer, DateTime, Boolean, Text, ForeignKey, UniqueConstraint
@@ -17,6 +46,9 @@ class WebhookDelivery(Base):
     """
     Logs all webhook deliveries from Gitea for debugging and auditing.
     Tracks every webhook received, its processing status, and any errors.
+
+    Exposed via: GET /api/webhooks/deliveries (auth required)
+    Desktop use: Admin/debug panel only — not needed for normal UI.
     """
     __tablename__ = "webhook_deliveries"
     
@@ -48,6 +80,11 @@ class PushEvent(Base):
     """
     Tracks individual push events to repositories.
     Records commit information and pusher details.
+
+    Exposed via: GET /api/webhooks/repo/{owner}/{repo}/activity
+    Desktop use: PRIMARY data source for repo activity feed.
+    Fields returned to desktop: ref, before_sha, after_sha, commit_count,
+                                 pusher_username, pushed_at
     """
     __tablename__ = "push_events"
     
@@ -80,7 +117,12 @@ class PushEvent(Base):
 
 class RepositoryEvent(Base):
     """
-    Tracks repository lifecycle events (creation, deletion, etc.).
+    Tracks repository lifecycle events (branch/tag create/delete, repo lifecycle).
+
+    Exposed via: GET /api/webhooks/repo/{owner}/{repo}/events
+    Desktop use: Show branch/tag activity in repo timeline.
+    event_type values: branch_created, branch_deleted, tag_created, tag_deleted,
+                       repository_created, repository_deleted, repository_renamed
     """
     __tablename__ = "repository_events"
     
@@ -112,6 +154,9 @@ class WebhookConfig(Base):
     """
     Stores webhook configuration per repository.
     One-to-one relationship with RepoData.
+
+    Created automatically by webhook_service.setup_webhook_for_repo()
+    when a new repo is created. Desktop team does not need to manage this.
     """
     __tablename__ = "webhook_configs"
     
