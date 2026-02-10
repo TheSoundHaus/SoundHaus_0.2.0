@@ -17,7 +17,6 @@ from services.gitea_service import GiteaAdminService
 from services.auth_service import get_auth_service, SupabaseAuthService
 from services.pat_service import PATService
 from services.webhook_service import webhook_service
-from database import get_db, init_db, test_connection
 from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList, repo_genres

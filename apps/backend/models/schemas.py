@@ -52,7 +52,6 @@ class RepoPreferencesRequest(BaseModel):
 
 
 # ============== WEBHOOK SCHEMAS ==============
-# TODO: These schemas are for the webhook system implementation
 
 class WebhookPayload(BaseModel):
     """
@@ -78,9 +77,6 @@ class WebhookPayload(BaseModel):
 class CreateWebhookRequest(BaseModel):
     """
     Request to create a webhook for a repository.
-    
-    TODO: Implement endpoint that uses this schema
-    Endpoint: POST /repos/{owner}/{repo}/webhooks
     """
     type: str = "gitea"  # Webhook type (usually "gitea")
     config: Dict[str, Any]  # Webhook configuration
@@ -91,8 +87,6 @@ class CreateWebhookRequest(BaseModel):
 class WebhookConfigResponse(BaseModel):
     """
     Response schema for webhook configuration.
-    
-    TODO: Return this from GET /repos/{owner}/{repo}/webhooks
     """
     id: int  # Gitea webhook ID
     type: str
@@ -106,8 +100,6 @@ class WebhookConfigResponse(BaseModel):
 class PushEventResponse(BaseModel):
     """
     Response schema for push events.
-    
-    TODO: Return this from GET /repos/{owner}/{repo}/events
     """
     id: int
     repo_id: str
@@ -122,9 +114,6 @@ class PushEventResponse(BaseModel):
 class WebhookDeliveryResponse(BaseModel):
     """
     Response schema for webhook delivery logs.
-    
-    TODO: Return this from GET /repos/{owner}/{repo}/webhook-deliveries
-    for debugging webhook issues
     """
     id: str
     event_type: str

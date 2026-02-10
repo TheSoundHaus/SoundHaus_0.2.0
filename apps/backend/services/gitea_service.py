@@ -204,24 +204,22 @@ class GiteaAdminService:
 				timeout=10
 			)
 			
-			print(f"  -> status={resp.status_code}")
+			logger.debug("get_user_status", username=username, status_code=resp.status_code)
 			
 			if resp.status_code == 200:
-				print(f"  -> user exists")
+				logger.debug("user_exists", username=username)
 				return {"exists": True, "data": resp.json()}
 			elif resp.status_code == 404:
-				print(f"  -> user not found")
+				logger.debug("user_not_found", username=username)
 				return {"exists": False}
 			elif resp.status_code == 401:
-				print(f"  -> ERROR: 401 Unauthorized - admin token may be invalid")
-				print(f"  -> Response: {resp.text[:200]}")
+				logger.error("unauthorized_admin_token", username=username, response=resp.text[:200])
 				return {"exists": False, "error": "unauthorized"}
 			else:
-				print(f"  -> unexpected status")
-				print(f"  -> Response: {resp.text[:200]}")
+				logger.warning("unexpected_status", username=username, status_code=resp.status_code, response=resp.text[:200])
 				return {"exists": False}
 		except requests.RequestException as e:
-			print(f"  -> network error: {e}")
+			logger.error("network_error", username=username, error=str(e))
 			return {"exists": False}
 
 	def verify_gitea_token(self, token: str) -> Dict[str, Any]:
@@ -236,7 +234,7 @@ class GiteaAdminService:
 			{"valid": True, "user": user_data} if token works
 			{"valid": False, "error": str} if token is invalid
 		"""
-		print(f"[GiteaAdminService] verify_gitea_token: GET /api/v1/user")
+		logger.debug("verify_gitea_token_request")
 		try:
 			headers = {
 				"Authorization": f"token {token}",
@@ -249,21 +247,20 @@ class GiteaAdminService:
 				timeout=10
 			)
 			
-			print(f"  -> status={resp.status_code}")
+			logger.debug("token_verify_status", status_code=resp.status_code)
 			
 			if resp.status_code == 200:
 				user_data = resp.json()
-				print(f"  -> token is valid")
-				print(f"  -> authenticated as: {user_data.get('login')}")
+				logger.debug("token_valid", authenticated_as=user_data.get('login'))
 				return {"valid": True, "user": user_data}
 			elif resp.status_code == 401:
-				print(f"  -> ERROR: 401 Unauthorized - token is invalid or expired")
+				logger.warning("token_invalid", error="unauthorized")
 				return {"valid": False, "error": "unauthorized"}
 			else:
-				print(f"  -> unexpected status {resp.status_code}")
+				logger.warning("token_verify_unexpected_status", status_code=resp.status_code)
 				return {"valid": False, "error": f"status {resp.status_code}"}
 		except requests.RequestException as e:
-			print(f"  -> network error: {e}")
+			logger.error("token_verify_network_error", error=str(e))
 			return {"valid": False, "error": str(e)}
 
 	def verify_admin_token(self) -> Dict[str, Any]:
@@ -275,7 +272,7 @@ class GiteaAdminService:
 			{"valid": True, "user": user_data} if token works
 			{"valid": False, "error": str} if token is invalid
 		"""
-		print(f"[GiteaAdminService] verify_admin_token: GET /api/v1/user")
+		logger.debug("verify_admin_token_request")
 		try:
 			resp = requests.get(
 				self._url("/api/v1/user"),
@@ -283,24 +280,20 @@ class GiteaAdminService:
 				timeout=10
 			)
 			
-			print(f"  -> status={resp.status_code}")
+			logger.debug("admin_token_verify_status", status_code=resp.status_code)
 			
 			if resp.status_code == 200:
 				user_data = resp.json()
-				print(f"  -> token is valid")
-				print(f"  -> authenticated as: {user_data.get('login')}")
-				print(f"  -> is_admin: {user_data.get('is_admin')}")
+				logger.debug("admin_token_valid", authenticated_as=user_data.get('login'), is_admin=user_data.get('is_admin'))
 				return {"valid": True, "user": user_data}
 			elif resp.status_code == 401:
-				print(f"  -> ERROR: 401 Unauthorized - token is invalid or expired")
-				print(f"  -> Response: {resp.text[:200]}")
+				logger.error("admin_token_unauthorized", response=resp.text[:200])
 				return {"valid": False, "error": "unauthorized"}
 			else:
-				print(f"  -> unexpected status")
-				print(f"  -> Response: {resp.text[:200]}")
+				logger.warning("admin_token_unexpected_status", status_code=resp.status_code, response=resp.text[:200])
 				return {"valid": False, "error": f"status {resp.status_code}"}
 		except requests.RequestException as e:
-			print(f"  -> network error: {e}")
+			logger.error("admin_token_network_error", error=str(e))
 			return {"valid": False, "error": str(e)}
 
 	def create_or_get_user_token_cli(
@@ -343,10 +336,7 @@ class GiteaAdminService:
 		# Join scopes with commas for CLI
 		scopes_str = ",".join(scopes)
 		
-		print(f"[GiteaAdminService] create_or_get_user_token_cli: Using Gitea CLI")
-		print(f"  username={username}")
-		print(f"  token_name={token_name}")
-		print(f"  scopes={scopes_str}")
+		logger.debug("create_user_token_cli", username=username, token_name=token_name, scopes=scopes_str)
 		
 		gitea_container = os.getenv("GITEA_CONTAINER_NAME", "gitea")
 		
@@ -361,7 +351,7 @@ class GiteaAdminService:
 				"--raw"  # Output just the token without extra text
 			]
 			
-			print(f"  -> Attempting Docker exec from host...")
+			logger.debug("attempting_docker_exec", container=gitea_container)
 			try:
 				result = subprocess.run(
 					docker_cmd,
@@ -372,8 +362,7 @@ class GiteaAdminService:
 				
 				if result.returncode == 0:
 					token = result.stdout.strip()
-					print(f"  -> Docker method succeeded")
-					print(f"  -> Token created: {token[:20]}...")
+					logger.info("docker_exec_success", username=username, token_name=token_name, token_prefix=token[:20])
 					return {
 						"success": True,
 						"token": {
@@ -382,17 +371,17 @@ class GiteaAdminService:
 						}
 					}
 				else:
-					print(f"  -> Docker method failed: {result.stderr[:100]}")
+					logger.warning("docker_exec_failed", stderr=result.stderr[:100])
 			except FileNotFoundError:
-				print(f"  -> Docker not found on host, trying fallback...")
+				logger.warning("docker_not_found")
 			except subprocess.TimeoutExpired:
-				print(f"  -> Docker command timeout")
+				logger.warning("docker_command_timeout")
 			except Exception as e:
-				print(f"  -> Docker method error: {e}")
+				logger.error("docker_exec_error", error=str(e))
 			
 			# Fallback: Use curl to execute command in Gitea container via Docker socket
 			# This works when FastAPI is in the Docker network
-			print(f"  -> Attempting fallback via Gitea internal command...")
+			logger.debug("attempting_fallback_method")
 			try:
 				# Try to directly call gitea command if FastAPI is in the same network
 				# This requires that fastapi container can reach gitea container
@@ -411,8 +400,7 @@ class GiteaAdminService:
 				
 				if result.returncode == 0:
 					token = result.stdout.strip()
-					print(f"  -> Fallback method succeeded")
-					print(f"  -> Token created: {token[:20]}...")
+					logger.info("fallback_method_success", username=username, token_name=token_name, token_prefix=token[:20])
 					return {
 						"success": True,
 						"token": {
@@ -421,9 +409,9 @@ class GiteaAdminService:
 						}
 					}
 				else:
-					print(f"  -> Fallback failed: {result.stderr[:100]}")
+					logger.warning("fallback_method_failed", stderr=result.stderr[:100])
 			except Exception as e:
-				print(f"  -> Fallback error: {e}")
+				logger.error("fallback_method_error", error=str(e))
 			
 			# If both Docker methods failed, return error
 			return {
@@ -432,9 +420,7 @@ class GiteaAdminService:
 			}
 			
 		except Exception as e:
-			print(f"  -> Unexpected error: {e}")
-			import traceback
-			traceback.print_exc()
+			logger.error("unexpected_cli_error", error=str(e), exc_info=True)
 			return {
 				"success": False,
 				"message": f"Unexpected error: {e}"
@@ -478,12 +464,12 @@ class GiteaAdminService:
 			return cli_result
 		
 		# Fallback to API method (kept for backwards compatibility)
-		print(f"[GiteaAdminService] CLI method failed, falling back to API method...")
+		logger.debug("cli_method_failed_fallback_to_api")
 		
 		# First, verify our admin token is valid
 		token_check = self.verify_admin_token()
 		if not token_check.get("valid"):
-			print(f"  -> CRITICAL: Admin token verification failed!")
+			logger.error("admin_token_verification_failed", error=token_check.get('error'))
 			return {
 				"success": False, 
 				"message": f"Admin token is invalid: {token_check.get('error')}"
@@ -492,7 +478,7 @@ class GiteaAdminService:
 		# Verify the user exists in Gitea
 		user_check = self.get_user_by_username(username)
 		if not user_check.get("exists"):
-			print(f"  -> CRITICAL: User {username} does not exist in Gitea!")
+			logger.error("user_not_found_in_gitea", username=username)
 			return {
 				"success": False,
 				"message": "User not found in Gitea. Create the user first."
@@ -511,13 +497,7 @@ class GiteaAdminService:
 		
 		payload = {"name": token_name, "scopes": scopes}
 
-		print(f"[GiteaAdminService] create_or_get_user_token (API): POST /api/v1/users/{username}/tokens")
-		print(f"  token_name={token_name}")
-		print(f"  scopes={scopes}")
-		print(f"  url={url}")
-		print(f"  Authorization header: {headers['Authorization'][:20]}...")
-		# print(f"  Sudo header: {headers['Sudo']}")
-		print(f"  payload={payload}")
+		logger.debug("create_user_token_api", username=username, token_name=token_name, scopes=scopes, url=url, auth_header_prefix=headers['Authorization'][:20])
 
 		try:
 			resp = requests.get(
@@ -527,37 +507,32 @@ class GiteaAdminService:
 				timeout=10
 			)
 			
-			print(f"  -> status={resp.status_code}")
+			logger.debug("token_create_response", status_code=resp.status_code)
 			
 			if resp.status_code in (200, 201):
 				token_data = resp.json()
-				print(f"  -> token created successfully")
-				print(f"  -> token_id={token_data.get('id')}")
-				print(f"  -> token_name={token_data.get('name')}")
+				logger.info("token_created_successfully", username=username, token_id=token_data.get('id'), token_name=token_data.get('name'))
 				return {"success": True, "token": token_data}
 			elif resp.status_code == 404:
-				print(f"  -> error: User not found in Gitea")
+				logger.error("user_not_found_gitea", username=username)
 				return {"success": False, "message": "User not found in Gitea"}
 			elif resp.status_code == 422:
-				print(f"  -> error: Token name already exists")
+				logger.warning("token_name_exists", token_name=token_name)
 				return {"success": False, "message": "Token name already exists"}
 			elif resp.status_code in (401, 403):
-				print(f"  -> error: Admin authentication failed")
-				print(f"  -> Response: {resp.text[:200]}")
+				logger.error("admin_auth_failed", response=resp.text[:200])
 				return {"success": False, "message": "Admin authentication failed"}
 			else:
-				print(f"  -> error: {resp.text[:200]}")
+				logger.error("gitea_api_error", status_code=resp.status_code, response=resp.text[:200])
 				return {"success": False, "message": f"Gitea API error: {resp.text}"}
 		except requests.Timeout:
-			print(f"  -> timeout error")
+			logger.error("gitea_api_timeout")
 			return {"success": False, "status": 504, "message": "Gitea API timeout"}
 		except requests.RequestException as e:
-			print(f"  -> network error: {e}")
+			logger.error("network_error", error=str(e))
 			return {"success": False, "status": 0, "message": f"Network error: {e}"}
 		except Exception as e:
-			print(f"  -> unexpected error: {e}")
-			import traceback
-			traceback.print_exc()
+			logger.error("unexpected_error", error=str(e), exc_info=True)
 			return {"success": False, "status": 500, "message": f"Unexpected error: {e}"}
 
 	def list_user_tokens(self, username: str) -> Dict[str, Any]:
