@@ -13,5 +13,4 @@ bcrypt
 slowapi
 structlog
 mutagen>=1.47.0
-supabase>=2.3.0
 docker>=6.0.0
