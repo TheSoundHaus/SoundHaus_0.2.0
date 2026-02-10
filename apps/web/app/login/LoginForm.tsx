@@ -10,16 +10,16 @@ import Link from "next/link";
 const LoginForm = () => {
   return (
     <div className="min-h-screen flex bg-navy">
-      {/* Logo/Brand - Top Left */}
-      <div className="absolute top-4 left-4 lg:top-8 lg:left-8 z-10">
-        <Link href="/" className="inline-block">
-          <h1 className="text-3xl font-bold text-soft-white">SoundHaus</h1>
-        </Link>
-      </div>
-
       {/* Left Content Container - Sign In Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8 ">
-        <div className="w-full max-w-md pt-20 lg:pt-0">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8">
+        <div className="w-full max-w-md">
+          {/* Logo/Brand */}
+          <div className="mb-12">
+            <Link href="/" className="inline-block">
+              <h1 className="text-3xl font-bold text-soft-white">SoundHaus</h1>
+            </Link>
+          </div>
+
           {/* Header section */}
           <div className="mb-8">
             <h2 className="text-4xl text-soft-white font-semibold mb-2">

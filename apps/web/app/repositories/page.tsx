@@ -19,19 +19,19 @@ export default function RepositoriesPage() {
       {/* Navigation Header */}
       <nav className="border-b border-zinc-800 px-6 py-4">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <Link href="/" className="text-2xl font-bold tracking-tight">
+          <Link href="/" className="text-2xl font-bold tracking-tight hover:text-glass-blue-400 transition-colors duration-300" style={{textShadow: '0 0 20px rgba(167, 199, 231, 0.3)'}}>
             SoundHaus
           </Link>
           <div className="flex gap-4">
             <Link
               href="/explore"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800"
+              className="rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 hover:bg-zinc-800 text-zinc-300 hover:text-glass-blue-400"
             >
               Explore
             </Link>
             <Link
               href="/settings"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800"
+              className="rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100"
             >
               Settings
             </Link>
@@ -50,14 +50,14 @@ export default function RepositoriesPage() {
               Manage your remote Ableton projects
             </p>
           </div>
-          <button className="rounded-md bg-zinc-100 px-6 py-3 font-medium text-zinc-900 transition-colors hover:bg-zinc-200">
+          <button className="btn btn-primary">
             + New Repository
           </button>
         </div>
 
         {/* View Toggle and Stats */}
         <div className="mb-8 flex items-center justify-between">
-          <div className="flex gap-6 text-sm text-zinc-400">
+          <div className="flex gap-6 text-sm text-glass-cyan-500">
             <span>12 Repositories</span>
             <span>•</span>
             <span>3 Collaborations</span>
@@ -67,20 +67,20 @@ export default function RepositoriesPage() {
           <div className="flex gap-2">
             <button
               onClick={() => setView("grid")}
-              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 ${
                 view === "grid"
-                  ? "bg-zinc-100 text-zinc-900"
-                  : "bg-zinc-800 hover:bg-zinc-700"
+                  ? "btn btn-primary"
+                  : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
               }`}
             >
               Grid
             </button>
             <button
               onClick={() => setView("list")}
-              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 ${
                 view === "list"
-                  ? "bg-zinc-100 text-zinc-900"
-                  : "bg-zinc-800 hover:bg-zinc-700"
+                  ? "btn btn-primary"
+                  : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
               }`}
             >
               List
@@ -100,19 +100,21 @@ export default function RepositoriesPage() {
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div
               key={i}
-              className={`rounded-lg border border-zinc-800 p-6 transition-colors hover:border-zinc-700 hover:bg-zinc-800/50 ${
+              className={`rounded-lg border border-zinc-800 p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] group cursor-pointer ${
                 view === "list" ? "flex items-center justify-between" : ""
               }`}
             >
               <div className={view === "list" ? "flex-1" : ""}>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">My Project {i}</h3>
-                  <span className="text-xs text-zinc-500">Private</span>
+                  <h3 className="text-lg font-semibold group-hover:text-glass-blue-400 transition-colors duration-300">
+                    My Project {i}
+                  </h3>
+                  <span className="text-xs px-2 py-1 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">Private</span>
                 </div>
                 <p className="mb-4 text-sm text-zinc-400">
                   Last updated 3 days ago
                 </p>
-                <div className="flex gap-4 text-sm text-zinc-400">
+                <div className="flex gap-4 text-sm text-glass-cyan-500">
                   <span>🎵 8 tracks</span>
                   <span>👥 2 collaborators</span>
                   <span>📊 24 commits</span>
@@ -120,10 +122,10 @@ export default function RepositoriesPage() {
               </div>
               {view === "list" && (
                 <div className="flex gap-2">
-                  <button className="rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium hover:bg-zinc-700">
+                  <button className="btn btn-primary text-sm">
                     Open in Desktop
                   </button>
-                  <button className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-800">
+                  <button className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium hover:bg-zinc-800 transition-colors duration-300">
                     Settings
                   </button>
                 </div>
