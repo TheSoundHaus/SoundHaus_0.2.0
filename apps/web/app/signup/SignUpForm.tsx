@@ -10,18 +10,18 @@ import Link from "next/link";
 const SignUpForm = () => {
   return (
     <div className="min-h-screen flex bg-navy">
-      {/* Logo/Brand - Top Left */}
-      <div className="absolute top-4 left-4 lg:top-8 lg:left-8 z-10">
-        <Link href="/" className="inline-block">
-          <h1 className="text-3xl font-bold text-soft-white">SoundHaus</h1>
-        </Link>
-      </div>
-
       {/* Left Content Container - Sign Up Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-8">
-        <div className="w-full max-w-md pt-20 lg:pt-0">
-          {/* Header section */}
+        <div className="w-full max-w-md">
+          {/* Logo/Brand */}
           <div className="mb-8">
+            <Link href="/" className="inline-block">
+              <h1 className="text-3xl font-bold text-soft-white">SoundHaus</h1>
+            </Link>
+          </div>
+
+          {/* Header section */}
+          <div className="mb-6">
             <h2 className="text-4xl text-soft-white font-semibold mb-2">
               Create Account
             </h2>
@@ -31,7 +31,7 @@ const SignUpForm = () => {
           </div>
 
           {/* Form */}
-          <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
+          <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
             {/* Username field */}
             <div>
               <label htmlFor="username" className="label">
@@ -97,13 +97,13 @@ const SignUpForm = () => {
             </div>
 
             {/* Submit button */}
-            <button type="submit" className="btn btn-primary w-full mt-2">
+            <button type="submit" className="btn btn-primary w-full">
               Create Account
             </button>
           </form>
 
           {/* Sign in link */}
-          <div className="mt-6 pt-6 border-t border-white/10">
+          <div className="mt-5 pt-5 border-t border-white/10">
             <p className="text-center text-base text-muted">
               Already have an account?{' '}
               <Link
@@ -118,7 +118,7 @@ const SignUpForm = () => {
       </div>
 
       {/* Right Content Container - Empty */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-navy via-navy to-zinc-900 relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br relative overflow-hidden bg-soft-white">
         {/* Empty container ready for branding/visuals */}
       </div>
     </div>
