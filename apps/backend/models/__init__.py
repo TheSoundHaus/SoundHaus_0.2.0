@@ -11,4 +11,5 @@ from models.pat_models import PersonalAccessToken
 from models.invitation_models import CollaboratorInvitation
 from models.webhook_models import WebhookConfig, WebhookDelivery
 
-__all__ = ["RepoData", "CloneEvent", "GenreList", "repo_genres"]
+__all__ = ["RepoData", "CloneEvent", "GenreList", "repo_genres", "PersonalAccessToken", 
+           "CollaboratorInvitation", "WebhookConfig", "WebhookDelivery"]

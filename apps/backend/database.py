@@ -2,6 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from config import settings
+from logging_config import get_logger
 
 # Get database URL from settings
 DATABASE_URL = settings.database_url
@@ -19,6 +20,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Base class for all models
 Base = declarative_base()
 
+logger = get_logger(__name__)
+
 def get_db():
     """Dependency to get DB session"""
     db = SessionLocal()
@@ -35,10 +38,10 @@ def test_connection():
         db = SessionLocal()
         db.execute(text("SELECT 1"))
         db.close()
-        print("✅ Database connection successful!")
+        logger.info("✅ Database connection successful!")
         return True
     except Exception as e:
-        print(f"❌ Database connection failed: {e}")
+        logger.info(f"❌ Database connection failed: {e}")
         return False
 
 # Initialize database tables
@@ -59,4 +62,4 @@ def init_db():
     from models.pat_models import PersonalAccessToken
     
     Base.metadata.create_all(bind=engine)
-    print("✅ Database tables created!")
+    logger.info("✅ Database tables created!")
