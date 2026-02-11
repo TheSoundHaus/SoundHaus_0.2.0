@@ -19,7 +19,6 @@ from app.models.schemas import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-
 @router.post("/signup")
 async def signup(
     request: SignUpRequest,
