@@ -1487,7 +1487,7 @@ async def create_genre(
         }
     }
 
-@app.post("/genres/{genre_id}")
+@app.get("/genres/{genre_id}")
 @limiter.limit("60/minute")  # IP-based: public genre browsing
 async def get_genre_details(
     request: Request,
