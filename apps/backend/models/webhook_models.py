@@ -39,7 +39,6 @@ from database import Base
 import uuid
 import hmac
 import hashlib
-from typing import Optional
 
 
 class WebhookDelivery(Base):
