@@ -33,7 +33,7 @@ import uuid
 import secrets
 import subprocess
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from pathlib import Path
 from models.schemas import (
@@ -682,8 +682,8 @@ async def invite_collaborator(
             invitee_email = invitee_email,
             permission = permission,
             status = "pending",
-            created_at = datetime.now(datetime.timezone.utc),
-            expires_at = (datetime.now(datetime.timezone.utc)+ timedelta(days=7))
+            created_at = datetime.now(timezone.utc),
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=7))
         )
 
         db.add(invitation)
@@ -758,7 +758,7 @@ async def get_pending_invitations(
         invitations = db.query(CollaboratorInvitation).filter(
             CollaboratorInvitation.invitee_email == email,
             CollaboratorInvitation.status == "pending",
-            CollaboratorInvitation.expires_at > datetime.utcnow()
+            CollaboratorInvitation.expires_at > datetime.now(timezone.utc)
         ).all()
         
         invitation_list = [
@@ -823,7 +823,7 @@ async def accept_invitation(
                 detail=f"Invitation already {invitation.status}"
             )
         
-        if invitation.expires_at < datetime.utcnow():
+        if invitation.expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="Invitation has expired")
         
         # Generate username for invitee
@@ -865,7 +865,7 @@ async def accept_invitation(
         
         # Mark invitation as accepted
         invitation.status = "accepted"
-        invitation.responded_at = datetime.utcnow()
+        invitation.responded_at = datetime.now(timezone.utc)
         db.commit()
         
         return {
@@ -914,7 +914,7 @@ async def decline_invitation(
         
         # Mark invitation as declined
         invitation.status = "declined"
-        invitation.responded_at = datetime.utcnow()
+        invitation.responded_at = datetime.now(timezone.utc)
         db.commit()
         
         return {"success": True, "message": "Invitation declined"}
@@ -1009,7 +1009,7 @@ async def desktop_login(
             await pat_service.revoke_pat(str(pat.id), user_id, db)
 
     # Step 3: Create new desktop PAT automatically
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     token_name = f"Desktop Auto Token {timestamp}"
     
     pat_result = await pat_service.create_pat(
@@ -1223,8 +1223,7 @@ async def get_desktop_credentials(
             print(f"[get_desktop_credentials] Cached token is invalid/expired, creating new one")
 
     # Step 2: Create a new Gitea token (cached was missing or invalid)
-    from datetime import datetime
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     token_name = f"Desktop Access Token - {timestamp}"
 
     gitea_result = gitea_admin_service.create_or_get_user_token(
