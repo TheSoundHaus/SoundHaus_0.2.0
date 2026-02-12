@@ -86,6 +86,7 @@ user_limiter = Limiter(
 # Other app constants
 MAX_TOKENS_PER_USER = 10
 DEFAULT_TOKEN_EXPIRY_DAYS = 90
+MAX_AUDIO_SNIPPET_SIZE = 10 * 1024 * 1024  # 10MB limit for audio snippet uploads
 
 app = FastAPI(title="SoundHaus API", version="1.0.0")
 app.state.limiter = limiter
@@ -1581,6 +1582,14 @@ async def upload_audio_snippet(
         repo_data = RepoData(gitea_id=repo_id, owner_id=str(user_id), clone_count=0)
         db.add(repo_data)
     
+    # Validate file size before reading content (check Content-Length header)
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_AUDIO_SNIPPET_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes (10MB)"
+        )
+    
     # Validate content-type header before processing
     if file.content_type and not file.content_type.startswith("audio/"):
         raise HTTPException(
@@ -1591,12 +1600,11 @@ async def upload_audio_snippet(
     # Read file content
     content = await file.read()
     
-    # Validate file size (10MB limit for audio snippets)
-    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-    if len(content) > MAX_FILE_SIZE:
+    # Validate actual file size after reading (defense in depth)
+    if len(content) > MAX_AUDIO_SNIPPET_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"File size {len(content)} bytes exceeds maximum allowed size of {MAX_FILE_SIZE} bytes (10MB)"
+            detail=f"File size {len(content)} bytes exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes (10MB)"
         )
     
     # Validate file is not empty
