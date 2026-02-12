@@ -1581,8 +1581,27 @@ async def upload_audio_snippet(
         repo_data = RepoData(gitea_id=repo_id, owner_id=str(user_id), clone_count=0)
         db.add(repo_data)
     
+    # Validate content-type header before processing
+    if file.content_type and not file.content_type.startswith("audio/"):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid content type '{file.content_type}'. Must be an audio file."
+        )
+    
     # Read file content
     content = await file.read()
+    
+    # Validate file size (10MB limit for audio snippets)
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size {len(content)} bytes exceeds maximum allowed size of {MAX_FILE_SIZE} bytes (10MB)"
+        )
+    
+    # Validate file is not empty
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
     
     # Save file, validate audio type, and extract metadata via Supabase Storage
     try:
