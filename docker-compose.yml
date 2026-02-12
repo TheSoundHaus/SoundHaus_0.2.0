@@ -12,7 +12,7 @@
 #   
 #   1. Run ngrok:  ngrok http 8000
 #   2. Copy the https URL (e.g., https://abc123.ngrok-free.dev)
-#   3. Set WEBHOOK_BASE_URL in apps/backend/.env.docker to that URL
+#   3. Set WEBHOOK_BASE_URL in apps/backend/.env to that URL
 #   4. Restart the fastapi container: docker compose restart fastapi
 #   5. New repos will auto-register webhooks at the ngrok URL
 #   
@@ -41,27 +41,7 @@ networks:
   appnet: {}
 
 services:
-  # SoundHaus application database (mirrors Supabase in production)
-  soundhaus_db:
-    image: postgres:15
-    container_name: soundhaus_db
-    restart: always
-    networks: [appnet]
-    environment:
-      - POSTGRES_USER=soundhaus_user
-      - POSTGRES_PASSWORD=soundhaus_password
-      - POSTGRES_DB=soundhaus_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - soundhaus_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U soundhaus_user -d soundhaus_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Gitea's dedicated database (separate from SoundHaus data)
+  # Gitea's dedicated database
   gitea_db:
     image: postgres:15
     container_name: gitea_db
@@ -134,9 +114,7 @@ services:
     container_name: fastapi
     restart: unless-stopped  # Auto-restart on failure, but not on manual stop
     networks: [appnet]
-    depends_on: 
-      soundhaus_db:
-        condition: service_started
+    depends_on:
       gitea:
         condition: service_started
     ports:
@@ -154,8 +132,6 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-auto}
-      # Override DATABASE_URL to use Docker service name
-      - DATABASE_URL=postgresql://soundhaus_user:soundhaus_password@soundhaus_db:5432/soundhaus_db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -171,7 +147,5 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
-  soundhaus_pgdata:
-    driver: local
   gitea_pgdata:
     driver: local

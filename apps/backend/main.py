@@ -23,17 +23,11 @@ from models.genre_models import GenreList, repo_genres
 from models.pat_models import PersonalAccessToken
 from models.invitation_models import CollaboratorInvitation
 from models.webhook_models import (
-    WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig,
-    validate_webhook_signature, parse_gitea_event, extract_repo_info
+    WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig
 )
-import hashlib
 import os
-import sys
 import uuid
-import secrets
-import subprocess
-import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
 from models.schemas import (
@@ -792,8 +786,6 @@ async def get_pending_invitations(
         raise
     except Exception as e:
         logger.error("get_pending_invitations", error=str(e), exc_info=True)
-        import traceback
-        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail="Failed to fetch invitations"

@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from config import settings
 from logging_config import get_logger
+import os
 
 # Get database URL from settings
 DATABASE_URL = settings.database_url
@@ -11,7 +12,7 @@ DATABASE_URL = settings.database_url
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True, # ensures connections are valid before sending queries
-    echo=True # logs SQL statements for debugging, could be removed in PROD
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true"  # set SQL_ECHO=true to log queries
 )
 
 # Create session factory
@@ -38,10 +39,10 @@ def test_connection():
         db = SessionLocal()
         db.execute(text("SELECT 1"))
         db.close()
-        logger.info("✅ Database connection successful!")
+        logger.info("database_connection_test", status="success")
         return True
     except Exception as e:
-        logger.info(f"❌ Database connection failed: {e}")
+        logger.error("database_connection_test", status="failed", error=str(e))
         return False
 
 # Initialize database tables
@@ -62,4 +63,4 @@ def init_db():
     from models.pat_models import PersonalAccessToken
     
     Base.metadata.create_all(bind=engine)
-    logger.info("✅ Database tables created!")
+    logger.info("database_tables_created", status="success")
