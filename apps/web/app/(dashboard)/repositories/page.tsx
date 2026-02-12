@@ -15,31 +15,7 @@ export default function RepositoriesPage() {
   const [view, setView] = useState<"grid" | "list">("grid");
 
   return (
-    <div className="min-h-screen bg-zinc-900 text-zinc-100">
-      {/* Navigation Header */}
-      <nav className="border-b border-zinc-800 px-6 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <Link href="/" className="text-2xl font-bold tracking-tight hover:text-glass-blue-400 transition-colors duration-300" style={{textShadow: '0 0 20px rgba(167, 199, 231, 0.3)'}}>
-            SoundHaus
-          </Link>
-          <div className="flex gap-4">
-            <Link
-              href="/explore"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 hover:bg-zinc-800 text-zinc-300 hover:text-glass-blue-400"
-            >
-              Explore
-            </Link>
-            <Link
-              href="/settings"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100"
-            >
-              Settings
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-7xl px-6 py-12">
+    <main className="mx-auto max-w-7xl px-6 py-12">
         {/* Page Header */}
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -134,6 +110,5 @@ export default function RepositoriesPage() {
           ))}
         </div>
       </main>
-    </div>
   );
 }
