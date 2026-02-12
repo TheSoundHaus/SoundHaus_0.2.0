@@ -23,7 +23,6 @@ class SupabaseAuthService:
         """Initialize Supabase client with credentials from environment variables."""
         supabase_url = settings.supabase_url
         supabase_key = settings.supabase_pub_key
-        service_key = settings.supabase_service_key
         
         if not supabase_url or not supabase_key:
             raise ValueError(
