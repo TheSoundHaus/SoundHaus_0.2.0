@@ -33,7 +33,7 @@ import uuid
 import secrets
 import subprocess
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from pathlib import Path
 from models.schemas import (
@@ -682,8 +682,8 @@ async def invite_collaborator(
             invitee_email = invitee_email,
             permission = permission,
             status = "pending",
-            created_at = datetime.now(datetime.timezone.utc),
-            expires_at = (datetime.now(datetime.timezone.utc)+ timedelta(days=7))
+            created_at = datetime.now(timezone.utc),
+            expires_at = (datetime.now(timezone.utc)+ timedelta(days=7))
         )
 
         db.add(invitation)
