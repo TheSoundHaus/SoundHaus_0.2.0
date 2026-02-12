@@ -1584,11 +1584,16 @@ async def upload_audio_snippet(
     
     # Validate file size before reading content (check Content-Length header)
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > MAX_AUDIO_SNIPPET_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File size exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes (10MB)"
-        )
+    if content_length:
+        try:
+            if int(content_length) > MAX_AUDIO_SNIPPET_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File size exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes"
+                )
+        except ValueError:
+            # Invalid Content-Length header, will validate after reading
+            pass
     
     # Validate content-type header before processing
     if file.content_type and not file.content_type.startswith("audio/"):
@@ -1604,7 +1609,7 @@ async def upload_audio_snippet(
     if len(content) > MAX_AUDIO_SNIPPET_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"File size {len(content)} bytes exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes (10MB)"
+            detail=f"File size {len(content)} bytes exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes"
         )
     
     # Validate file is not empty
