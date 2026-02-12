@@ -69,6 +69,17 @@ def get_user_or_ip(request: Request) -> str:
     # Fall back to IP address
     return get_remote_address(request)
 
+def format_bytes(bytes_size: int) -> str:
+    """Convert bytes to human-readable format (KB, MB, GB)."""
+    if bytes_size < 1024:
+        return f"{bytes_size} bytes"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.1f} KB"
+    elif bytes_size < 1024 * 1024 * 1024:
+        return f"{bytes_size / (1024 * 1024):.1f} MB"
+    else:
+        return f"{bytes_size / (1024 * 1024 * 1024):.1f} GB"
+
 # Initialize IP-based limiter with config
 limiter = Limiter(
     key_func=get_remote_address,
@@ -86,6 +97,7 @@ user_limiter = Limiter(
 # Other app constants
 MAX_TOKENS_PER_USER = 10
 DEFAULT_TOKEN_EXPIRY_DAYS = 90
+MAX_AUDIO_SNIPPET_SIZE = 10 * 1024 * 1024  # 10MB limit for audio snippet uploads
 
 app = FastAPI(title="SoundHaus API", version="1.0.0")
 app.state.limiter = limiter
@@ -1581,8 +1593,39 @@ async def upload_audio_snippet(
         repo_data = RepoData(gitea_id=repo_id, owner_id=str(user_id), clone_count=0)
         db.add(repo_data)
     
+    # Validate file size before reading content (check Content-Length header)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_AUDIO_SNIPPET_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File size exceeds maximum allowed size of {format_bytes(MAX_AUDIO_SNIPPET_SIZE)}"
+                )
+        except ValueError:
+            # Invalid Content-Length header, will validate after reading
+            pass
+    
+    # Validate content-type header before processing
+    if file.content_type and not file.content_type.startswith("audio/"):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid content type '{file.content_type}'. Must be an audio file."
+        )
+    
     # Read file content
     content = await file.read()
+    
+    # Validate actual file size after reading (defense in depth)
+    if len(content) > MAX_AUDIO_SNIPPET_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size {format_bytes(len(content))} exceeds maximum allowed size of {format_bytes(MAX_AUDIO_SNIPPET_SIZE)}"
+        )
+    
+    # Validate file is not empty
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
     
     # Save file, validate audio type, and extract metadata via Supabase Storage
     try:
