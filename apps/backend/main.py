@@ -683,7 +683,7 @@ async def invite_collaborator(
             permission = permission,
             status = "pending",
             created_at = datetime.now(timezone.utc),
-            expires_at = (datetime.now(timezone.utc)+ timedelta(days=7))
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=7))
         )
 
         db.add(invitation)
