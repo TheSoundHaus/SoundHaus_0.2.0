@@ -1,11 +1,49 @@
-version: "3.8"
-
 networks:
   appnet: {}
 
 services:
+  # SoundHaus application database (mirrors Supabase in production)
+  soundhaus_db:
+    image: postgres:15
+    container_name: soundhaus_db
+    restart: always
+    networks: [appnet]
+    environment:
+      - POSTGRES_USER=soundhaus_user
+      - POSTGRES_PASSWORD=soundhaus_password
+      - POSTGRES_DB=soundhaus_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - soundhaus_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soundhaus_user -d soundhaus_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Gitea's dedicated database (separate from SoundHaus data)
+  gitea_db:
+    image: postgres:15
+    container_name: gitea_db
+    restart: always
+    networks: [appnet]
+    environment:
+      - POSTGRES_USER=gitea
+      - POSTGRES_PASSWORD=gitea_password
+      - POSTGRES_DB=gitea
+    ports:
+      - "5433:5432"
+    volumes:
+      - gitea_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitea -d gitea"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   gitea:
-    image: docker.gitea.com/gitea:1.24.6
+    image: gitea/gitea:1.24.6
     container_name: gitea
     restart: always
     networks:
@@ -13,71 +51,66 @@ services:
     environment:
       - USER_UID=1000
       - USER_GID=1000
-      # SSH Configuration
+      - RUN_USER=git
+      # PostgreSQL Database Configuration - uses dedicated gitea_db
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=gitea_db:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=gitea
+      - GITEA__database__PASSWD=gitea_password
+      - GITEA__database__SCHEMA=public
+      - GITEA__database__SSL_MODE=disable
+      # Server Configuration
       - GITEA__server__START_SSH_SERVER=true
       - GITEA__server__SSH_LISTEN_PORT=2222
       - GITEA__server__SSH_PORT=2222
-      # LFS Support
       - GITEA__lfs__START_SERVER=true
-      # Digital Ocean Spaces LFS Storage Configuration
-      # - GITEA__lfs__STORAGE_TYPE=minio
-      # - GITEA__lfs__MINIO_ENDPOINT=${DO_SPACES_ENDPOINT}
-      # - GITEA__lfs__MINIO_ACCESS_KEY_ID=${DO_SPACES_KEY}
-      # - GITEA__lfs__MINIO_SECRET_ACCESS_KEY=${DO_SPACES_SECRET}
-      # - GITEA__lfs__MINIO_BUCKET=${DO_SPACES_BUCKET}
-      # - GITEA__lfs__MINIO_LOCATION=${DO_SPACES_REGION}
-      # - GITEA__lfs__MINIO_USE_SSL=true
-      # Server Configuration
       - GITEA__server__HTTP_ADDR=0.0.0.0
-      - GITEA__server__ROOT_URL=${ROOT_URL:-http://localhost:3000/}
-      - GITEA__server__SSH_DOMAIN=${DOMAIN:-localhost}
-      - GITEA__server__DOMAIN=${DOMAIN:-localhost}
-      # Supabase PostgreSQL Database Configuration
-      - GITEA__database__DB_TYPE=postgres
-      - GITEA__database__HOST=${SUPABASE_DB_HOST}
-      - GITEA__database__NAME=${SUPABASE_DB_NAME}
-      - GITEA__database__USER=${SUPABASE_DB_USER}
-      - GITEA__database__PASSWD=${SUPABASE_DB_PASSWORD}
-      - GITEA__database__SSL_MODE=${SUPABASE_DB_SSL_MODE:-require}
+      - GITEA__server__SSH_DOMAIN=localhost
+      - GITEA__server__DOMAIN=localhost
+      # Skip web installer - pre-configure everything
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__security__SECRET_KEY=fFbyP0N4ixAjjIuQIxNnACScOSqb4LnAa5ZnUhE16nc8ff6NHoTPjlmYAKF0jbhn
+      - GITEA__security__INTERNAL_TOKEN=++II1hLH8GlP5MjjkNewYL7yZ1a4uj7vp7h5Wa7BzSx9Hbh5Jb9n0U7P4BvYanVK6jnImowJVCEVZs7vFJ+f7BLHQP5NDA19oHp/GOblsP1c4IE4QgwX3TkjHvq+FG6WmvmD/17AoGY9
     volumes:
-      - ./apps/backend/gitea:/data
+      - ./gitea:/data
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     ports:
       - "3000:3000"
       - "2222:2222"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    depends_on:
+      gitea_db:
+        condition: service_healthy
 
   fastapi:
     build:
-      context: ./apps/backend/fastapi
+      context: ./apps/backend
       dockerfile: Dockerfile
     image: fastapi:basic
     container_name: fastapi
     restart: always
-    networks:
-      - appnet
-    depends_on:
+    networks: [appnet]
+    depends_on: 
+      - soundhaus_db
       - gitea
     ports:
       - "8000:8000"
     volumes:
-      - ./apps/backend/fastapi:/app/fastapi
+      - ./apps/backend:/app
       - ./workers:/workers
-    working_dir: /app/fastapi
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount SSH keys for Gitea CLI access
+      - ${HOME}/.ssh:/root/.ssh:ro
     env_file:
-      - .env
+      - ./apps/backend/.env
     environment:
-      - GITEA_URL=http://gitea:3000
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
+      # Override DATABASE_URL to use Docker service name (SoundHaus DB only)
+      - DATABASE_URL=postgresql://soundhaus_user:soundhaus_password@soundhaus_db:5432/soundhaus_db
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  soundhaus_pgdata:
+    driver: local
+  gitea_pgdata:
+    driver: local
