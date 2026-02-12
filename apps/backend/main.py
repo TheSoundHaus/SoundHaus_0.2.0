@@ -69,6 +69,17 @@ def get_user_or_ip(request: Request) -> str:
     # Fall back to IP address
     return get_remote_address(request)
 
+def format_bytes(bytes_size: int) -> str:
+    """Convert bytes to human-readable format (KB, MB, GB)."""
+    if bytes_size < 1024:
+        return f"{bytes_size} bytes"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.1f} KB"
+    elif bytes_size < 1024 * 1024 * 1024:
+        return f"{bytes_size / (1024 * 1024):.1f} MB"
+    else:
+        return f"{bytes_size / (1024 * 1024 * 1024):.1f} GB"
+
 # Initialize IP-based limiter with config
 limiter = Limiter(
     key_func=get_remote_address,
@@ -1589,7 +1600,7 @@ async def upload_audio_snippet(
             if int(content_length) > MAX_AUDIO_SNIPPET_SIZE:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"File size exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes"
+                    detail=f"File size exceeds maximum allowed size of {format_bytes(MAX_AUDIO_SNIPPET_SIZE)}"
                 )
         except ValueError:
             # Invalid Content-Length header, will validate after reading
@@ -1609,7 +1620,7 @@ async def upload_audio_snippet(
     if len(content) > MAX_AUDIO_SNIPPET_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"File size {len(content)} bytes exceeds maximum allowed size of {MAX_AUDIO_SNIPPET_SIZE} bytes"
+            detail=f"File size {format_bytes(len(content))} exceeds maximum allowed size of {format_bytes(MAX_AUDIO_SNIPPET_SIZE)}"
         )
     
     # Validate file is not empty
