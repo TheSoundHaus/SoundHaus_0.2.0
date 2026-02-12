@@ -149,7 +149,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - /app/venv  # Prevent venv from being mounted from host
     env_file:
-      - ./apps/backend/.env.docker
+      - ./apps/backend/.env
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
