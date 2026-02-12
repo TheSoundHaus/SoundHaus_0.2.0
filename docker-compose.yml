@@ -1,3 +1,42 @@
+# ==============================================================================
+# SoundHaus Docker Compose
+# ==============================================================================
+#
+# WEBHOOK INFRASTRUCTURE NOTES:
+#
+# The webhook system requires Gitea (running inside Docker) to be able to
+# reach the FastAPI container via HTTP POST. Here's how it works:
+#
+# DEVELOPMENT (current setup):
+#   Gitea (Docker) → ngrok tunnel → host machine:8000 → FastAPI (Docker)
+#   
+#   1. Run ngrok:  ngrok http 8000
+#   2. Copy the https URL (e.g., https://abc123.ngrok-free.dev)
+#   3. Set WEBHOOK_BASE_URL in apps/backend/.env.docker to that URL
+#   4. Restart the fastapi container: docker compose restart fastapi
+#   5. New repos will auto-register webhooks at the ngrok URL
+#   
+#   ⚠️ ngrok URLs change every time you restart ngrok (free tier).
+#   When the URL changes, existing webhooks will fail. You'll need to either:
+#     a) Delete and recreate repos (webhooks auto-register)
+#     b) Update existing webhooks via Gitea API (use gitea_service methods)
+#
+# ALTERNATIVE DEV SETUP (no ngrok needed):
+#   Since Gitea and FastAPI are on the same Docker network (appnet),
+#   Gitea can reach FastAPI directly via its container name:
+#     WEBHOOK_BASE_URL=http://fastapi:8000
+#   This avoids ngrok entirely. However, Gitea must allow internal
+#   webhook URLs — you may need to add this environment variable to
+#   the gitea service below:
+#     - GITEA__webhook__ALLOWED_HOST_LIST=fastapi
+#
+# PRODUCTION:
+#   Set WEBHOOK_BASE_URL to your production API domain:
+#     WEBHOOK_BASE_URL=https://api.soundhaus.dev
+#   Ensure the domain is publicly accessible and Gitea can resolve it.
+#
+# ==============================================================================
+
 networks:
   appnet: {}
 
@@ -72,6 +111,10 @@ services:
       - GITEA__security__INSTALL_LOCK=true
       - GITEA__security__SECRET_KEY=fFbyP0N4ixAjjIuQIxNnACScOSqb4LnAa5ZnUhE16nc8ff6NHoTPjlmYAKF0jbhn
       - GITEA__security__INTERNAL_TOKEN=++II1hLH8GlP5MjjkNewYL7yZ1a4uj7vp7h5Wa7BzSx9Hbh5Jb9n0U7P4BvYanVK6jnImowJVCEVZs7vFJ+f7BLHQP5NDA19oHp/GOblsP1c4IE4QgwX3TkjHvq+FG6WmvmD/17AoGY9
+      # Webhook: Allow Gitea to send webhooks to the FastAPI container by name
+      # and to external hosts (ngrok, production domains). "external" allows
+      # any non-private IP. Add specific hostnames as needed.
+      - GITEA__webhook__ALLOWED_HOST_LIST=fastapi,external
     volumes:
       - ./gitea:/data
       - /etc/timezone:/etc/timezone:ro
@@ -87,26 +130,44 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
-    image: fastapi:basic
+    image: soundhaus_fastapi:${TAG:-latest}
     container_name: fastapi
-    restart: always
+    restart: unless-stopped  # Auto-restart on failure, but not on manual stop
     networks: [appnet]
     depends_on: 
-      - soundhaus_db
-      - gitea
+      soundhaus_db:
+        condition: service_started
+      gitea:
+        condition: service_started
     ports:
       - "8000:8000"
     volumes:
+      # In development, mount source for hot reload
       - ./apps/backend:/app
       - ./workers:/workers
-      - /var/run/docker.sock:/var/run/docker.sock
       # Mount SSH keys for Gitea CLI access
       - ${HOME}/.ssh:/root/.ssh:ro
+      - /app/venv  # Prevent venv from being mounted from host
     env_file:
       - ./apps/backend/.env
     environment:
-      # Override DATABASE_URL to use Docker service name (SoundHaus DB only)
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-auto}
+      # Override DATABASE_URL to use Docker service name
       - DATABASE_URL=postgresql://soundhaus_user:soundhaus_password@soundhaus_db:5432/soundhaus_db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:

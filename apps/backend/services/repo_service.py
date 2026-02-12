@@ -1,15 +1,19 @@
-import os
 import requests
+import base64
+import os
 from typing import Any, Dict, List, Optional
+from services.gitea_service import GiteaAdminService
+from sqlalchemy.orm import Session
+from models.webhook_models import WebhookConfig
+from logging_config import get_logger
+from config import settings
 
-GITEA_URL = os.getenv("GITEA_URL", "").rstrip("/")
-GITEA_ADMIN_TOKEN = os.getenv("GITEA_ADMIN_TOKEN") or os.getenv("GITEA_TOKEN")
-
+logger = get_logger("soundhaus.repo")
 
 class RepoService:
     def __init__(self, base_url: Optional[str] = None, admin_token: Optional[str] = None) -> None:
-        self.base_url = (base_url or GITEA_URL).rstrip("/")
-        self.token = admin_token or GITEA_ADMIN_TOKEN
+        self.base_url = (base_url or settings.gitea_url).rstrip("/")
+        self.token = admin_token or settings.gitea_admin_token
         if not self.base_url:
             raise ValueError("GITEA_URL not configured")
         if not self.token:
@@ -19,19 +23,40 @@ class RepoService:
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
 
+    def get_repo(self, username: str, repo_name: str) -> Dict[str, Any]:
+        """Get repository information to verify it exists."""
+        try:
+            resp = requests.get(
+                self._url(f"/api/v1/repos/{username}/{repo_name}"),
+                headers=self.headers,
+                timeout=15
+            )
+            logger.debug("get_repo_response", username=username, repo=repo_name, status_code=resp.status_code)
+            
+            if resp.status_code == 200:
+                return {"success": True, "repo": resp.json()}
+            else:
+                msg = self._extract_msg(resp)
+                logger.warning("get_repo_failed", username=username, repo=repo_name, error=msg)
+                return {"success": False, "status": resp.status_code, "message": msg}
+                
+        except requests.RequestException as e:
+            logger.error("get_repo_error", username=username, repo=repo_name, error=str(e))
+            return {"success": False, "status": 0, "message": f"Network error: {e}"}
+
     def list_user_repos(self, username: str) -> Dict[str, Any]:
         """List repositories for a specific user (includes private via admin token and repos where user is a collaborator)."""
         try:
             # Get owned repositories
             owned_resp = requests.get(self._url(f"/api/v1/users/{username}/repos"), headers=self.headers, timeout=15)
-            print(f"[RepoService] list_user_repos (owned) GET {self._url(f'/api/v1/users/{username}/repos')} -> {owned_resp.status_code}")
+            logger.debug("list_user_repos_owned_response", username=username, status_code=owned_resp.status_code)
             
             if owned_resp.status_code != 200:
-                print(f"[RepoService] Failed to get owned repos: {self._extract_msg(owned_resp)}")
+                logger.warning("list_user_repos_owned_failed", username=username, error=self._extract_msg(owned_resp))
                 return {"success": False, "status": owned_resp.status_code, "message": self._extract_msg(owned_resp)}
             
             owned_repos = owned_resp.json()
-            print(f"[RepoService] Found {len(owned_repos)} owned repos")
+            logger.debug("list_user_repos_owned_count", username=username, count=len(owned_repos))
             
             # Get all repositories where user is a collaborator
             # We need to search all repos and check collaboration status
@@ -42,15 +67,15 @@ class RepoService:
                 params={"uid": self._get_user_id(username), "collaboration": "true"},
                 timeout=15
             )
-            print(f"[RepoService] list_user_repos (collab) GET {self._url('/api/v1/repos/search')} -> {collab_resp.status_code}")
+            logger.debug("list_user_repos_collab_response", username=username, status_code=collab_resp.status_code)
             
             collaborated_repos = []
             if collab_resp.status_code == 200:
                 search_result = collab_resp.json()
                 collaborated_repos = search_result.get("data", [])
-                print(f"[RepoService] Found {len(collaborated_repos)} collaborated repos")
+                logger.debug("list_user_repos_collab_count", username=username, count=len(collaborated_repos))
             else:
-                print(f"[RepoService] Warning: Failed to get collaborated repos: {self._extract_msg(collab_resp)}")
+                logger.warning("list_user_repos_collab_failed", username=username, error=self._extract_msg(collab_resp))
             
             # Combine owned and collaborated repos, avoiding duplicates
             repo_ids = {repo["id"] for repo in owned_repos}
@@ -61,11 +86,11 @@ class RepoService:
                     all_repos.append(repo)
                     repo_ids.add(repo["id"])
             
-            print(f"[RepoService] Total repos (owned + collaborated): {len(all_repos)}")
+            logger.info("list_user_repos_total", username=username, count=len(all_repos))
             return {"success": True, "repos": all_repos}
             
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("list_user_repos_error", username=username, error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
     
     def _get_user_id(self, username: str) -> int:
@@ -75,13 +100,13 @@ class RepoService:
             if resp.status_code == 200:
                 user_data = resp.json()
                 return user_data.get("id", 0)
-            print(f"[RepoService] Failed to get user ID for {username}: {self._extract_msg(resp)}")
+            logger.warning("get_user_id_failed", username=username, error=self._extract_msg(resp))
             return 0
         except requests.RequestException as e:
-            print(f"[RepoService] Exception getting user ID: {e}")
+            logger.error("get_user_id_error", username=username, error=str(e))
             return 0
 
-    def create_user_repo(self, username: str, name: str, description: str = "", private: bool = True) -> Dict[str, Any]:
+    def create_user_repo(self, username: str, name: str, db: Session, description: str = "", private: bool = True,) -> Dict[str, Any]:
         """Create a new repository owned by the specified user (admin operation)."""
         payload = {
             "name": name,
@@ -96,10 +121,51 @@ class RepoService:
                 repo_data = resp.json()
                 # Initialize LFS with .gitattributes file
                 self._init_lfs_for_repo(username, name)
+                self._create_repo_webhook(username, name, db)
                 return {"success": True, "repo": repo_data}
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
         except requests.RequestException as e:
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
+    def _create_repo_webhook(self, username: str, repo_name: str, db: Session):
+            try:
+                if not settings.webhook_base_url or not settings.gitea_webhook_secret:
+                    logger.debug("webhook_creation_skipped", reason="missing_config")
+                    return
+                
+            
+                gitea_admin_service = GiteaAdminService(
+                    base_url=self.base_url,
+                    admin_token=self.token
+                )
+
+                webhook_url = f"{settings.webhook_base_url}/api/webhooks/gitea"
+                webhook_result = gitea_admin_service.create_webhook(
+                    owner=username, 
+                    repo=repo_name, 
+                    webhook_url=webhook_url,
+                    secret=settings.gitea_webhook_secret,
+                    events=["push", "create", "delete", "repository"]
+                )
+                
+                if webhook_result.get("success"):
+                    # Create webhook database entry
+                    webhook_config = WebhookConfig(
+                        repo_id=f"{username}/{repo_name}",
+                        gitea_webhook_id=webhook_result.get("webhook_id"),
+                        webhook_url=webhook_url,
+                        webhook_secret=settings.gitea_webhook_secret,
+                        is_active=True,
+                        events=["push", "create", "delete", "repository"]
+                    )
+                    db.add(webhook_config)
+                    db.commit()
+                    logger.info("webhook_created", username=username, repo=repo_name)
+                else:
+                    logger.warning("webhook_creation_failed", username=username, repo=repo_name, error=webhook_result.get("message"))
+
+            except Exception as e:
+                logger.error("webhook_db_error", username=username, repo=repo_name, error=str(e))
+                db.rollback()
 
     def update_repo_settings(self, owner: str, repo_name: str, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Update repository settings (e.g., make public/private, change description)."""
@@ -107,18 +173,18 @@ class RepoService:
             url_path = f"/api/v1/repos/{owner}/{repo_name}"
             resp = requests.patch(self._url(url_path), json=settings, headers=self.headers, timeout=20)
             
-            print(f"[RepoService] update_repo_settings PATCH {self._url(url_path)} -> {resp.status_code}")
+            logger.debug("update_repo_settings_response", owner=owner, repo=repo_name, status_code=resp.status_code)
             
             if resp.status_code in (200, 204):
                 return {"success": True, "repo": resp.json() if resp.status_code == 200 else {}}
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("update_repo_settings_error", owner=owner, repo=repo_name, error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
 
     def _init_lfs_for_repo(self, username: str, repo_name: str) -> None:
         """Initialize Git LFS by creating .gitattributes file with common patterns."""
-        print(f"[RepoService] Initializing LFS for {username}/{repo_name}")
+        logger.info("lfs_init_start", username=username, repo=repo_name)
         
         # Create .gitattributes with common LFS patterns for audio/media files
         lfs_config = """# Audio files (Ableton, samples, etc.)
@@ -164,11 +230,11 @@ class RepoService:
             resp = requests.post(url, json=payload, headers=self.headers, timeout=20)
             
             if resp.status_code in (200, 201):
-                print(f"[RepoService] LFS initialized successfully")
+                logger.info("lfs_init_success", username=username, repo=repo_name)
             else:
-                print(f"[RepoService] LFS init failed: {self._extract_msg(resp)}")
+                logger.warning("lfs_init_failed", username=username, repo=repo_name, error=self._extract_msg(resp))
         except Exception as e:
-            print(f"[RepoService] LFS init exception: {e}")
+            logger.error("lfs_init_exception", username=username, repo=repo_name, error=str(e))
 
     def _is_lfs_file(self, path: str) -> bool:
         """Return True if the given file path matches common LFS-managed extensions."""
@@ -191,7 +257,7 @@ class RepoService:
                 url_path = f"{url_path}/{path}"
 
             resp = requests.get(self._url(url_path), headers=self.headers, timeout=15)
-            print(f"[RepoService] get_repo_contents GET {self._url(url_path)} -> {resp.status_code}")
+            logger.debug("get_repo_contents_response", username=username, repo=repo_name, path=path, status_code=resp.status_code)
 
             if resp.status_code == 200:
                 contents = resp.json()
@@ -215,7 +281,7 @@ class RepoService:
                             # For LFS files, try to get the actual content from the raw URL
                             # instead of the LFS pointer
                             if contents.get('download_url'):
-                                print(f"[RepoService] Detected LFS file, fetching actual content from download_url")
+                                logger.debug("lfs_file_detected", path=path)
                                 lfs_content = self._fetch_lfs_content(username, repo_name, path)
                                 if lfs_content is not None:
                                     contents['content'] = lfs_content
@@ -223,15 +289,15 @@ class RepoService:
                         else:
                             contents['lfs'] = False
                     except Exception as e:
-                        print(f"[RepoService] Error handling LFS: {e}")
+                        logger.error("lfs_handling_error", path=path, error=str(e))
                         contents['lfs'] = False
 
-                print(f"[RepoService] Found {len(contents) if isinstance(contents, list) else 1} items")
+                logger.debug("get_repo_contents_success", item_count=len(contents) if isinstance(contents, list) else 1)
                 return {"success": True, "contents": contents}
-            print(f"[RepoService] Failed: {self._extract_msg(resp)}")
+            logger.warning("get_repo_contents_failed", username=username, repo=repo_name, error=self._extract_msg(resp))
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("get_repo_contents_error", username=username, repo=repo_name, error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
 
     def _fetch_lfs_content(self, username: str, repo_name: str, path: str) -> Optional[str]:
@@ -241,25 +307,23 @@ class RepoService:
             # Use the raw endpoint which should return the actual LFS content
             raw_url = f"/api/v1/repos/{username}/{repo_name}/raw/{path}"
             resp = requests.get(self._url(raw_url), headers=self.headers, timeout=30)
-            print(f"[RepoService] _fetch_lfs_content GET {self._url(raw_url)} -> {resp.status_code}")
+            logger.debug("fetch_lfs_content_response", path=path, status_code=resp.status_code)
 
             if resp.status_code == 200:
                 # Encode the binary content to base64
                 content_base64 = base64.b64encode(resp.content).decode('utf-8')
-                print(f"[RepoService] Successfully fetched LFS content, size: {len(resp.content)} bytes")
+                logger.info("fetch_lfs_content_success", path=path, size_bytes=len(resp.content))
                 return content_base64
             else:
-                print(f"[RepoService] Failed to fetch LFS content: {resp.status_code}")
+                logger.warning("fetch_lfs_content_failed", path=path, status_code=resp.status_code)
                 return None
         except Exception as e:
-            print(f"[RepoService] Exception fetching LFS content: {e}")
+            logger.error("fetch_lfs_content_error", path=path, error=str(e))
             return None
 
     def upload_file(self, username: str, repo_name: str, file_path: str, content: str, message: str, branch: str = "main") -> Dict[str, Any]:
         """Upload or update a file in a repository."""
         try:
-            import base64
-            
             # Gitea API endpoint for creating/updating files
             url_path = f"/api/v1/repos/{username}/{repo_name}/contents/{file_path}"
             
@@ -270,7 +334,7 @@ class RepoService:
                 # File exists, get its SHA for update
                 existing_file = check_resp.json()
                 file_sha = existing_file.get("sha")
-                print(f"[RepoService] File exists, will update with SHA: {file_sha[:8]}..." if file_sha else "[RepoService] File exists but no SHA found")
+                logger.debug("upload_file_exists", path=file_path, sha_prefix=file_sha[:8] if file_sha else None)
             
             # Encode content to base64
             content_base64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
@@ -288,17 +352,17 @@ class RepoService:
             # Use PUT for updates (when SHA exists), POST for new files
             if file_sha:
                 resp = requests.put(self._url(url_path), json=payload, headers=self.headers, timeout=20)
-                print(f"[RepoService] upload_file PUT {self._url(url_path)} -> {resp.status_code}")
+                logger.debug("upload_file_put_response", path=file_path, status_code=resp.status_code)
             else:
                 resp = requests.post(self._url(url_path), json=payload, headers=self.headers, timeout=20)
-                print(f"[RepoService] upload_file POST {self._url(url_path)} -> {resp.status_code}")
+                logger.debug("upload_file_post_response", path=file_path, status_code=resp.status_code)
             
             if resp.status_code in (200, 201):
                 return {"success": True, "file": resp.json()}
-            print(f"[RepoService] Failed: {self._extract_msg(resp)}")
+            logger.warning("upload_file_failed", path=file_path, error=self._extract_msg(resp))
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("upload_file_error", path=file_path, error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
 
     def delete_file(self, username: str, repo_name: str, file_path: str, message: str = "", branch: str = "main") -> Dict[str, Any]:
@@ -326,14 +390,14 @@ class RepoService:
             }
             
             resp = requests.delete(self._url(url_path), json=payload, headers=self.headers, timeout=20)
-            print(f"[RepoService] delete_file DELETE {self._url(url_path)} -> {resp.status_code}")
+            logger.debug("delete_file_response", path=file_path, status_code=resp.status_code)
             
             if resp.status_code in (200, 204):
                 return {"success": True, "message": "File deleted successfully"}
-            print(f"[RepoService] Failed: {self._extract_msg(resp)}")
+            logger.warning("delete_file_failed", path=file_path, error=self._extract_msg(resp))
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("delete_file_error", path=file_path, error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
 
     @staticmethod
@@ -352,7 +416,7 @@ class RepoService:
             url_path = f"/api/v1/repos/{username}/{repo_name}/collaborators"
             resp = requests.get(self._url(url_path), headers=self.headers, timeout=15)
             
-            print(f"[RepoService] list_collaborators GET {self._url(url_path)} -> {resp.status_code}")
+            logger.debug("list_collaborators_response", owner=username, repo=repo_name, status_code=resp.status_code)
             
             if resp.status_code != 200:
                 return {"success": False, "status": resp.status_code}
@@ -360,7 +424,7 @@ class RepoService:
             collaborators = resp.json()
             return {"success": True, "collaborators": collaborators}
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("list_collaborators_error", owner=username, repo=repo_name, error=str(e))
             return {"success": False, "message": str(e)}
 
     def add_collaborator(self, owner: str, repo_name: str, username: str, permission: str = "write") -> Dict[str, Any]:
@@ -376,14 +440,14 @@ class RepoService:
                 timeout=15
             )
             
-            print(f"[RepoService] add_collaborator PUT {self._url(url_path)} -> {resp.status_code}")
+            logger.debug("add_collaborator_response", owner=owner, repo=repo_name, collaborator=username, status_code=resp.status_code)
             
             if resp.status_code not in [200, 201, 204]:
                 return {"success": False, "status": resp.status_code, "message": resp.text}
             
             return {"success": True}
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("add_collaborator_error", owner=owner, repo=repo_name, collaborator=username, error=str(e))
             return {"success": False, "message": str(e)}
 
     def remove_collaborator(self, owner: str, repo_name: str, username: str) -> Dict[str, Any]:
@@ -392,12 +456,12 @@ class RepoService:
             url_path = f"/api/v1/repos/{owner}/{repo_name}/collaborators/{username}"
             resp = requests.delete(self._url(url_path), headers=self.headers, timeout=15)
             
-            print(f"[RepoService] remove_collaborator DELETE {self._url(url_path)} -> {resp.status_code}")
+            logger.debug("remove_collaborator_response", owner=owner, repo=repo_name, collaborator=username, status_code=resp.status_code)
             
             if resp.status_code not in [200, 204]:
                 return {"success": False, "status": resp.status_code}
             
             return {"success": True}
         except requests.RequestException as e:
-            print(f"[RepoService] Exception: {e}")
+            logger.error("remove_collaborator_error", owner=owner, repo=repo_name, collaborator=username, error=str(e))
             return {"success": False, "message": str(e)}
