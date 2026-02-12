@@ -199,7 +199,7 @@ class GiteaAdminService:
 		logger.debug("get_user_by_username_request", username=username)
 		try:
 			resp = requests.get(
-				self._url(f"/api/v1/admin/users/{username}"),
+				self._url(f"/api/v1/users/{username}"),
 				headers=self.headers,
 				timeout=10
 			)
