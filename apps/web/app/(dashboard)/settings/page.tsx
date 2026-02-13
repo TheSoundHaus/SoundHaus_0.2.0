@@ -16,31 +16,7 @@ export default function SettingsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-zinc-900 text-zinc-100">
-      {/* Navigation Header */}
-      <nav className="border-b border-zinc-800 px-6 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <Link href="/" className="text-2xl font-bold tracking-tight">
-            SoundHaus
-          </Link>
-          <div className="flex gap-4">
-            <Link
-              href="/explore"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800"
-            >
-              Explore
-            </Link>
-            <Link
-              href="/repositories"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-800"
-            >
-              My Repositories
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-7xl px-6 py-12">
+    <main className="mx-auto max-w-7xl px-6 py-12">
         <div className="mb-8">
           <h1 className="mb-2 text-4xl font-bold tracking-tight">Settings</h1>
           <p className="text-lg text-zinc-400">
@@ -220,6 +196,5 @@ export default function SettingsPage() {
           </div>
         </div>
       </main>
-    </div>
   );
 }
