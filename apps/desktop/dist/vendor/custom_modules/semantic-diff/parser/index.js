@@ -576,4 +576,4 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
-module.exports.diffXml = nativeBinding.diffXml
+module.exports.parseXml = nativeBinding.parseXml

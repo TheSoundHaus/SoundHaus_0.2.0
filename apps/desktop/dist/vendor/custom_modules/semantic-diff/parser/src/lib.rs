@@ -1,7 +1,7 @@
 #![deny(clippy::all)]
 
 use napi_derive::napi;
-use std::{fs::File, io::BufReader, collections::HashMap};
+use std::{fs::File, io::{BufReader, Cursor, Read}, collections::HashMap};
 use flate2::read::GzDecoder;
 use quick_xml::reader::Reader;
 use quick_xml::events::Event;
@@ -31,7 +31,7 @@ impl Project {
         for (id, track) in &new_map {
             if let Some(old_track) = old_map.get(id) {
                 // If ID exists in both, check for deep inequality
-                if **track != **old_track {
+                if *track != *old_track {
                     track.diff_content(old_track, &mut changes);
                 }
             } else {
@@ -138,10 +138,22 @@ fn diff_branch_lists(new: &Option<Vec<Branch>>, old: &Option<Vec<Branch>>, chang
 }
 
 // Internal parser function
-fn get_project_from_als(path: &str) -> Project {
-    let fin = File::open(path).expect("Failed to open ALS file");
-    let decompressor = GzDecoder::new(BufReader::new(fin));
-    let mut xml_reader = Reader::from_reader(BufReader::new(decompressor));
+fn get_project_from_als(path: &str) -> Result<Project, napi::Error> {
+    let mut fin = File::open(path)
+        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to open ALS file: {}", e)))?;
+    let mut raw = Vec::new();
+    fin.read_to_end(&mut raw)
+        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to read ALS file: {}", e)))?;
+
+    let is_gzip = raw.len() >= 2 && raw[0] == 0x1f && raw[1] == 0x8b;
+    let reader: Box<dyn std::io::BufRead> = if is_gzip {
+        let decompressor = GzDecoder::new(Cursor::new(raw));
+        Box::new(BufReader::new(decompressor))
+    } else {
+        Box::new(BufReader::new(Cursor::new(raw)))
+    };
+
+    let mut xml_reader = Reader::from_reader(reader);
 
     let mut project = Project { tracks: Vec::new() };
     let mut cur_track: Option<Track> = None; 
@@ -208,15 +220,16 @@ fn get_project_from_als(path: &str) -> Project {
         }
         buf.clear();
     }
-    project
+    Ok(project)
 }
 
 #[napi]
-pub fn diff_xml(current_filepath: String, old_filepath: String) -> napi::Result<String> {
+pub fn parse_xml(current_filepath: String, old_als_path: String) -> napi::Result<String> {
     // 1. Parse current project from .als
-    let current_project = get_project_from_als(&current_filepath);
+    let current_project = get_project_from_als(&current_filepath)?;
 
-    let old_project = get_project_from_als(&old_filepath);
+    // 2. Parse old project from .als
+    let old_project = get_project_from_als(&old_als_path)?;
 
     // 3. Diff them
     let changes = current_project.diff(&old_project);

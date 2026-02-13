@@ -499,7 +499,7 @@ class GiteaAdminService:
 			}
 		
 		if scopes is None:
-			scopes = ["write:repository", "read:user"]
+			scopes = ["write:repository", "read:user", "write:user"]
 		
 		url = f"{self.base_url}/api/v1/users/{username}/tokens"
 		

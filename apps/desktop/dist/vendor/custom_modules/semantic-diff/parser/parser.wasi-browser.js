@@ -56,4 +56,4 @@ const {
   },
 })
 export default __napiModule.exports
-
+export const parseXml = __napiModule.exports.parseXml
