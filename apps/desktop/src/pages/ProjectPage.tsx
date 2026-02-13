@@ -24,12 +24,10 @@ const ProjectPage = () => {
     const { metadata, findAndParse } = useAlsParser()
     const { getAlsStruct, findAls } = useElectronIPC()
 
-    const refreshChanges = useCallback(async () => {
-        if (!selectedProject) {
-            setAlsStruct(null)
-            return
-        }
-
+    const handleRefreshChanges = useCallback(async () => {
+        if (!selectedProject) return
+        
+        setRefreshing(true)
         if (typeof findAls !== 'function') {
             console.warn('findAls is not available from useElectronIPC')
             setAlsStruct(null)
@@ -38,26 +36,6 @@ const ProjectPage = () => {
 
         findAndParse(selectedProject)
 
-        try {
-            const alsPath = await findAls(selectedProject)
-            if (alsPath) {
-                // Use diffXml to compare current ALS with HEAD version
-                const result = await electronAPI.diffXml(alsPath, alsPath)
-                // Parse the JSON string if it's a string
-                const parsed = typeof result === 'string' ? JSON.parse(result) : result
-                setAlsStruct(parsed)
-            } else {
-                setAlsStruct(null)
-            }
-        } catch (e) {
-            setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
-        }
-    }, [findAls, findAndParse, selectedProject])
-
-    const handleRefreshChanges = async () => {
-        if (!selectedProject) return
-        
-        setRefreshing(true)
         try {
             const alsPath = await findAls(selectedProject)
             if (!alsPath) {
@@ -73,6 +51,11 @@ const ProjectPage = () => {
                 return
             }
 
+            if (remoteResult.baselineStatus === 'no-commits') {
+                setAlsStruct(remoteResult)
+                return
+            }
+
             // Compare current file with remote HEAD
             const diffResult = await electronAPI.diffXml(alsPath, remoteResult.tmpPath)
             const parsed = typeof diffResult === 'string' ? JSON.parse(diffResult) : diffResult
@@ -82,7 +65,7 @@ const ProjectPage = () => {
         } finally {
             setRefreshing(false)
         }
-    }
+    }, [findAls, findAndParse, selectedProject])
 
     const handleGitPull = async () => {
         if(!selectedProject) return
@@ -90,7 +73,7 @@ const ProjectPage = () => {
         try {
             const result = await gitService.pullRepo(selectedProject)
             alert(`Pull complete:\n${result}`)
-            await refreshChanges()
+            await handleRefreshChanges()
         } catch(error) {
             alert(`Pull failed:\n${error}`)
         } finally {
@@ -104,7 +87,7 @@ const ProjectPage = () => {
         try {
             const result = await gitService.commitChange(selectedProject)
             alert(`Commit complete:\n${result}`)
-            await refreshChanges()
+            await handleRefreshChanges()
         } catch(error) {
             alert(`Commit failed:\n${error}`)
         } finally {
@@ -117,8 +100,8 @@ const ProjectPage = () => {
         setPushing(true)
         try {
             const result = await gitService.pushRepo(selectedProject)
-            alert(`Pull complete:\n${result}`)
-            await refreshChanges()
+            alert(`Push complete:\n${result}`)
+            await handleRefreshChanges()
         } catch(error) {
             alert(`Push failed:\n${error}`)
         } finally {
@@ -127,8 +110,8 @@ const ProjectPage = () => {
     }
 
     useEffect(() => {
-        refreshChanges()
-    }, [refreshChanges])
+        handleRefreshChanges()
+    }, [handleRefreshChanges])
 
     return(
         <div className={styles.container}>
@@ -183,12 +166,21 @@ const ProjectPage = () => {
                         style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                     >
                         <span>Changes <span style={{ marginLeft: '8px' }}>{showChanges ? '▾' : '▸'}</span></span>
-                        <button
+                        <span
+                            role="button"
+                            tabIndex={0}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 handleRefreshChanges()
                             }}
-                            disabled={refreshing}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    handleRefreshChanges()
+                                }
+                            }}
+                            aria-disabled={refreshing}
                             style={{ 
                                 padding: '4px 8px', 
                                 fontSize: '12px', 
@@ -196,12 +188,13 @@ const ProjectPage = () => {
                                 border: '1px solid #ccc', 
                                 borderRadius: '4px', 
                                 cursor: refreshing ? 'wait' : 'pointer',
-                                opacity: refreshing ? 0.6 : 1
+                                opacity: refreshing ? 0.6 : 1,
+                                userSelect: 'none'
                             }}
                             title="Compare with remote HEAD"
                         >
                             {refreshing ? '⟳' : '↻'}
-                        </button>
+                        </span>
                     </button>
                     {showChanges && (
                         <div style={{ padding: 12, background: '#fff' }}>

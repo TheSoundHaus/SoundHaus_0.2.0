@@ -282,6 +282,38 @@ async function getAlsContent(alsPath: string): Promise<string> {
   return returnString;
 }
 
+  async function buildLocalDiffFromAls(alsPath: string): Promise<{ summary: string; project: { Tracks: Array<{ Type: string; Id: string | number | null; EffectiveName: string; UserName: string | null }> } }> {
+    const local = await decompressAls(alsPath);
+    const ableton = parseXmlTextToObj(local.text);
+    const tracksNode = ableton?.LiveSet?.[0]?.Tracks?.[0];
+
+    const audioArr = toArray(tracksNode?.AudioTrack || []);
+    const midiArr = toArray(tracksNode?.MidiTrack || []);
+    const returnArr = toArray(tracksNode?.ReturnTrack || []);
+
+    const toTrack = (trk: any, type: string, index: number) => ({
+      Type: type,
+      Id: trk?.['@_Id']?.[0] ?? trk?.Id ?? null,
+      EffectiveName: extractName(trk, `${type} ${index + 1}`),
+      UserName: null
+    });
+
+    const tracks = [
+      ...audioArr.map((trk: any, idx: number) => toTrack(trk, 'Audio', idx)),
+      ...midiArr.map((trk: any, idx: number) => toTrack(trk, 'MIDI', idx)),
+      ...returnArr.map((trk: any, idx: number) => toTrack(trk, 'Return', idx))
+    ];
+
+    const summary = tracks.map((track) => `New track: ${track.EffectiveName}`).join('\n');
+
+    return {
+      summary,
+      project: {
+        Tracks: tracks
+      }
+    };
+  }
+
 function pull(repoPath: string) {
   return new Promise((resolve, reject) => {
     const cmd = `"${gitBin}" pull origin main`;
@@ -332,6 +364,7 @@ export {
     getAlsFromGitHead,
     structuralCompareAls,
     getAlsContent,
+  buildLocalDiffFromAls,
     pull,
     commit,
     push

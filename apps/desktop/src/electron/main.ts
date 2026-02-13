@@ -2,13 +2,13 @@ import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
-import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, pull, commit, push } from "./project";
+import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { diffXml } from 'semantic-differ/parser';   
+import { parseXml } from '../../dist/vendor/custom_modules/semantic-diff/parser/index.js'
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
@@ -114,8 +114,9 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 
 ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string, oldAlsPath: string) => {
   try {
-    return await diffXml(curAlsPath, oldAlsPath);
+    return await parseXml(curAlsPath, oldAlsPath);
   } catch (e: any) {
+    console.log(e)
     return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 });
@@ -126,6 +127,13 @@ ipcMain.handle('get-remote-head-als', async(_event: IpcMainInvokeEvent, alsPath:
     const { stdout } = await execFileP('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
     const repoRoot = stdout.trim();
     const relPath = path.relative(repoRoot, alsPath);
+
+    try {
+      await execFileP('git', ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+    } catch (_e: any) {
+      const fallback = await buildLocalDiffFromAls(alsPath);
+      return { ok: true, baselineStatus: 'no-commits', ...fallback };
+    }
     
     // Get the remote HEAD version
     const head = await getAlsFromGitHead(repoRoot, relPath);
