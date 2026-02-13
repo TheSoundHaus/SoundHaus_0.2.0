@@ -1,5 +1,6 @@
 "use client";
 
+import SignUpForm from "@/components/SignUpForm";
 import Link from "next/link";
 
 /**
@@ -7,6 +8,7 @@ import Link from "next/link";
  * Balanced zinc neutrals with electric cyan accents
  */
 export default function SignupPage() {
+
     return (
         <div className="min-h-screen flex bg-zinc-950">
             {/* Subtle noise texture overlay */}
@@ -36,96 +38,7 @@ export default function SignupPage() {
                         </p>
                     </div>
 
-                    {/* Form */}
-                    <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-                        {/* Username field */}
-                        <div className="group">
-                            <label htmlFor="username" className="block text-sm font-medium text-zinc-300 mb-2">
-                                Username
-                            </label>
-                            <input
-                                type="text"
-                                id="username"
-                                name="username"
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-zinc-50 placeholder-zinc-600
-                                         transition-all duration-300
-                                         focus:outline-none focus:border-glass-blue focus:ring-1 focus:ring-glass-blue/50 focus:shadow-[0_0_20px_rgba(167,199,231,0.15)]
-                                         hover:border-zinc-700"
-                                placeholder="Choose a username"
-                                autoComplete="username"
-                                required
-                            />
-                        </div>
-
-                        {/* Email field */}
-                        <div className="group">
-                            <label htmlFor="email" className="block text-sm font-medium text-zinc-300 mb-2">
-                                Email
-                            </label>
-                            <input
-                                type="email"
-                                id="email"
-                                name="email"
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-zinc-50 placeholder-zinc-600
-                                         transition-all duration-300
-                                         focus:outline-none focus:border-glass-blue focus:ring-1 focus:ring-glass-blue/50 focus:shadow-[0_0_20px_rgba(167,199,231,0.15)]
-                                         hover:border-zinc-700"
-                                placeholder="your.email@example.com"
-                                autoComplete="email"
-                                required
-                            />
-                        </div>
-
-                        {/* Password field */}
-                        <div className="group">
-                            <label htmlFor="password" className="block text-sm font-medium text-zinc-300 mb-2">
-                                Password
-                            </label>
-                            <input
-                                type="password"
-                                id="password"
-                                name="password"
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-zinc-50 placeholder-zinc-600
-                                         transition-all duration-300
-                                         focus:outline-none focus:border-glass-blue focus:ring-1 focus:ring-glass-blue/50 focus:shadow-[0_0_20px_rgba(167,199,231,0.15)]
-                                         hover:border-zinc-700"
-                                placeholder="Create a password"
-                                autoComplete="new-password"
-                                required
-                            />
-                        </div>
-
-                        {/* Confirm Password field */}
-                        <div className="group">
-                            <label htmlFor="confirmPassword" className="block text-sm font-medium text-zinc-300 mb-2">
-                                Confirm Password
-                            </label>
-                            <input
-                                type="password"
-                                id="confirmPassword"
-                                name="confirmPassword"
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-3 text-zinc-50 placeholder-zinc-600
-                                         transition-all duration-300
-                                         focus:outline-none focus:border-glass-blue focus:ring-1 focus:ring-glass-blue/50 focus:shadow-[0_0_20px_rgba(167,199,231,0.15)]
-                                         hover:border-zinc-700"
-                                placeholder="Confirm your password"
-                                autoComplete="new-password"
-                                required
-                            />
-                        </div>
-
-                        {/* Submit button */}
-                        <button
-                            type="submit"
-                            className="w-full bg-gradient-to-r from-glass-blue to-glass-blue-400 text-zinc-950 font-semibold py-3 px-6 rounded-lg
-                                     transition-all duration-300
-                                     hover:from-glass-highlight hover:to-glass-blue hover:shadow-[0_0_30px_rgba(167,199,231,0.3)]
-                                     active:scale-[0.98]
-                                     focus:outline-none focus:ring-2 focus:ring-glass-blue/50 focus:ring-offset-2 focus:ring-offset-zinc-950"
-                        >
-                            Create Account
-                        </button>
-                    </form>
+                    < SignUpForm/>
 
                     {/* Sign in link */}
                     <div className="mt-5 pt-5 border-t border-zinc-800/50">
