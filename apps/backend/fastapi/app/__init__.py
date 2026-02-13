@@ -1,1 +1,0 @@
-"""SoundHaus FastAPI Application"""

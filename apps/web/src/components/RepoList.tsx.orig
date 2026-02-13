@@ -1,0 +1,25 @@
+import React from "react"
+import RepoCard from "./RepoCard"
+import type { Repo } from "../types/repo"
+
+interface RepoListProps {
+  repos: Repo[]
+}
+
+export default function RepoList({ repos }: RepoListProps) {
+  if (!repos.length) {
+    return (
+      <div className="empty-state">
+        <p>No repositories found</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="repo-grid">
+      {repos.map((repo) => (
+        <RepoCard key={repo.id} repo={repo} />
+      ))}
+    </div>
+  )
+}
