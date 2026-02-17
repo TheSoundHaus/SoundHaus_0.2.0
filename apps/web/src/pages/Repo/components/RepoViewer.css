@@ -1,0 +1,661 @@
+.repo-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.lfs-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.18rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--color-bg);
+  background: var(--color-danger);
+  border-radius: 999px;
+  justify-self: center;
+  align-self: center;
+}
+.repo-viewer-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.back-button {
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+}
+
+.back-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--color-accent);
+}
+
+.upload-button {
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  margin-left: auto;
+  backdrop-filter: blur(10px);
+}
+
+.upload-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.repo-path {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.repo-path h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.current-path {
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contents-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.content-item {
+  display: grid;
+  /* icon | name | size | lfs badge | delete */
+  grid-template-columns: 2rem 1fr auto 3rem 2rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.content-item.dir {
+  cursor: pointer;
+}
+
+.content-item.dir:hover {
+  border-color: var(--color-accent);
+  background-color: rgba(163, 230, 53, 0.05);
+}
+
+.content-item.file {
+  cursor: default;
+}
+
+.item-icon {
+  font-size: 1.5rem;
+  text-align: center;
+}
+
+.item-name {
+  color: var(--color-text);
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.content-item.dir .item-name {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.item-size {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  text-align: right;
+  min-width: 80px;
+}
+
+.delete-button {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  transition: all 0.2s;
+  opacity: 0;
+  transform: scale(0.8);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.content-item:hover .delete-button {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.delete-button:hover {
+  background: var(--color-danger-light);
+  color: var(--color-bg);
+  filter: none !important;
+}
+
+.loading-message,
+.empty-message {
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 2rem;
+  font-style: italic;
+}
+
+.error-message {
+  padding: 1rem;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+/* Upload Modal */
+.repo-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 9998;
+  backdrop-filter: blur(4px);
+}
+
+.upload-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 700px;
+  max-height: 85vh;
+  background: var(--color-bg-elev);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.5rem;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  transition: color 0.2s;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: var(--color-danger-light);
+}
+
+.modal-content {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.upload-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.upload-option {
+  padding: 1.5rem;
+  background: var(--color-bg);
+  border: 2px dashed var(--color-border);
+  border-radius: 8px;
+  text-align: center;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.upload-option:hover {
+  border-color: var(--color-accent);
+  background: rgba(163, 230, 53, 0.05);
+}
+
+.upload-option h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--color-text);
+  font-size: 1.1rem;
+}
+
+.upload-option p {
+  margin: 0 0 1rem 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.file-input-button {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: auto;
+}
+
+.file-input-button:hover {
+  background: var(--color-accent-strong);
+  transform: translateY(-2px);
+}
+
+.file-input-button::file-selector-button {
+  display: none;
+}
+
+/* Upload Form */
+.upload-form {
+  padding: 1.5rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.upload-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.upload-controls .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.upload-controls label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.upload-controls input[type="text"],
+.upload-controls input[type="email"],
+.upload-controls textarea {
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-elev);
+  color: var(--color-text);
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.upload-controls input[type="text"]:focus,
+.upload-controls input[type="email"]:focus,
+.upload-controls textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.upload-controls textarea {
+  resize: vertical;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  min-height: 200px;
+}
+
+.upload-submit-button {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  color: var(--color-bg);
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.upload-submit-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(163, 230, 53, 0.3);
+}
+
+.upload-submit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Collaborators Modal */
+.collaborator-section {
+  margin-bottom: 2rem;
+}
+
+.collaborator-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  margin: 0 0 1rem 0;
+  color: var(--color-text);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.permission-select {
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-elev);
+  color: var(--color-text);
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.permission-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.permission-select option {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.loading-state {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 1rem;
+  margin: 0;
+}
+
+.collaborator-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.collaborator-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.collaborator-item:hover {
+  background: var(--color-bg-elev);
+}
+
+.collaborator-name {
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 0.25rem;
+}
+
+.collaborator-role {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.remove-button {
+  padding: 0.5rem 1rem;
+  background: var(--color-danger);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.remove-button:hover {
+  background: var(--color-danger-light);
+  transform: translateY(-2px);
+}
+
+.uploading-message {
+  text-align: center;
+  padding: 2rem;
+  color: var(--color-text-muted);
+}
+
+.uploading-message p {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+/* Responsive modal */
+@media (max-width: 768px) {
+  .upload-modal {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .upload-options {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-content {
+    padding: 1rem;
+  }
+}
+
+/* Delete Modal */
+.delete-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 500px;
+  background: var(--color-bg-elev);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  z-index: 9999;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.delete-modal .modal-content {
+  text-align: center;
+}
+
+.delete-modal p {
+  margin: 0 0 1rem 0;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.delete-warning {
+  color: var(--color-danger) !important;
+  font-weight: 500;
+  margin-bottom: 1.5rem !important;
+}
+
+.delete-modal .form-group {
+  margin-bottom: 1.5rem;
+}
+
+.delete-modal label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.delete-modal input[type="text"] {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-elev);
+  color: var(--color-text);
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+.delete-modal input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.delete-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.cancel-button {
+  padding: 0.75rem 1.5rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-button:hover {
+  background: var(--color-bg-elev);
+  border-color: var(--color-text-muted);
+}
+
+.delete-confirm-button {
+  padding: 0.75rem 1.5rem;
+  background: var(--color-danger);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.delete-confirm-button:hover:not(:disabled) {
+  background: var(--color-danger-light);
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* When the confirm button is inside the delete modal, make the hover more pronounced */
+.delete-modal .delete-confirm-button:hover:not(:disabled) {
+  background: var(--color-danger-light);
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.delete-modal .delete-confirm-button:active:not(:disabled) {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.delete-confirm-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Simplify hover behavior for all buttons inside the repo viewer:
+   - remove transform/scale animations and box-shadows
+   - apply a subtle lightening using filter: brightness()
+   - keep a short, non-janky transition on the filter only
+*/
+.repo-viewer button {
+  /* prefer a short filter transition only */
+  transition: filter 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.repo-viewer button:hover {
+  transform: none !important;
+  box-shadow: none !important;
+  /* subtle brighten */
+  filter: brightness(1.08) !important;
+}
+
+.repo-viewer button:active {
+  /* no pressed transform, ensure immediate feedback via slightly darker filter */
+  transform: none !important;
+  filter: brightness(0.98) !important;
+}
