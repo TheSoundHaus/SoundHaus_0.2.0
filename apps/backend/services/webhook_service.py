@@ -91,9 +91,8 @@ processing via REST endpoints. Here's how to integrate:
 """
 import hmac
 import hashlib
-import json
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from sqlalchemy.orm import Session
 from logging_config import get_logger
 from config import settings

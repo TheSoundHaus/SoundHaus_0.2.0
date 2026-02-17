@@ -23,16 +23,10 @@ from models.genre_models import GenreList, repo_genres
 from models.pat_models import PersonalAccessToken
 from models.invitation_models import CollaboratorInvitation
 from models.webhook_models import (
-    WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig,
-    validate_webhook_signature, parse_gitea_event, extract_repo_info
+    WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig
 )
-import hashlib
 import os
-import sys
 import uuid
-import secrets
-import subprocess
-import traceback
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
@@ -73,6 +67,38 @@ limiter = Limiter(
     enabled=settings.rate_limit_enabled  # Easy to disable in dev
 )
 
+# Helper function for user-based rate limiting
+def get_user_or_ip(request: Request) -> str:
+    """
+    Rate limit by user ID if authenticated, otherwise by IP.
+    This prevents one user from consuming all rate limits behind a shared IP (like NAT).
+    """
+    # Try to get user from request state (set by verify_token dependency)
+    user_id = getattr(request.state, "user_id", None)
+    if user_id:
+        return f"user:{user_id}"
+    
+    # Fall back to IP address
+    return get_remote_address(request)
+
+def format_bytes(bytes_size: int) -> str:
+    """Convert bytes to human-readable format (KB, MB, GB)."""
+    if bytes_size < 1024:
+        return f"{bytes_size} bytes"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.1f} KB"
+    elif bytes_size < 1024 * 1024 * 1024:
+        return f"{bytes_size / (1024 * 1024):.1f} MB"
+    else:
+        return f"{bytes_size / (1024 * 1024 * 1024):.1f} GB"
+
+# Initialize IP-based limiter with config
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[settings.rate_limit_default],
+    enabled=settings.rate_limit_enabled  # Easy to disable in dev
+)
+
 # Initialize user-based limiter for authenticated endpoints
 user_limiter = Limiter(
     key_func=get_user_or_ip,
@@ -83,13 +109,12 @@ user_limiter = Limiter(
 # Other app constants
 MAX_TOKENS_PER_USER = 10
 DEFAULT_TOKEN_EXPIRY_DAYS = 90
+MAX_AUDIO_SNIPPET_SIZE = 10 * 1024 * 1024  # 10MB limit for audio snippet uploads
 
 app = FastAPI(title="SoundHaus API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
-
-
 
 # CORS middleware for React frontend (Vite defaults to 5173)
 app.add_middleware(
@@ -679,8 +704,8 @@ async def invite_collaborator(
             invitee_email = invitee_email,
             permission = permission,
             status = "pending",
-            created_at = datetime.now(datetime.timezone.utc),
-            expires_at = (datetime.now(datetime.timezone.utc)+ timedelta(days=7))
+            created_at = datetime.now(timezone.utc),
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=7))
         )
 
         db.add(invitation)
@@ -755,7 +780,7 @@ async def get_pending_invitations(
         invitations = db.query(CollaboratorInvitation).filter(
             CollaboratorInvitation.invitee_email == email,
             CollaboratorInvitation.status == "pending",
-            CollaboratorInvitation.expires_at > datetime.utcnow()
+            CollaboratorInvitation.expires_at > datetime.now(timezone.utc)
         ).all()
         
         invitation_list = [
@@ -777,8 +802,6 @@ async def get_pending_invitations(
         raise
     except Exception as e:
         logger.error("get_pending_invitations", error=str(e), exc_info=True)
-        import traceback
-        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail="Failed to fetch invitations"
@@ -820,7 +843,7 @@ async def accept_invitation(
                 detail=f"Invitation already {invitation.status}"
             )
         
-        if invitation.expires_at < datetime.utcnow():
+        if invitation.expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="Invitation has expired")
         
         # Generate username for invitee
@@ -862,7 +885,7 @@ async def accept_invitation(
         
         # Mark invitation as accepted
         invitation.status = "accepted"
-        invitation.responded_at = datetime.utcnow()
+        invitation.responded_at = datetime.now(timezone.utc)
         db.commit()
         
         return {
@@ -911,7 +934,7 @@ async def decline_invitation(
         
         # Mark invitation as declined
         invitation.status = "declined"
-        invitation.responded_at = datetime.utcnow()
+        invitation.responded_at = datetime.now(timezone.utc)
         db.commit()
         
         return {"success": True, "message": "Invitation declined"}
@@ -996,36 +1019,45 @@ async def desktop_login(
     
     user_id = result["user"]["id"]
 
+    # Step 2: Revoke any existing desktop PATs (cleanup old sessions)
     pat_service = PATService()
     existing_pats = await pat_service.list_pats(user_id, db)
 
     # Step 2: Revoke old desktop tokens to prevent sprawl
     for pat in existing_pats:
         if pat.token_name.startswith("Desktop Auto Token"):
-            await pat_service.revoke_pat(pat.id, user_id, db)
+            await pat_service.revoke_pat(str(pat.id), user_id, db)
 
-    # Step 3: Create new desktop PAT
-    pat_result = await PATService.create_pat(
+    # Step 3: Create new desktop PAT automatically
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    token_name = f"Desktop Auto Token {timestamp}"
+    
+    pat_result = await pat_service.create_pat(
         user_id=user_id,
-        token_name="Desktop Auto Token",
+        token_name=token_name,
         db=db,
-        expires_in_days=90
+        expires_in_days=90  # 3 months, user can stay logged in
     )
-
+    
     if not pat_result.get("success"):
-        raise HTTPException(status_code=500, detail="Failed to create desktop PAT")
-
-    # Step 4: Return both session token and PAT
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create desktop credentials"
+        )
+    
+    # Step 4: Return combined response with auto-provisioned PAT
     return {
         "success": True,
         "user": result["user"],
+        "session": result["session"],  # For UI state management
         "desktop_credentials": {
-            "pat": pat_result["token"],
-            "token_id": pat_result["token_id"],
-            "token_name": pat_result["token_name"]
+            "pat": pat_result["token"],  # ONLY TIME THIS IS VISIBLE!
+            "pat_id": pat_result["token_id"],
+            "expires_at": pat_result["expires_at"]
         },
-        "session": result["session"]
+        "message": "Desktop login successful. Credentials stored securely."
     }
+
 
 
 @app.post("/api/auth/tokens")
@@ -1211,8 +1243,7 @@ async def get_desktop_credentials(
             print(f"[get_desktop_credentials] Cached token is invalid/expired, creating new one")
 
     # Step 2: Create a new Gitea token (cached was missing or invalid)
-    from datetime import datetime
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     token_name = f"Desktop Access Token - {timestamp}"
 
     gitea_result = gitea_admin_service.create_or_get_user_token(
@@ -1459,7 +1490,7 @@ async def create_genre(
         }
     }
 
-@app.post("/genres/{genre_id}")
+@app.get("/genres/{genre_id}")
 @limiter.limit("60/minute")  # IP-based: public genre browsing
 async def get_genre_details(
     request: Request,
@@ -1553,8 +1584,39 @@ async def upload_audio_snippet(
         repo_data = RepoData(gitea_id=repo_id, owner_id=str(user_id), clone_count=0)
         db.add(repo_data)
     
+    # Validate file size before reading content (check Content-Length header)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_AUDIO_SNIPPET_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File size exceeds maximum allowed size of {format_bytes(MAX_AUDIO_SNIPPET_SIZE)}"
+                )
+        except ValueError:
+            # Invalid Content-Length header, will validate after reading
+            pass
+    
+    # Validate content-type header before processing
+    if file.content_type and not file.content_type.startswith("audio/"):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid content type '{file.content_type}'. Must be an audio file."
+        )
+    
     # Read file content
     content = await file.read()
+    
+    # Validate actual file size after reading (defense in depth)
+    if len(content) > MAX_AUDIO_SNIPPET_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size {format_bytes(len(content))} exceeds maximum allowed size of {format_bytes(MAX_AUDIO_SNIPPET_SIZE)}"
+        )
+    
+    # Validate file is not empty
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
     
     # Save file, validate audio type, and extract metadata via Supabase Storage
     try:

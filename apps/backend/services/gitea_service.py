@@ -338,10 +338,60 @@ class GiteaAdminService:
 		
 		logger.debug("create_user_token_cli", username=username, token_name=token_name, scopes=scopes_str)
 		
-		gitea_container = os.getenv("GITEA_CONTAINER_NAME", "gitea")
+		# Try multiple methods to execute the Gitea CLI command
+		gitea_container = settings.gitea_container_name
+		gitea_ssh_host = settings.gitea_ssh_host  # e.g., "git@localhost" or "user@129.212.182.247"
+		gitea_ssh_port = settings.gitea_ssh_port  # Default to 22, use 2222 for local Docker
 		
-		try:			
-			# Try Docker exec from host
+		try:
+			# Method 1: Try SSH (for remote Gitea servers) - PRIMARY METHOD
+			if gitea_ssh_host:
+				# Build the SSH command to run docker exec on the remote server
+				# Using -u git to run as the git user (Gitea doesn't run as root)
+				ssh_port_arg = f"-p {gitea_ssh_port}" if gitea_ssh_port != "22" else ""
+				ssh_command = (
+					f'ssh {ssh_port_arg} {gitea_ssh_host} '
+					f'"docker exec -u git gitea gitea admin user generate-access-token '
+					f'--username \'{username}\' '
+					f'--token-name \'{token_name}\' '
+					f'--scopes \'{scopes_str}\' '
+					f'--raw"'
+				)
+				
+				logger.debug("create_token_cli_ssh_attempt", host=gitea_ssh_host, port=gitea_ssh_port)
+				
+				try:
+					result = subprocess.run(
+						ssh_command,
+						shell=True,
+						capture_output=True,
+						text=True,
+						timeout=30
+					)
+					
+					if result.returncode == 0:
+						token = result.stdout.strip()
+						if token and len(token) > 20:  # Validate token looks valid
+							logger.info("create_token_cli_ssh_success", token_prefix=token[:10])
+							return {
+								"success": True,
+								"token": {
+									"sha1": token,
+									"name": token_name
+								}
+							}
+						else:
+							logger.warning("create_token_cli_ssh_invalid_token", token_snippet=token[:20] if token else "<empty>", stderr=result.stderr)
+					else:
+						logger.warning("create_token_cli_ssh_failed", exit_code=result.returncode, stderr=result.stderr, stdout=result.stdout)
+				except subprocess.TimeoutExpired:
+					logger.warning("create_token_cli_ssh_timeout")
+				except Exception as e:
+					logger.exception("create_token_cli_ssh_error", error=str(e))
+			else:
+				logger.debug("create_token_cli_ssh_not_configured")
+			
+			# Method 2: Try Docker exec (for local Gitea containers) - FALLBACK
 			docker_cmd = [
 				"docker", "exec", "-u", "git", gitea_container,
 				"gitea", "admin", "user", "generate-access-token",
@@ -416,7 +466,7 @@ class GiteaAdminService:
 			# If both Docker methods failed, return error
 			return {
 				"success": False,
-				"message": "Unable to execute Gitea CLI command. Ensure GITEA_CONTAINER_NAME is set correctly."
+				"message": "Unable to execute Gitea CLI command. Configure GITEA_CONTAINER_NAME or GITEA_SSH_HOST environment variables."
 			}
 			
 		except Exception as e:
@@ -435,8 +485,9 @@ class GiteaAdminService:
 		"""
 		Create a Gitea Personal Access Token for a user.
 		
-		This method attempts to use the Gitea CLI command first (more reliable),
-		and falls back to the API method if CLI is not available.
+		Uses SSH CLI method exclusively since Gitea REST API does not support
+		creating tokens for other users via token authentication (requires admin:user
+		scope which is not available in Gitea 1.24.6).
 		
 		Args:
 			username: Gitea username (Supabase UUID)
