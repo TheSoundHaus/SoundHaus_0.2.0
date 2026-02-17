@@ -39,7 +39,6 @@ build/Release
 
 # Dependency directories
 node_modules/*
-!node_modules/@napi-rs/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
