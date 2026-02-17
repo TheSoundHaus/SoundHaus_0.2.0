@@ -46,8 +46,26 @@ from models.schemas import (
 from config import settings
 from middlewares.security_headers import SecurityHeadersMiddleware
 
-# Load environment variables
-load_dotenv()
+# Helper function for user-based rate limiting
+def get_user_or_ip(request: Request) -> str:
+    """
+    Rate limit by user ID if authenticated, otherwise by IP.
+    This prevents one user from consuming all rate limits behind a shared IP (like NAT).
+    """
+    # Try to get user from request state (set by verify_token dependency)
+    user_id = getattr(request.state, "user_id", None)
+    if user_id:
+        return f"user:{user_id}"
+    
+    # Fall back to IP address
+    return get_remote_address(request)
+
+# Initialize IP-based limiter with config
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[settings.rate_limit_default],
+    enabled=settings.rate_limit_enabled  # Easy to disable in dev
+)
 
 # Helper function for user-based rate limiting
 def get_user_or_ip(request: Request) -> str:
@@ -97,8 +115,6 @@ app = FastAPI(title="SoundHaus API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
-
-
 
 # CORS middleware for React frontend (Vite defaults to 5173)
 app.add_middleware(
@@ -1247,22 +1263,6 @@ async def get_desktop_credentials(
         "token": gitea_result["token"]["sha1"],
         "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git"
     }
-
-# ============== FILE WATCHER ENDPOINTS (REMOVED) ==============
-# The following endpoints were removed as part of migrating from auto-sync to manual Git commits:
-# - POST /watch/start - Started file watch session
-# - POST /watch/stop - Stopped file watch session
-# - GET /watch/status/{watch_id} - Got watch session status
-# - GET /watch/sessions - Listed all watch sessions
-# - POST /watch/spawn - Spawned worker process
-# - GET /watch/worker-script - Downloaded Python worker script
-# - GET /watch/download-script/{watch_id} - Generated platform-specific launcher scripts
-#
-# Desktop app will now use standard Git operations directly against Gitea via HTTP/SSH.
-# Users will commit/push manually through the desktop UI (GitHub Desktop style).
-
-
-# ============== GITEA ENDPOINTS ==============
 
 
 @app.delete("/repos/{repo_name}/contents")
