@@ -59,6 +59,7 @@ export async function clearAuthCookies() {
   const cookieStore = await cookies()
   cookieStore.delete('sb-access-token')
   cookieStore.delete('sb-refresh-token')
+  cookieStore.delete('session')
 }
 
 /**
