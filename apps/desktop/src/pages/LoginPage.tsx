@@ -23,16 +23,14 @@ const LoginPage = () => {
             console.log('Attempting PAT auto-login...');
 
             try {
-                // Build URL with optional cached_gitea_token parameter
-                let credUrl = 'http://129.212.182.247:8000/api/desktop/credentials';
+                const headers: Record<string, string> = { Authorization: `token ${token}` };
                 if (existingGiteaToken) {
-                    const params = new URLSearchParams({ cached_gitea_token: existingGiteaToken });
-                    credUrl = `${credUrl}?${params.toString()}`;
+                    headers['X-Cached-Gitea-Token'] = existingGiteaToken;
                 }
 
-                const credRes = await fetch(credUrl, {
+                const credRes = await fetch('http://129.212.182.247:8000/api/desktop/credentials', {
                     method: 'GET',
-                    headers: { Authorization: `token ${token}` }
+                    headers,
                 });
 
                 if (!credRes.ok) {

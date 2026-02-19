@@ -3,7 +3,7 @@ Desktop app & Personal Access Token endpoints – desktop-login, PAT CRUD,
 and Gitea credential provisioning.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from sqlalchemy.orm import Session
 from typing import Optional, Dict
 from datetime import datetime, timezone
@@ -195,6 +195,7 @@ async def revoke_personal_access_token(
 async def get_desktop_credentials(
     request: Request,
     user_info: Dict = Depends(verify_token_or_pat),
+    cached_gitea_token_header: Optional[str] = Header(default=None, alias="X-Cached-Gitea-Token"),
     cached_gitea_token: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
@@ -207,27 +208,18 @@ async def get_desktop_credentials(
     user_id = user_info["user_id"]
     gitea_admin_service = GiteaAdminService()
 
-    # Try to reuse cached Gitea token
-    if cached_gitea_token:
-        logger.debug("get_desktop_credentials", action="validating_cached_token")
-        token_check = gitea_admin_service.verify_gitea_token(cached_gitea_token)
-        if token_check.get("valid"):
-            logger.debug("get_desktop_credentials", action="cached_token_valid")
-            return {
-                "success": True,
-                "gitea_url": settings.gitea_public_url,
-                "username": user_id,
-                "token": cached_gitea_token,
-                "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
-            }
-        else:
-            logger.debug("get_desktop_credentials", action="cached_token_invalid")
+    # Prefer header transport for cached token. Keep query param for backwards compatibility.
+    cached_token = cached_gitea_token_header or cached_gitea_token
 
     # Create a new Gitea token
     timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
     token_name = f"Desktop Access Token - {timestamp}"
 
-    gitea_result = gitea_admin_service.create_or_get_user_token(user_id, token_name)
+    gitea_result = gitea_admin_service.create_or_get_user_token(
+        user_id,
+        token_name,
+        cached_token=cached_token,
+    )
 
     if not gitea_result.get("success"):
         raise HTTPException(
