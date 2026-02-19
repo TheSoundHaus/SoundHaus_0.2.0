@@ -145,7 +145,7 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         console.log('[init] Step 4: Making HTTP request to create repository...');
         const remoteURL = await new Promise<string>((resolve, reject) => {
             const reqOptions = {
-                hostname: 'localhost',
+                hostname: '129.212.182.247',
                 port: 3000,
                 path: '/api/v1/user/repos',
                 method: 'POST',
