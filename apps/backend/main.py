@@ -59,6 +59,7 @@ app.add_middleware(
         "Origin",
         "X-Requested-With",
         "X-CSRF-Token",
+        "X-Cached-Gitea-Token",
     ],
     expose_headers=[
         "X-RateLimit-Limit",
