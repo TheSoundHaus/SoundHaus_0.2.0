@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     gitea_container_name: str = Field(default="gitea", description="Docker container name for Gitea")
     gitea_ssh_host: Optional[str] = Field(default=None, description="SSH host for cloning")
     gitea_ssh_port: str = Field(default="22", description="SSH port for cloning")
+
+    # === Token Broker ===
+    token_broker_enabled: bool = Field(default=True, description="Enable token broker for Gitea token minting")
+    token_broker_url: str = Field(default="http://token-broker:9000", description="Internal token broker URL")
+    token_broker_api_key: Optional[str] = Field(default=None, description="Optional shared key for token broker")
     
     # === Rate Limiting ===
     rate_limit_enabled: bool = Field(default=True, description="Enable rate limiting")
