@@ -33,6 +33,9 @@ declare global {
       showProjectSetup: () => Promise<ProjectSetupData | null>
       submitProjectSetup: (data: ProjectSetupData) => void
       cancelProjectSetup: () => void
+      showCloneUrl: () => Promise<{ url: string; path: string } | null>
+      submitCloneUrl: (data: { url: string; path: string }) => void
+      cancelCloneUrl: () => void
     }
   }
 }
