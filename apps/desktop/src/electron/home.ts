@@ -145,7 +145,7 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         console.log('[init] Step 4: Making HTTP request to create repository...');
         const remoteURL = await new Promise<string>((resolve, reject) => {
             const reqOptions = {
-                hostname: 'localhost',
+                hostname: '129.212.182.247',
                 port: 3000,
                 path: '/api/v1/user/repos',
                 method: 'POST',
@@ -265,8 +265,85 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
     }
 }
 
+async function cloneRepo(cloneUrl: string, destinationPath: string): Promise<string> {
+    console.log('[clone] Starting repository clone...');
+    console.log('[clone] Clone URL:', cloneUrl);
+    console.log('[clone] Destination path:', destinationPath);
+
+    try {
+        // Extract repo name from URL to create a subdirectory
+        const urlObj = new URL(cloneUrl);
+        const pathParts = urlObj.pathname.split('/').filter(Boolean);
+        const repoOwner = pathParts[0] || '';
+        
+        // Get repo name (remove .git extension if present)
+        let repoName = pathParts[pathParts.length - 1] || 'repo';
+        if (repoName.endsWith('.git')) {
+            repoName = repoName.slice(0, -4);
+        }
+        
+        // Create full path including repo subdirectory
+        const fullDestinationPath = path.join(destinationPath, repoName);
+        
+        console.log('[clone] Repository owner:', repoOwner);
+        console.log('[clone] Repository name:', repoName);
+        console.log('[clone] Full destination:', fullDestinationPath);
+
+        // Get Gitea credentials
+        console.log('[clone] Getting Gitea credentials...');
+        const token = await getGiteaCredentials();
+        if (!token) {
+            throw new Error('No Gitea token found. Please log in first.');
+        }
+        console.log('[clone] ✓ Gitea token retrieved');
+
+        // Configure credential helper to store credentials
+        console.log('[clone] Setting up credential helper...');
+        const setHelperCmd = `"${gitBin}" config --global credential.helper store`;
+        const { stdout: helperStdout, stderr: helperStderr } = await execAsync(setHelperCmd);
+        if (helperStdout) console.log('[clone] Credential helper stdout:', helperStdout);
+        if (helperStderr) console.warn('[clone] Credential helper stderr:', helperStderr);
+        console.log('[clone] ✓ Credential helper configured');
+
+        // Approve credentials for this host
+        const approveCmd =
+            `printf "protocol=${urlObj.protocol.replace(':', '')}\n` +
+            `host=${urlObj.host}\n` +
+            `username=${repoOwner}\n` +
+            `password=${token}\n\n" | "${gitBin}" credential approve`;
+        
+        console.log('[clone] Approving credentials for:', `${urlObj.protocol}//${urlObj.host}`);
+        const { stdout: approveStdout, stderr: approveStderr } = await execAsync(approveCmd);
+        if (approveStdout) console.log('[clone] Credential approve stdout:', approveStdout);
+        if (approveStderr) console.warn('[clone] Credential approve stderr:', approveStderr);
+        console.log('[clone] ✓ Credentials approved');
+
+        // Run git clone - this will create the subdirectory automatically
+        console.log('[clone] Running git clone...');
+        const cloneCmd = `"${gitBin}" clone "${cloneUrl}" "${fullDestinationPath}"`;
+        console.log('[clone] Command:', cloneCmd);
+        const { stdout: cloneStdout, stderr: cloneStderr } = await execAsync(cloneCmd);
+        
+        if (cloneStdout) console.log('[clone] Clone stdout:', cloneStdout);
+        if (cloneStderr) console.warn('[clone] Clone stderr:', cloneStderr);
+        
+        console.log('[clone] ✅ Repository cloned successfully!');
+        console.log('[clone] Summary:');
+        console.log('[clone] - Clone URL:', cloneUrl);
+        console.log('[clone] - Destination:', fullDestinationPath);
+        
+        return fullDestinationPath;
+
+    } catch (error: any) {
+        console.error('[clone] ❌ Error during clone:', error);
+        console.error('[clone] Error stack:', error.stack);
+        throw new Error(`Failed to clone repository: ${error.message}`);
+    }
+}
+
 export {
     chooseFolder,
     hasGitFile,
-    init
+    init,
+    cloneRepo
 };

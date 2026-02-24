@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 contextBridge.exposeInMainWorld('gitService', {
 	initRepo: (folderPath: string, projectInfo?: any): Promise<string> => ipcRenderer.invoke('init-repo', folderPath, projectInfo),
+	cloneRepo: (cloneUrl: string, destinationPath: string): Promise<string> => ipcRenderer.invoke('clone-repo', cloneUrl, destinationPath),
 	pullRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('pull-repo', repoPath),
 	commitChange: (repoPath: string): Promise<string> => ipcRenderer.invoke('commit-changes', repoPath),
 	pushRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('push-repo', repoPath)
@@ -28,5 +29,8 @@ contextBridge.exposeInMainWorld('patService', {
 contextBridge.exposeInMainWorld('electron', {
 	showProjectSetup: () => ipcRenderer.invoke('show-project-setup'),
 	submitProjectSetup: (data: any) => ipcRenderer.send('project-setup-submit', data),
-	cancelProjectSetup: () => ipcRenderer.send('project-setup-cancel')
+	cancelProjectSetup: () => ipcRenderer.send('project-setup-cancel'),
+	showCloneUrl: () => ipcRenderer.invoke('show-clone-url'),
+	submitCloneUrl: (data: any) => ipcRenderer.send('clone-url-submit', data),
+	cancelCloneUrl: () => ipcRenderer.send('clone-url-cancel')
 });

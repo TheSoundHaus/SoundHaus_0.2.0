@@ -9,6 +9,7 @@ export interface ElectronAPI {
 
 export interface GitService {
   initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
+  cloneRepo: (cloneUrl: string, destinationPath: string) => Promise<string>
   pullRepo: (repoPath: string) => Promise<string>
   commitChange: (repoPath: string) => Promise<string>
   pushRepo: (repoPath: string) => Promise<string>

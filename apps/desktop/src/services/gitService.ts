@@ -6,6 +6,14 @@ const gitService = {
         }
         return window.gitService.initRepo(folderPath, projectInfo)
     },
+
+    async cloneRepo(cloneUrl: string, destinationPath: string): Promise<string> {
+        if(!window.gitService) {
+            console.warn('gitService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.gitService.cloneRepo(cloneUrl, destinationPath)
+    },
     
     async pullRepo(repoPath: string): Promise<string> {
         if(!window.gitService) {
