@@ -1,15 +1,15 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
-import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
-import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
-import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
+import { chooseFolder, hasGitFile, init } from './home'
+import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
+import { getAlsFromGitHead, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseXml } from '../../dist/vendor/custom_modules/semantic-diff/parser/index.js'
+import { parseXml } from '../../native/semantic-diff/index.js'
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
@@ -52,22 +52,9 @@ ipcMain.handle('check-git', async (_event: IpcMainInvokeEvent, folderPath: strin
   return await hasGitFile(folderPath);
 });
 
-ipcMain.handle('find-instrument-changes', async (_event: IpcMainInvokeEvent, alsPath) => {
-  try {
-    const local = await decompressAls(alsPath);
-    const startDir = path.dirname(alsPath);
-
-    const { stdout } = await execFileP('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    const repoRoot = stdout.trim();
-    const relPath = path.relative(repoRoot, alsPath);
-    const head = await getAlsFromGitHead(repoRoot, relPath);
-    const struct = structuralCompareAls(local.text, head.text, { allowTrackNameFallback: false });
-    return struct;
-  }
-  catch(e: any) {
-    return { ok: false, reason: e && e.message ? e.message : String(e) };
-  }
-});
+// DEPRECATED: find-instrument-changes handler removed.
+// The Rust semantic-diff parser now handles all diffing via the 'diff-xml' IPC channel.
+// structuralCompareAls() from project.ts is no longer called.
 
 ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
   if(!folderPath) {
@@ -130,7 +117,42 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 
 ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string, oldAlsPath: string) => {
   try {
-    return await parseXml(curAlsPath, oldAlsPath);
+    const rawJson = parseXml(curAlsPath, oldAlsPath);
+    const report = JSON.parse(rawJson);
+
+    // Adapt the new DiffReport format so the existing UI can still render:
+    // 1. Generate a flat summary string from the hierarchical changes
+    // 2. Map project.tracks to the old { Type, Id, EffectiveName, UserName, Tracks } shape
+    const summaryLines: string[] = [];
+    for (const change of (report.changes || [])) {
+      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
+      let line = `${prefix}${change.type}: ${change.label}`;
+      if (change.from && change.to) line += ` (${change.from} → ${change.to})`;
+      if (change.confidence) line += ` [confidence: ${(change.confidence * 100).toFixed(0)}%]`;
+      summaryLines.push(line);
+
+      // Include children at one level of depth
+      for (const child of (change.children || [])) {
+        let childLine = `  ${child.action}: ${child.type} - ${child.label}`;
+        if (child.from && child.to) childLine += ` (${child.from} → ${child.to})`;
+        summaryLines.push(childLine);
+      }
+    }
+
+    // Map tracks to legacy field names for the Track Information panel
+    const legacyTracks = (report.project?.tracks || []).map((t: any) => ({
+      Type: t.track_type,
+      Id: t.id,
+      EffectiveName: t.effective_name,
+      UserName: t.user_name || null,
+    }));
+
+    return {
+      summary: summaryLines.join('\n'),
+      project: { Tracks: legacyTracks },
+      // Also include the full structured report for future UI use
+      report,
+    };
   } catch (e: any) {
     console.log(e)
     return { ok: false, error: e && e.message ? e.message : String(e) };
