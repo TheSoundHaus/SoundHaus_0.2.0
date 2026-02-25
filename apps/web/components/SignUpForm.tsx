@@ -1,4 +1,4 @@
-import React, { useActionState } from "react";
+import { useActionState } from "react";
 import { signup } from "@/actions/auth";
 import Spinner from "@/components/Spinner";
 
