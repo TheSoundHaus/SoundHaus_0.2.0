@@ -21,6 +21,8 @@ export interface PatService {
   setSoundHausCredentials: (token: string) => Promise<string>
   getGiteaCredentials: () => Promise<string | null>
   setGiteaCredentials: (token: string) => Promise<string>
+  getAllowedCloneRemote: () => Promise<string | null>
+  setAllowedCloneRemote: (remote: string) => Promise<string>
 }
 
 export interface GitFileChange {

@@ -29,6 +29,22 @@ const patService = {
             return Promise.resolve('')
         }
         return window.patService.setGiteaCredentials(token)
+    },
+
+    async getAllowedCloneRemote(): Promise<string | null> {
+        if(!window.patService) {
+            console.warn('patService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.patService.getAllowedCloneRemote()
+    },
+
+    async setAllowedCloneRemote(remote: string): Promise<string> {
+        if(!window.patService) {
+            console.warn('patService not avaliable')
+            return Promise.resolve('')
+        }
+        return window.patService.setAllowedCloneRemote(remote)
     }
 }
 

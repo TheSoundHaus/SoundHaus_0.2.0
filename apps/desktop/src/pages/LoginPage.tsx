@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+const SUPABASE_PUBLIC_URL = 'http://129.212.182.247:8000'.replace(/\/$/, '');
+
 const LoginPage = () => {
     const navigate = useNavigate();
     const autoLoginAttempted = useRef(false);
@@ -23,12 +25,14 @@ const LoginPage = () => {
             console.log('Attempting PAT auto-login...');
 
             try {
+                let credUrl = `${SUPABASE_PUBLIC_URL}/api/desktop/credentials`;
                 const headers: Record<string, string> = { Authorization: `token ${token}` };
                 if (existingGiteaToken) {
-                    headers['X-Cached-Gitea-Token'] = existingGiteaToken;
+                    const params = new URLSearchParams({ cached_gitea_token: existingGiteaToken });
+                    credUrl = `${credUrl}?${params.toString()}`;
                 }
 
-                const credRes = await fetch('http://129.212.182.247:8000/api/desktop/credentials', {
+                const credRes = await fetch(credUrl, {
                     method: 'GET',
                     headers,
                 });
@@ -48,6 +52,10 @@ const LoginPage = () => {
                     console.log('Gitea token validated and reused');
                 }
 
+                if (credData?.gitea_url) {
+                    await window.patService?.setAllowedCloneRemote(credData.gitea_url);
+                }
+
                 console.log('Auto-login successful');
                 navigate('/home');
             } catch (err) {
@@ -64,7 +72,7 @@ const LoginPage = () => {
         const password = (document.getElementById('password') as HTMLInputElement).value
         
         try {
-            const loginRes = await fetch('http://129.212.182.247:8000/api/auth/login', {
+            const loginRes = await fetch(`${SUPABASE_PUBLIC_URL}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password })
@@ -84,7 +92,7 @@ const LoginPage = () => {
                 return;
             }
 
-            const patRes = await fetch('http://129.212.182.247:8000/api/auth/tokens', {
+            const patRes = await fetch(`${SUPABASE_PUBLIC_URL}/api/auth/tokens`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
                 body: JSON.stringify({ token_name: 'Gitea Token', expires_in_days: 90 }),
@@ -107,7 +115,7 @@ const LoginPage = () => {
                 return;
             }
 
-            const credRes = await fetch('http://129.212.182.247:8000/api/desktop/credentials', {
+            const credRes = await fetch(`${SUPABASE_PUBLIC_URL}/api/desktop/credentials`, {
                 method: 'GET',
                 headers: { Authorization: `token ${token}` }
             });
@@ -118,6 +126,10 @@ const LoginPage = () => {
 
                 if (giteaToken) {
                     await window.patService?.setGiteaCredentials(giteaToken);
+                }
+
+                if (credData?.gitea_url) {
+                    await window.patService?.setAllowedCloneRemote(credData.gitea_url);
                 }
             }
 

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
-import { chooseFolder, hasGitFile, init, cloneRepo } from './home'
-import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
+import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
+import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
 import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
@@ -108,6 +108,11 @@ ipcMain.handle('show-clone-url', async (event: IpcMainInvokeEvent) => {
 });
 
 ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string, destinationPath: string) => {
+  const allowedRemote = await getAllowedCloneRemote();
+  if (!allowedRemote) {
+    throw new Error('Allowed remote not configured. Please log in again.');
+  }
+  validateCloneUrlAgainstAllowedRemote(cloneUrl, allowedRemote);
   return await cloneRepo(cloneUrl, destinationPath);
 });
 
@@ -172,6 +177,14 @@ ipcMain.handle('get-gitea-credentials', async(_event: IpcMainInvokeEvent) => {
 
 ipcMain.handle('set-gitea-credentials', async(_event: IpcMainInvokeEvent, token: string) => {
   return await setGiteaCredentials(token);
+});
+
+ipcMain.handle('get-allowed-clone-remote', async(_event: IpcMainInvokeEvent) => {
+  return await getAllowedCloneRemote();
+})
+
+ipcMain.handle('set-allowed-clone-remote', async(_event: IpcMainInvokeEvent, remote: string) => {
+  return await setAllowedCloneRemote(remote);
 });
 
 // This method will be called when Electron has finished

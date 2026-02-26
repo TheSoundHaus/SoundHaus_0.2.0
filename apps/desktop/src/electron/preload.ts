@@ -23,7 +23,9 @@ contextBridge.exposeInMainWorld('patService', {
 	getSoundHausCredentials: (): Promise<string | null> => ipcRenderer.invoke('get-soundhaus-credentials'),
 	setSoundHausCredentials: (token: string): Promise<string> => ipcRenderer.invoke('set-soundhaus-credentials', token),
 	getGiteaCredentials: (): Promise<string | null> => ipcRenderer.invoke('get-gitea-credentials'),
-	setGiteaCredentials: (token: string): Promise<string> => ipcRenderer.invoke('set-gitea-credentials', token)
+	setGiteaCredentials: (token: string): Promise<string> => ipcRenderer.invoke('set-gitea-credentials', token),
+	getAllowedCloneRemote: (): Promise<string | null> => ipcRenderer.invoke('get-allowed-clone-remote'),
+	setAllowedCloneRemote: (remote: string): Promise<string> => ipcRenderer.invoke('set-allowed-clone-remote', remote)
 });
 
 contextBridge.exposeInMainWorld('electron', {

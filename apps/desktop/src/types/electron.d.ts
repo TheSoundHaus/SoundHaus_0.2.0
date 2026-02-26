@@ -28,6 +28,8 @@ declare global {
       setSoundHausCredentials: (token: string) => Promise<string>
       getGiteaCredentials: () => Promise<string | null>
       setGiteaCredentials: (token: string) => Promise<string>
+      getAllowedCloneRemote: () => Promise<string | null>
+      setAllowedCloneRemote: (remote: string) => Promise<string>
     }
     electron?: {
       showProjectSetup: () => Promise<ProjectSetupData | null>
