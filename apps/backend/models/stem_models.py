@@ -112,7 +112,7 @@ class StemFile(Base):
     # Audio metadata
     duration_seconds = Column(Float, nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
-    format = Column(String, default="wav", nullable=False)
+    format = Column(String, default="mp3", nullable=False)
 
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 

@@ -9,40 +9,52 @@ export async function createRepoAction(
   isPrivate: boolean,
   description: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const result = await createRepo(name, isPrivate, description);
-
-  if (!result.success) {
-    return { success: false, error: result.error };
+  try {
+    const result = await createRepo(name, isPrivate, description);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to create repository" };
   }
-
-  return { success: true };
 }
 
 export async function starRepoAction(
   owner: string,
   repo: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const result = await starRepo(owner, repo);
-  if (!result.success) return { success: false, error: result.error };
-  return { success: true };
+  try {
+    const result = await starRepo(owner, repo);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to star repository" };
+  }
 }
 
 export async function unstarRepoAction(
   owner: string,
   repo: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const result = await unstarRepo(owner, repo);
-  if (!result.success) return { success: false, error: result.error };
-  return { success: true };
+  try {
+    const result = await unstarRepo(owner, repo);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to unstar repository" };
+  }
 }
 
 export async function deleteRepoAction(
   owner: string,
   repo: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const result = await deleteRepo(owner, repo);
-  if (!result.success) return { success: false, error: result.error };
-  return { success: true };
+  try {
+    const result = await deleteRepo(owner, repo);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to delete repository" };
+  }
 }
 
 export async function renameRepoAction(
@@ -50,7 +62,11 @@ export async function renameRepoAction(
   repo: string,
   newName: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const result = await renameRepo(owner, repo, newName);
-  if (!result.success) return { success: false, error: result.error };
-  return { success: true };
+  try {
+    const result = await renameRepo(owner, repo, newName);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to rename repository" };
+  }
 }

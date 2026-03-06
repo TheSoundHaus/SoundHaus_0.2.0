@@ -223,8 +223,7 @@ class DemucsService:
         finally:
             # Clean up temp files
             shutil.rmtree(tmp_dir, ignore_errors=True)
-            if "source_file" in dir():
-                try:
-                    source_file.unlink(missing_ok=True)  # type: ignore[possibly-undefined]
-                except Exception:
-                    pass
+            try:
+                source_file.unlink(missing_ok=True)  # type: ignore[possibly-undefined]
+            except (NameError, OSError) as cleanup_err:
+                logger.debug("source_file cleanup skipped", reason=str(cleanup_err))
