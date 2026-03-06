@@ -43,23 +43,9 @@ const ProjectPage = () => {
                 return
             }
 
-            // Get remote HEAD version and save it temporarily
-            const remoteResult = await electronAPI.getRemoteHeadAls(alsPath)
-            
-            if (!remoteResult.ok) {
-                setAlsStruct({ ok: false, reason: remoteResult.error || 'Failed to fetch remote HEAD' })
-                return
-            }
-
-            if (remoteResult.baselineStatus === 'no-commits') {
-                setAlsStruct(remoteResult)
-                return
-            }
-
-            // Compare current file with remote HEAD
-            const diffResult = await electronAPI.diffXml(alsPath, remoteResult.tmpPath)
-            const parsed = typeof diffResult === 'string' ? JSON.parse(diffResult) : diffResult
-            setAlsStruct(parsed)
+            // Single atomic call — diffs in Rust, no temp files
+            const result = await electronAPI.getChanges(alsPath)
+            setAlsStruct(result)
         } catch (e) {
             setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
         } finally {

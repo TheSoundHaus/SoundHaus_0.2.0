@@ -2,14 +2,14 @@ import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
-import { gitBin, getAlsFromGitHead, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
+import { gitBin, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseXml } from '../../native/semantic-diff/index.js'
+import { parseXmlFromBuffer, parseAls } from '../../native/semantic-diff/index.js'
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
@@ -162,34 +162,49 @@ ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
   // Generate a semantic commit message from the current diff before committing
   let commitMessage: string | undefined;
+  let alsPath: string | undefined;
   try {
     // Find the ALS file in the repo
+    // TODO: Revamp file selection — the ALS session name is currently derived by
+    // auto-discovering the first .als file in the project folder. In a future ticket,
+    // the user will select a specific ALS file directly; all naming decisions
+    // (e.g. .soundhaus/{als_session_name}/) will be based on that explicit selection.
     const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
     const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
 
     if (alsFile) {
-      const alsPath = path.join(repoPath, alsFile.name);
+      alsPath = path.join(repoPath, alsFile.name);
 
       // Check if HEAD exists — no commit message generation on first commit
       try {
         await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
 
-        // Get the committed (HEAD) version as a temp file
+        // Read HEAD bytes and current ALS bytes entirely in-memory — no temp files
         const relPath = path.relative(repoPath, alsPath);
-        const head = await getAlsFromGitHead(repoPath, relPath);
-        const tmpPath = path.join(repoPath, `.${alsFile.name}.commit-diff.tmp`);
-        await fs.promises.writeFile(tmpPath, head.buffer);
+        const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoPath, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
+        const headBuf = Buffer.from(headRaw);
+        const currentBuf = await fs.promises.readFile(alsPath);
 
-        try {
-          const rawJson = parseXml(alsPath, tmpPath);
-          const report = JSON.parse(rawJson);
-          commitMessage = buildCommitMessage(report);
-        } finally {
-          await fs.promises.unlink(tmpPath).catch(() => {});
-        }
+        const rawJson = parseXmlFromBuffer(currentBuf, headBuf);
+        const report = JSON.parse(rawJson);
+        commitMessage = buildCommitMessage(report);
       } catch {
         // No HEAD yet — first commit
         commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
+      }
+
+      // Write the Minimal Project Description snapshot before committing so
+      // git add . stages it alongside the .als file.
+      // Path: .soundhaus/{als_session_name}/snapshot.json
+      try {
+        const sessionName = path.basename(alsPath, '.als');
+        const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
+        await fs.promises.mkdir(snapshotDir, { recursive: true });
+        const snapshotJson = parseAls(alsPath);
+        await fs.promises.writeFile(path.join(snapshotDir, 'snapshot.json'), snapshotJson, 'utf8');
+      } catch (snapshotErr) {
+        // Non-fatal — commit proceeds without the snapshot if something goes wrong
+        console.warn('[commit-changes] Failed to write snapshot:', snapshotErr);
       }
     }
   } catch (e) {
@@ -204,26 +219,47 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await push(repoPath);
 });
 
-ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string, oldAlsPath: string) => {
+// TODO: Revamp file selection — the ALS session name is currently derived by auto-discovering
+// the first .als file in the project folder. In a future ticket, the user will select a
+// specific ALS file directly; all naming decisions (e.g. .soundhaus/{als_session_name}/)
+// will be based on that explicit selection rather than auto-discovery.
+ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string) => {
   try {
-    const rawJson = parseXml(curAlsPath, oldAlsPath);
+    const startDir = path.dirname(alsPath);
+    const { stdout: rootStdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    const repoRoot = rootStdout.trim();
+    const relPath = path.relative(repoRoot, alsPath);
+
+    // Check if any commits exist
+    try {
+      await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+    } catch {
+      // No commits yet — return a no-commits baseline built from the current file
+      const fallback = await buildLocalDiffFromAls(alsPath);
+      return { ok: true, baselineStatus: 'no-commits', ...fallback };
+    }
+
+    // Read HEAD bytes and current ALS bytes entirely in-memory — no temp files
+    const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
+    const headBuf = Buffer.from(headRaw);
+    const currentBuf = await fs.promises.readFile(alsPath);
+
+    // Diff entirely in Rust — no temp files, no JS decompression
+    const rawJson = parseXmlFromBuffer(currentBuf, headBuf);
     const report = JSON.parse(rawJson);
 
-    // Adapt the new DiffReport format so the existing UI can still render:
-    // 1. Generate a flat summary string from the hierarchical changes
-    // 2. Map project.tracks to the old { Type, Id, EffectiveName, UserName, Tracks } shape
+    // Build a flat summary string for the Changes panel
+    // TODO (Phase 5): move this formatting into Rust via generate_commit_message / format_changes_summary export
     const summaryLines: string[] = [];
     for (const change of (report.changes || [])) {
       const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
       let line = `${prefix}${change.type}: ${change.label}`;
-      if (change.from && change.to) line += ` (${change.from} → ${change.to})`;
-      if (change.confidence) line += ` [confidence: ${(change.confidence * 100).toFixed(0)}%]`;
+      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
       summaryLines.push(line);
 
-      // Include children at one level of depth
       for (const child of (change.children || [])) {
         let childLine = `  ${child.action}: ${child.type} - ${child.label}`;
-        if (child.from && child.to) childLine += ` (${child.from} → ${child.to})`;
+        if (child.from && child.to) childLine += ` (${child.from} \u2192 ${child.to})`;
         summaryLines.push(childLine);
       }
     }
@@ -236,46 +272,16 @@ ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string,
       UserName: t.user_name || null,
     }));
 
-    // Delete the tmp file now that we've diffed it
-    await fs.promises.unlink(oldAlsPath).catch(() => {});
-
     return {
+      ok: true,
       summary: summaryLines.join('\n'),
       diffStatus: summaryLines.length > 0 ? 'has-changes' : 'in-sync',
       project: { Tracks: legacyTracks },
-      // Also include the full structured report for future UI use
       report,
     };
   } catch (e: any) {
-    console.log(e)
-    return { ok: false, error: e && e.message ? e.message : String(e) };
-  }
-});
-
-ipcMain.handle('get-remote-head-als', async(_event: IpcMainInvokeEvent, alsPath: string) => {
-  try {
-    const startDir = path.dirname(alsPath);
-    const { stdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    const repoRoot = stdout.trim();
-    const relPath = path.relative(repoRoot, alsPath);
-
-    try {
-      await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
-    } catch (_e: any) {
-      const fallback = await buildLocalDiffFromAls(alsPath);
-      return { ok: true, baselineStatus: 'no-commits', ...fallback };
-    }
-    
-    // Get the remote HEAD version
-    const head = await getAlsFromGitHead(repoRoot, relPath);
-    
-    // Save to a temporary file
-    const tmpPath = path.join(path.dirname(alsPath), `.${path.basename(alsPath)}.remote-head.tmp`);
-    await fs.promises.writeFile(tmpPath, head.buffer);
-    
-    return { ok: true, tmpPath };
-  } catch (e: any) {
-    return { ok: false, error: e && e.message ? e.message : String(e) };
+    console.error('[get-changes]', e);
+    return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
 });
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {

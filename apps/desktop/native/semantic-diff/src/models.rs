@@ -4,9 +4,20 @@ use serde::{Serialize, Deserialize};
 // Core Project Model
 // ─────────────────────────────────────────────
 
+/// Snapshot schema version. Increment only on breaking structural changes.
+/// New optional fields should use `#[serde(default)]` and remain backwards-compatible
+/// without incrementing this value.
+fn default_schema_version() -> u32 { 1 }
+
 /// Top-level representation of an Ableton Live Set (.als) file.
+/// This struct is the Minimal Project Description (MPD) written to
+/// `.soundhaus/{als_session_name}/snapshot.json` on every commit.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Project {
+    /// Schema version for forwards/backwards compatibility.
+    /// Deserializes as 0 when reading snapshots that pre-date this field.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     /// Ableton Live version string (e.g. "11.3.2")
     pub version: Option<String>,
     /// Creator tag from the XML root
@@ -24,6 +35,7 @@ pub struct Project {
 impl Project {
     pub fn new() -> Self {
         Self {
+            schema_version: 1,
             version: None,
             creator: None,
             tempo: None,

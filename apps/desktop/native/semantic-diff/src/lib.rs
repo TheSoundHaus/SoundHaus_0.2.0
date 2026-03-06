@@ -2,9 +2,10 @@
 
 //! NAPI-RS entry point for the Ableton Live Set semantic diff parser.
 //!
-//! Exports two functions to Node.js:
-//! - `parseXml(currentPath, oldPath)` — file-path based (backward compat)
-//! - `parseXmlFromBuffer(currentBuf, oldBuf)` — buffer-based (git blob in-memory)
+//! Exports to Node.js:
+//! - `parseXmlFromBuffer(currentBuf, oldBuf)` — primary diff path (git blob in-memory, no temp files)
+//! - `parseAls(filepath)` — serialize a single ALS to a Project JSON snapshot
+//! - `parseXml(currentPath, oldPath)` — file-path based (kept for compatibility)
 
 mod models;
 mod parser;
