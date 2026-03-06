@@ -87,7 +87,9 @@ const ProjectPage = () => {
         try {
             const result = await gitService.commitChange(selectedProject)
             alert(`Commit complete:\n${result}`)
-            await handleRefreshChanges()
+            // After a commit the working tree matches HEAD — show in-sync immediately
+            // without a round-trip diff (which would always return empty).
+            setAlsStruct((prev: any) => prev ? { ...prev, diffStatus: 'in-sync', summary: '' } : prev)
         } catch(error) {
             alert(`Commit failed:\n${error}`)
         } finally {
@@ -206,7 +208,15 @@ const ProjectPage = () => {
                                 <div className={styles.error}>
                                     <p>{alsStruct.reason ?? 'An error occurred'}</p>
                                 </div>
-                            ) : alsStruct.summary ? (
+                            ) : alsStruct.baselineStatus === 'no-commits' ? (
+                                <div>
+                                    <p style={{ color: '#888' }}>No snapshots yet — this will be the initial snapshot.</p>
+                                </div>
+                            ) : alsStruct.diffStatus === 'in-sync' ? (
+                                <div>
+                                    <p style={{ color: '#4caf50' }}>✓ In sync with last snapshot</p>
+                                </div>
+                            ) : alsStruct.diffStatus === 'has-changes' ? (
                                 <div>
                                     <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
                                         {alsStruct.summary.split('\n').map((line: string, i: number) => (
@@ -216,7 +226,7 @@ const ProjectPage = () => {
                                 </div>
                             ) : (
                                 <div>
-                                    <p>No changes detected</p>
+                                    <p style={{ color: '#888' }}>Press ↻ to compare with last snapshot</p>
                                 </div>
                             )}
                         </div>

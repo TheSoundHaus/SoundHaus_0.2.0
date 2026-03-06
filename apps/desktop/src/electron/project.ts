@@ -327,11 +327,14 @@ function pull(repoPath: string) {
   });
 }
 
-function commit(repoPath: string) {
+function commit(repoPath: string, message?: string) {
+  const msg = message || 'Update project';
+  // Escape double quotes inside the message to prevent shell injection
+  const escapedMsg = msg.replace(/"/g, '\\"');
   return new Promise((resolve, reject) => {
     const cmds = [
       `"${gitBin}" add .`,
-      `"${gitBin}" commit -m "Auto-commit from Electron app"`,
+      `"${gitBin}" commit -m "${escapedMsg}"`,
     ];
     const cmd = cmds.join(' && ');
 
@@ -359,12 +362,13 @@ function push(repoPath: string) {
 }
 
 export {
+    gitBin,
     decompressAls,
     execFileP,
     getAlsFromGitHead,
     structuralCompareAls,
     getAlsContent,
-  buildLocalDiffFromAls,
+    buildLocalDiffFromAls,
     pull,
     commit,
     push

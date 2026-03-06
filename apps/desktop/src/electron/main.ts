@@ -2,7 +2,7 @@ import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
-import { getAlsFromGitHead, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
+import { gitBin, getAlsFromGitHead, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { execFile } from 'child_process';
@@ -15,6 +15,58 @@ const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
 
 const execFileP = promisify(execFile);
+
+/**
+ * Build a human-readable git commit message from a DiffReport.
+ * Uses stats for large diffs, specific descriptions for small ones.
+ */
+function buildCommitMessage(report: any): string {
+  const changes: any[] = report.changes || [];
+  const stats = report.stats || {};
+
+  if (changes.length === 0) {
+    return 'Update project';
+  }
+
+  // For small diffs (≤3 top-level changes), describe each one specifically
+  if (changes.length <= 3) {
+    const parts = changes.map((c: any) => {
+      switch (c.action) {
+        case 'added':         return `Add ${c.label}`;
+        case 'removed':       return `Remove ${c.label}`;
+        case 'renamed':       return `Rename ${c.from} → ${c.to}`;
+        case 'likely_rename': return `Rename ${c.from} → ${c.to}`;
+        case 'moved':         return `Move ${c.label}`;
+        case 'modified': {
+          // Summarise what changed inside this track
+          const children: any[] = c.children || [];
+          const swap = children.find((ch: any) => ch.action === 'instrument_swap');
+          if (swap) return `Swap instrument on ${c.label} (${swap.from} → ${swap.to})`;
+          const deviceAdded = children.filter((ch: any) => ch.type === 'Device' && ch.action === 'added');
+          const deviceRemoved = children.filter((ch: any) => ch.type === 'Device' && ch.action === 'removed');
+          if (deviceAdded.length === 1 && deviceRemoved.length === 0)
+            return `Add ${deviceAdded[0].label} to ${c.label}`;
+          if (deviceRemoved.length === 1 && deviceAdded.length === 0)
+            return `Remove ${deviceRemoved[0].label} from ${c.label}`;
+          return `Update ${c.label}`;
+        }
+        case 'value_change':  return `${c.label} ${c.from} → ${c.to}`;
+        default:              return `${c.action} ${c.label}`;
+      }
+    });
+    return parts.join(', ');
+  }
+
+  // For larger diffs, use a stat-based summary
+  const parts: string[] = [];
+  if (stats.added)    parts.push(`${stats.added} track${stats.added > 1 ? 's' : ''} added`);
+  if (stats.removed)  parts.push(`${stats.removed} track${stats.removed > 1 ? 's' : ''} removed`);
+  if (stats.renamed)  parts.push(`${stats.renamed} renamed`);
+  if (stats.modified) parts.push(`${stats.modified} modified`);
+  if (stats.moved)    parts.push(`${stats.moved} moved`);
+
+  return parts.length > 0 ? `Update project: ${parts.join(', ')}` : 'Update project';
+}
 
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -108,7 +160,44 @@ ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
-  return await commit(repoPath);
+  // Generate a semantic commit message from the current diff before committing
+  let commitMessage: string | undefined;
+  try {
+    // Find the ALS file in the repo
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+
+    if (alsFile) {
+      const alsPath = path.join(repoPath, alsFile.name);
+
+      // Check if HEAD exists — no commit message generation on first commit
+      try {
+        await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+
+        // Get the committed (HEAD) version as a temp file
+        const relPath = path.relative(repoPath, alsPath);
+        const head = await getAlsFromGitHead(repoPath, relPath);
+        const tmpPath = path.join(repoPath, `.${alsFile.name}.commit-diff.tmp`);
+        await fs.promises.writeFile(tmpPath, head.buffer);
+
+        try {
+          const rawJson = parseXml(alsPath, tmpPath);
+          const report = JSON.parse(rawJson);
+          commitMessage = buildCommitMessage(report);
+        } finally {
+          await fs.promises.unlink(tmpPath).catch(() => {});
+        }
+      } catch {
+        // No HEAD yet — first commit
+        commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
+      }
+    }
+  } catch (e) {
+    // If message generation fails, fall back to a generic but still reasonable message
+    commitMessage = undefined;
+  }
+
+  return await commit(repoPath, commitMessage);
 })
 
 ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
@@ -147,8 +236,12 @@ ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string,
       UserName: t.user_name || null,
     }));
 
+    // Delete the tmp file now that we've diffed it
+    await fs.promises.unlink(oldAlsPath).catch(() => {});
+
     return {
       summary: summaryLines.join('\n'),
+      diffStatus: summaryLines.length > 0 ? 'has-changes' : 'in-sync',
       project: { Tracks: legacyTracks },
       // Also include the full structured report for future UI use
       report,
@@ -162,12 +255,12 @@ ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string,
 ipcMain.handle('get-remote-head-als', async(_event: IpcMainInvokeEvent, alsPath: string) => {
   try {
     const startDir = path.dirname(alsPath);
-    const { stdout } = await execFileP('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    const { stdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
     const repoRoot = stdout.trim();
     const relPath = path.relative(repoRoot, alsPath);
 
     try {
-      await execFileP('git', ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+      await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
     } catch (_e: any) {
       const fallback = await buildLocalDiffFromAls(alsPath);
       return { ok: true, baselineStatus: 'no-commits', ...fallback };
