@@ -1,9 +1,10 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
-import { chooseFolder, hasGitFile, init } from './home'
-import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
+import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
+import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
 import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
+import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -100,6 +101,21 @@ ipcMain.handle('show-project-setup', async (event: IpcMainInvokeEvent) => {
   return await createProjectSetupDialog(win);
 });
 
+ipcMain.handle('show-clone-url', async (event: IpcMainInvokeEvent) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return null;
+  return await createCloneUrlDialog(win);
+});
+
+ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string, destinationPath: string) => {
+  const allowedRemote = await getAllowedCloneRemote();
+  if (!allowedRemote) {
+    throw new Error('Allowed remote not configured. Please log in again.');
+  }
+  validateCloneUrlAgainstAllowedRemote(cloneUrl, allowedRemote);
+  return await cloneRepo(cloneUrl, destinationPath);
+});
+
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await pull(repoPath);
 });
@@ -163,6 +179,14 @@ ipcMain.handle('set-gitea-credentials', async(_event: IpcMainInvokeEvent, token:
   return await setGiteaCredentials(token);
 });
 
+ipcMain.handle('get-allowed-clone-remote', async(_event: IpcMainInvokeEvent) => {
+  return await getAllowedCloneRemote();
+})
+
+ipcMain.handle('set-allowed-clone-remote', async(_event: IpcMainInvokeEvent, remote: string) => {
+  return await setAllowedCloneRemote(remote);
+});
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -175,9 +199,9 @@ app.whenReady().then(() => {
     {
       label: 'File',
       submenu: [
-        { label: 'New SoundHaus Project' },
-        { type: 'separator' },
         { label: 'Import Ableton Project' },
+        { label: 'Clone SoundHaus Project' },
+        { label: 'Open SoundHaus Project' },
         { label: 'Browse Public Projects' },
         { type: 'separator' },
         { label: 'Options' },

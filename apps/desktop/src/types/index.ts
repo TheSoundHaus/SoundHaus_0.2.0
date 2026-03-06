@@ -5,10 +5,12 @@ export interface ElectronAPI {
   findAls: (folderPath: string) => Promise<string | null>
   getAlsContent: (alsPath: string) => Promise<any>
   diffXml: (curAlsPath: string, oldAlsPath: string) => Promise<any>
+  getRemoteHeadAls: (alsPath: string) => Promise<any>
 }
 
 export interface GitService {
   initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
+  cloneRepo: (cloneUrl: string, destinationPath: string) => Promise<string>
   pullRepo: (repoPath: string) => Promise<string>
   commitChange: (repoPath: string) => Promise<string>
   pushRepo: (repoPath: string) => Promise<string>
@@ -19,6 +21,24 @@ export interface PatService {
   setSoundHausCredentials: (token: string) => Promise<string>
   getGiteaCredentials: () => Promise<string | null>
   setGiteaCredentials: (token: string) => Promise<string>
+  getAllowedCloneRemote: () => Promise<string | null>
+  setAllowedCloneRemote: (remote: string) => Promise<string>
+}
+
+export interface GitFileChange {
+  status: string
+  file: string
+}
+
+export interface GitStatus {
+  hasChanges: boolean
+  changes: GitFileChange[]
+}
+
+export interface Project {
+  path: string
+  name: string
+  lastOpened?: string
 }
 
 // ALS (Ableton Live Set) types
@@ -101,5 +121,13 @@ declare global {
     electronAPI?: ElectronAPI
     gitService?: GitService
     patService?: PatService
+    electron?: {
+      showProjectSetup: () => Promise<ProjectSetupData | null>
+      submitProjectSetup: (data: ProjectSetupData) => void
+      cancelProjectSetup: () => void
+      showCloneUrl: () => Promise<{ url: string; path: string } | null>
+      submitCloneUrl: (data: { url: string; path: string }) => void
+      cancelCloneUrl: () => void
+    }
   }
 }

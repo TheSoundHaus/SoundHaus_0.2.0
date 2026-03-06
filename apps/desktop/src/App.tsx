@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
 import ProjectPage from './pages/ProjectPage'
 import ProjectInitDialog from './pages/ProjectInitDialog'
+import CloneUrlDialog from './pages/CloneUrlDialog'
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/home" element={<HomePage />} />
         <Route path="/project" element={<ProjectPage />} />
         <Route path="/project-setup" element={<ProjectInitDialog />} />
+        <Route path="/clone-url" element={<CloneUrlDialog />} />
       </Routes>
     </Router>
   )
