@@ -6,7 +6,7 @@ TODO: Add the following imports for webhook integration:
     from sqlalchemy import DateTime
     from sqlalchemy.sql import func
 """
-from sqlalchemy import Column, String, Integer, Float, Table, DateTime
+from sqlalchemy import Column, String, Integer, Float, Boolean, Table, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -47,6 +47,19 @@ class RepoData(Base):
     last_push_at = Column(DateTime(timezone=True), nullable=True)
     total_commits = Column(Integer, default=0, nullable=False)
     last_activity_at = Column(DateTime(timezone=True), nullable=True)
+
+    # ── New push-tracking columns (Phase 1) ──────────────────────────────
+    # Set to True by webhook_service._handle_push() when new commits arrive.
+    # Set to False by POST /repos/{owner}/{repo}/diff after Desktop posts diff.
+    # The web UI reads this to show the "New push available" UpdateBanner.
+    # Default False = no pending update on row creation.
+    needs_update = Column(Boolean, default=False, nullable=False)
+
+    # The git HEAD SHA after the most recent push.
+    # Populated by webhook_service._handle_push() from payload["after"].
+    # Used in UpdateBanner: "Commit <short_sha> was just pushed".
+    # nullable=True because existing rows pre-dating this column won't have it.
+    last_push_commit_sha = Column(String(40), nullable=True)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too
@@ -83,6 +96,37 @@ class RepoData(Base):
         back_populates="repo",
         uselist=False  # One-to-one relationship
     )
-    
+
+    # ── New relationships (Phase 1) ───────────────────────────────────────
+    # Populated by: models/commit_models.py — CommitDetail table
+    # Each push event creates N CommitDetail rows (one per commit in the push).
+    # Back-reference: CommitDetail.repo
+    commit_details = relationship(
+        "CommitDetail",
+        back_populates="repo",
+        cascade="all, delete-orphan"
+    )
+
+    # Populated by: models/diff_models.py — AlsDiff table
+    # Each Desktop push creates 0 or 1 AlsDiff rows (if .als file changed).
+    # Back-reference: AlsDiff.repo
+    als_diffs = relationship(
+        "AlsDiff",
+        back_populates="repo",
+        cascade="all, delete-orphan"
+    )
+
+    # Populated by: models/snippet_models.py — SnippetHistory table
+    # Each snippet overwrite creates 1 SnippetHistory row (snapshot of old version).
+    # Back-reference: SnippetHistory.repo
+    snippet_history = relationship(
+        "SnippetHistory",
+        back_populates="repo",
+        cascade="all, delete-orphan",
+        # Order queries in the router/service instead of here — SQLAlchemy
+        # relationship order_by requires a mapped column expression, not a string.
+        # Use: db.query(SnippetHistory).filter(...).order_by(SnippetHistory.version_number.desc())
+    )
+
     def __repr__(self):
         return f"<RepoData(gitea_id='{self.gitea_id}', clones={self.clone_count})>"

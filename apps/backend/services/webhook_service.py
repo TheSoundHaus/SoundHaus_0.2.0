@@ -300,12 +300,57 @@ class WebhookService:
                 commit_count=len(commits)
             )
             db.add(push_event)
+            # IMPORTANT: db.flush() here to get push_event.id for CommitDetail FK
+            # db.flush()
+
+            # ── TODO: Create CommitDetail rows (Phase 2 implementation) ──────────
+            # For each commit in the push payload, create a CommitDetail row.
+            # The Gitea push payload provides:
+            #   commits[n] = {
+            #       "id":        "<full_sha>",
+            #       "message":   "...",
+            #       "author":    {"name": "...", "email": "..."},
+            #       "timestamp": "2026-03-06T12:00:00Z",
+            #       "added":     ["file1.wav"],
+            #       "modified":  ["project.als"],
+            #       "removed":   []
+            #   }
+            #
+            # Steps to implement:
+            #   1. Import CommitDetail from models.commit_models at top of file
+            #   2. Call db.flush() after db.add(push_event) to populate push_event.id
+            #   3. Loop over commits:
+            #      for commit in commits:
+            #          from models.commit_models import CommitDetail
+            #          cd = CommitDetail(
+            #              push_event_id=push_event.id,
+            #              repo_id=repo_full_name,
+            #              sha=commit["id"],
+            #              short_sha=commit["id"][:8],
+            #              message=commit.get("message", ""),
+            #              author_name=commit.get("author", {}).get("name", "unknown"),
+            #              author_email=commit.get("author", {}).get("email"),
+            #              timestamp=commit.get("timestamp"),
+            #              files_added=commit.get("added", []),
+            #              files_modified=commit.get("modified", []),
+            #              files_removed=commit.get("removed", []),
+            #          )
+            #          db.add(cd)
+            # ── END TODO ────────────────────────────────────────────────────────
 
             # Update RepoData activity
             now = datetime.now(timezone.utc)
             repo_data.last_push_at = now
             repo_data.total_commits = (repo_data.total_commits or 0) + len(commits)
             repo_data.last_activity_at = now
+
+            # ── TODO: Set needs_update flag (Phase 2 implementation) ──────────────
+            # After updating activity fields, also set:
+            #   repo_data.needs_update = True
+            #   repo_data.last_push_commit_sha = after_sha
+            # This tells the web UI that new commits arrived since last page load.
+            # The POST /repos/{owner}/{repo}/diff endpoint clears needs_update.
+            # ── END TODO ─────────────────────────────────────────────────────────
             logger.debug("repo_activity_updated",
                          repo=repo_full_name,
                          total_commits=repo_data.total_commits)

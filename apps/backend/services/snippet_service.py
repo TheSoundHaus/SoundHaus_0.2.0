@@ -194,6 +194,121 @@ class SnippetService:
             "channels": metadata.get("channels"),
         }
 
+    async def _get_next_version_number(
+        self,
+        repo_id: str,
+        db  # sqlalchemy Session — import at call site to avoid circular imports
+    ) -> int:
+        """
+        Returns the next version number for a repository's snippet history.
+
+        Queries MAX(version_number) WHERE repo_id = repo_id and returns MAX + 1.
+        If no history rows exist yet, returns 1 (first version).
+
+        This is called BEFORE saving a new snippet, to determine:
+          - what version number to assign to the history row being created
+          - what suffix to use for the storage path (snippet_v1, snippet_v2, etc.)
+
+        Args:
+            repo_id: The repo's gitea_id string (e.g., "uuid-123/my-beats")
+            db:      SQLAlchemy Session (passed in, not imported here)
+
+        Returns:
+            int: next version number (1-indexed)
+
+        IMPLEMENTATION STEPS:
+            from models.snippet_models import SnippetHistory
+            from sqlalchemy import func
+            result = db.query(func.max(SnippetHistory.version_number)).filter(
+                SnippetHistory.repo_id == repo_id
+            ).scalar()
+            return (result or 0) + 1
+        """
+        # TODO: implement
+        raise NotImplementedError("_get_next_version_number not yet implemented")
+
+    async def _snapshot_existing_snippet(
+        self,
+        owner: str,
+        repo: str,
+        current_url: str,
+        current_metadata: dict,
+        version_number: int,
+        db,
+        uploader_user_id: Optional[str] = None,
+        commit_sha: Optional[str] = None,
+    ) -> None:
+        """
+        Saves the CURRENT live snippet as a versioned history entry before it is
+        overwritten.
+
+        This function should be called at the START of save_snippet(), before any
+        upload or upsert happens.
+
+        What it does:
+          1. Copies (renames) the current storage file from:
+               snippets/{owner}/{repo}/snippet.{ext}
+             to:
+               snippets/{owner}/{repo}/snippet_v{N}.{ext}
+             where N = version_number
+
+          2. Creates a SnippetHistory row in the database pointing to the renamed
+             versioned file URL.
+
+        IMPORTANT — Storage rename strategy:
+          Supabase Storage does not have a native "rename" or "move" operation.
+          You must:
+            a) Download the existing file (supabase.storage.from_(...).download(path))
+            b) Upload it to the new versioned path
+            c) Optionally delete the original (or leave it if the live path is reused)
+
+          DESIGN DECISION — should the live file be deleted after copying?
+            OPTION 1 (keep live): Leave snippet.{ext} in place, also write
+              snippet_v{N}.{ext}. Two copies exist temporarily until the new
+              snippet is uploaded (which replaces snippet.{ext} via upsert).
+              Simpler, ~2× storage per snapshot operation.
+            OPTION 2 (copy-then-delete): Download, upload versioned, delete original.
+              Slightly cleaner, but deleting and then the upsert-upload failing
+              leaves you with no live snippet. Riskier.
+            RECOMMENDATION: Option 1. Supabase free tier storage is generous.
+
+        Args:
+            owner:            repo owner UUID
+            repo:             repo slug
+            current_url:      public URL of the currently-live snippet (from RepoData)
+            current_metadata: dict with duration, file_size, format, sample_rate, channels
+            version_number:   the version number to assign this snapshot
+            db:               SQLAlchemy Session
+            uploader_user_id: Supabase user ID of whoever triggered the overwrite
+            commit_sha:       optional git SHA to associate with this version
+
+        IMPLEMENTATION STEPS:
+            1. Determine src path: f"{owner}/{repo}/snippet.{ext}"
+               (ext can be parsed from current_url or current_metadata["format"])
+            2. Determine dst path: f"{owner}/{repo}/snippet_v{version_number}.{ext}"
+            3. Download src: bytes = supabase.storage.from_(...).download(src_path)
+            4. Upload to dst with same MIME type
+            5. Get public URL for dst
+            6. Create SnippetHistory row:
+               from models.snippet_models import SnippetHistory
+               history = SnippetHistory(
+                   repo_id=f"{owner}/{repo}",
+                   version_number=version_number,
+                   snippet_url=new_public_url,
+                   duration=current_metadata.get("duration"),
+                   file_size=current_metadata.get("file_size"),
+                   format=current_metadata.get("format"),
+                   sample_rate=current_metadata.get("sample_rate"),
+                   channels=current_metadata.get("channels"),
+                   commit_sha=commit_sha,
+                   replaced_by_user_id=uploader_user_id,
+               )
+               db.add(history)
+               # DO NOT commit here — caller (save_snippet) commits everything together
+        """
+        # TODO: implement
+        raise NotImplementedError("_snapshot_existing_snippet not yet implemented")
+
     async def delete_snippet(self, owner: str, repo: str) -> bool:
         """
         Delete snippet from Supabase Storage.
