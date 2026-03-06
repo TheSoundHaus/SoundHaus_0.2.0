@@ -13,10 +13,17 @@ export async function generateStemsAction(
   owner: string,
   repo: string,
   snippetUrl: string,
-) {
-  const res = await createStemJob(owner, repo, snippetUrl);
-  if (!res.success) return { success: false as const, error: res.error };
-  return { success: true as const, jobId: res.data.job_id, status: res.data.status };
+): Promise<
+  | { success: true; jobId: number; status: string }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await createStemJob(owner, repo, snippetUrl);
+    if (!res.success) return { success: false, error: res.error };
+    return { success: true, jobId: res.data.job_id, status: res.data.status };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to start stem generation" };
+  }
 }
 
 /**
@@ -26,14 +33,21 @@ export async function pollStemJobAction(
   owner: string,
   repo: string,
   jobId: number,
-) {
-  const res = await getStemJobStatus(owner, repo, jobId);
-  if (!res.success) return { success: false as const, error: res.error };
-  return {
-    success: true as const,
-    status: res.data.status,
-    errorMessage: res.data.error_message,
-  };
+): Promise<
+  | { success: true; status: string; errorMessage: string | null }
+  | { success: false; error: string }
+> {
+  try {
+    const res = await getStemJobStatus(owner, repo, jobId);
+    if (!res.success) return { success: false, error: res.error };
+    return {
+      success: true,
+      status: res.data.status,
+      errorMessage: res.data.error_message,
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to poll stem job" };
+  }
 }
 
 /**
@@ -43,8 +57,12 @@ export async function confirmStemsAction(
   owner: string,
   repo: string,
   jobId: number,
-) {
-  const res = await confirmStemJob(owner, repo, jobId);
-  if (!res.success) return { success: false as const, error: res.error };
-  return { success: true as const };
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const res = await confirmStemJob(owner, repo, jobId);
+    if (!res.success) return { success: false, error: res.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to confirm stems" };
+  }
 }

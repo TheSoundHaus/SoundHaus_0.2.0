@@ -11,7 +11,11 @@ export async function setRepoGenresAction(
   repo: string,
   genreIds: string[],
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const result = await setRepoGenre(owner, repo, genreIds);
-  if (!result.success) return { success: false, error: result.error };
-  return { success: true };
+  try {
+    const result = await setRepoGenre(owner, repo, genreIds);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to update genres" };
+  }
 }

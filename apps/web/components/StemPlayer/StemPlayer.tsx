@@ -94,7 +94,7 @@ function StemTrack({
     wsRef.current = ws;
 
     return () => {
-      try { ws.unAll(); ws.destroy(); } catch { /* noop */ }
+      try { ws.unAll(); ws.destroy(); } catch (err) { console.debug("StemTrack cleanup error:", err); }
       if (containerRef.current) containerRef.current.innerHTML = "";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
