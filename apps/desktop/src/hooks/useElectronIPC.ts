@@ -6,6 +6,10 @@ export function useElectronIPC() {
         return await window.electron?.showProjectSetup();
     };
 
+    const showCloneUrl = async () => {
+        return await window.electron?.showCloneUrl();
+    };
+
     return {
         chooseFolder: electronAPI.chooseFolder,
         hasGitFile: electronAPI.hasGitFile,
@@ -13,10 +17,12 @@ export function useElectronIPC() {
         findAls: electronAPI.findAls,
         getAlsStruct: electronAPI.getAlsStruct,
         initRepo: gitService.initRepo,
+        cloneRepo: gitService.cloneRepo,
         pullRepo: gitService.pullRepo,
         commitChange: gitService.commitChange,
         pushRepo: gitService.pushRepo,
-        showProjectSetup
+        showProjectSetup,
+        showCloneUrl
     }
 }
 

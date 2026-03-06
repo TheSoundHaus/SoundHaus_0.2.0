@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
-import { getGiteaCredentials } from './login';
+import { getAllowedCloneRemote, getGiteaCredentials } from './login';
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
@@ -18,7 +18,17 @@ const platformMap: Partial<Record<NodeJS.Platform, string>> = {
 
 const platformDir = platformMap[process.platform] || process.platform;
 const envGit = process.env.SOUNDHAUS_GIT_BIN;
+const giteaApiBaseUrl = (process.env.SOUNDHAUS_GITEA_PUBLIC_URL || process.env.VITE_GITEA_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
 let gitBin: string;
+
+function getGiteaApiRequestOptions(): { protocol: string; hostname: string; port: number } {
+    const parsed = new URL(giteaApiBaseUrl);
+    return {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80,
+    };
+}
 
 // Try to use bundled git, but fall back to system git if it fails
 if (envGit) {
@@ -85,6 +95,74 @@ interface ProjectSetupData {
     isPublic: boolean;
 }
 
+type ParsedCloneUrl = {
+    protocol: 'http' | 'https';
+    hostPort: string;
+    repoOwner: string;
+    repoName: string;
+};
+
+function parseAllowedRemoteHostPort(allowedRemote: string): string {
+    const trimmed = allowedRemote.trim();
+    if (!trimmed) {
+        throw new Error('Allowed remote is empty. Please log in again.');
+    }
+
+    const normalizedInput = trimmed.includes('://') ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(normalizedInput);
+    if (!parsed.host) {
+        throw new Error('Allowed remote is invalid. Please log in again.');
+    }
+    return parsed.host.toLowerCase();
+}
+
+function parseCloneUrl(cloneUrl: string): ParsedCloneUrl {
+    const value = cloneUrl.trim();
+    if (!value) {
+        throw new Error('Clone URL is required.');
+    }
+
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(value);
+    } catch {
+        throw new Error('Clone URL is invalid.');
+    }
+
+    const protocol = parsedUrl.protocol.replace(':', '').toLowerCase();
+    if (protocol !== 'http' && protocol !== 'https') {
+        throw new Error('Only HTTP and HTTPS clone URLs are allowed.');
+    }
+
+    const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
+    if (pathSegments.length < 2) {
+        throw new Error('Clone URL must include owner/repository path.');
+    }
+
+    const repoOwner = pathSegments[0];
+    const repoLeaf = pathSegments[pathSegments.length - 1];
+    const repoName = repoLeaf.endsWith('.git') ? repoLeaf.slice(0, -4) : repoLeaf;
+    if (!repoOwner || !repoName) {
+        throw new Error('Clone URL must include a valid owner and repository name.');
+    }
+
+    return {
+        protocol: protocol as 'http' | 'https',
+        hostPort: parsedUrl.host.toLowerCase(),
+        repoOwner,
+        repoName,
+    };
+}
+
+function validateCloneUrlAgainstAllowedRemote(cloneUrl: string, allowedRemote: string): ParsedCloneUrl {
+    const parsedCloneUrl = parseCloneUrl(cloneUrl);
+    const allowedHostPort = parseAllowedRemoteHostPort(allowedRemote);
+    if (parsedCloneUrl.hostPort !== allowedHostPort) {
+        throw new Error(`Only repositories from ${allowedHostPort} can be cloned.`);
+    }
+    return parsedCloneUrl;
+}
+
 async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<string> {
     console.log('[init] Starting repository initialization...');
     console.log('[init] Folder path:', folderPath);
@@ -144,9 +222,11 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         // Step 4: Create remote repository via HTTP request
         console.log('[init] Step 4: Making HTTP request to create repository...');
         const remoteURL = await new Promise<string>((resolve, reject) => {
+            const giteaRequestTarget = getGiteaApiRequestOptions();
             const reqOptions = {
-                hostname: '129.212.182.247',
-                port: 3000,
+                protocol: giteaRequestTarget.protocol,
+                hostname: giteaRequestTarget.hostname,
+                port: giteaRequestTarget.port,
                 path: '/api/v1/user/repos',
                 method: 'POST',
                 headers: {
@@ -265,8 +345,89 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
     }
 }
 
+async function cloneRepo(cloneUrl: string, destinationPath: string): Promise<string> {
+    console.log('[clone] Starting repository clone...');
+    console.log('[clone] Clone URL:', cloneUrl);
+    console.log('[clone] Destination path:', destinationPath);
+
+    try {
+        const allowedRemote = await getAllowedCloneRemote();
+        if (!allowedRemote) {
+            throw new Error('Allowed remote not configured. Please log in again.');
+        }
+
+        // Validate URL against allowed SoundHaus remote and parse clone target
+        const parsedClone = validateCloneUrlAgainstAllowedRemote(cloneUrl, allowedRemote);
+        const repoOwner = parsedClone.repoOwner;
+        const repoName = parsedClone.repoName;
+        
+        // Create full path including repo subdirectory
+        const fullDestinationPath = path.join(destinationPath, repoName);
+        
+        console.log('[clone] Repository owner:', repoOwner);
+        console.log('[clone] Repository name:', repoName);
+        console.log('[clone] Full destination:', fullDestinationPath);
+
+        if (parsedClone.protocol === 'https' || parsedClone.protocol === 'http') {
+            const cloneUrlObj = new URL(cloneUrl);
+
+            // Get Gitea credentials
+            console.log('[clone] Getting Gitea credentials...');
+            const token = await getGiteaCredentials();
+            if (!token) {
+                throw new Error('No Gitea token found. Please log in first.');
+            }
+            console.log('[clone] ✓ Gitea token retrieved');
+
+            // Configure credential helper to store credentials
+            console.log('[clone] Setting up credential helper...');
+            const setHelperCmd = `"${gitBin}" config --global credential.helper store`;
+            const { stdout: helperStdout, stderr: helperStderr } = await execAsync(setHelperCmd);
+            if (helperStdout) console.log('[clone] Credential helper stdout:', helperStdout);
+            if (helperStderr) console.warn('[clone] Credential helper stderr:', helperStderr);
+            console.log('[clone] ✓ Credential helper configured');
+
+            // Approve credentials for this host
+            const approveCmd =
+                `printf "protocol=${cloneUrlObj.protocol.replace(':', '')}\n` +
+                `host=${cloneUrlObj.host}\n` +
+                `username=${repoOwner}\n` +
+                `password=${token}\n\n" | "${gitBin}" credential approve`;
+
+            console.log('[clone] Approving credentials for:', `${cloneUrlObj.protocol}//${cloneUrlObj.host}`);
+            const { stdout: approveStdout, stderr: approveStderr } = await execAsync(approveCmd);
+            if (approveStdout) console.log('[clone] Credential approve stdout:', approveStdout);
+            if (approveStderr) console.warn('[clone] Credential approve stderr:', approveStderr);
+            console.log('[clone] ✓ Credentials approved');
+        }
+
+        // Run git clone - this will create the subdirectory automatically
+        console.log('[clone] Running git clone...');
+        const cloneCmd = `"${gitBin}" clone "${cloneUrl}" "${fullDestinationPath}"`;
+        console.log('[clone] Command:', cloneCmd);
+        const { stdout: cloneStdout, stderr: cloneStderr } = await execAsync(cloneCmd);
+        
+        if (cloneStdout) console.log('[clone] Clone stdout:', cloneStdout);
+        if (cloneStderr) console.warn('[clone] Clone stderr:', cloneStderr);
+        
+        console.log('[clone] ✅ Repository cloned successfully!');
+        console.log('[clone] Summary:');
+        console.log('[clone] - Clone URL:', cloneUrl);
+        console.log('[clone] - Destination:', fullDestinationPath);
+        
+        return fullDestinationPath;
+
+    } catch (error: any) {
+        console.error('[clone] ❌ Error during clone:', error);
+        console.error('[clone] Error stack:', error.stack);
+        throw new Error(`Failed to clone repository: ${error.message}`);
+    }
+}
+
 export {
     chooseFolder,
     hasGitFile,
-    init
+    init,
+    cloneRepo,
+    validateCloneUrlAgainstAllowedRemote
 };

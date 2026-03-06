@@ -11,18 +11,18 @@ const ProjectPage = () => {
     const initialPath = (location.state as any)?.projectPath || null
 
     const [alsStruct, setAlsStruct] = useState<any | null>(null)
-    const [selectedProject, setSelectedProject] = useState<string | null>(initialPath)
+    const [selectedProject] = useState<string | null>(initialPath)
     // Track Information closed by default, Changes open by default
     const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
     const [showChanges, setShowChanges] = useState<boolean>(true)
 
-    const [pulling, setPulling] = useState(false)
-    const [pushing, setPushing] = useState(false)
-    const [comitting, setComitting] = useState(false)
+    const [, setPulling] = useState(false)
+    const [, setPushing] = useState(false)
+    const [, setComitting] = useState(false)
     const [refreshing, setRefreshing] = useState(false)
 
-    const { metadata, findAndParse } = useAlsParser()
-    const { getAlsStruct, findAls } = useElectronIPC()
+    const { findAndParse } = useAlsParser()
+    const { findAls } = useElectronIPC()
 
     const handleRefreshChanges = useCallback(async () => {
         if (!selectedProject) return
