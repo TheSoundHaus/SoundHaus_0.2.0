@@ -1,0 +1,2 @@
+# Test suite dependencies (install with: pip install -r tests/requirements.txt)
+httpx

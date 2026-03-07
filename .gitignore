@@ -201,6 +201,7 @@ vite.config.ts.timestamp-*
 .env.development.local
 .env.test.local
 .env.production.local
+env.md
 
 # ========================================
 # Gitea Data Directory
@@ -318,3 +319,5 @@ coverage.xml
 
 # pyright
 pyrightconfig.json
+
+.cursorrules
