@@ -2,71 +2,19 @@ import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { chooseFolder, hasGitFile, init } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials } from "./login"; 
-import { gitBin, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
+import { gitBin, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseXmlFromBuffer, parseAls } from '../../native/semantic-diff/index.js'
+import { parseXmlFromBuffer, parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
 
 const execFileP = promisify(execFile);
-
-/**
- * Build a human-readable git commit message from a DiffReport.
- * Uses stats for large diffs, specific descriptions for small ones.
- */
-function buildCommitMessage(report: any): string {
-  const changes: any[] = report.changes || [];
-  const stats = report.stats || {};
-
-  if (changes.length === 0) {
-    return 'Update project';
-  }
-
-  // For small diffs (≤3 top-level changes), describe each one specifically
-  if (changes.length <= 3) {
-    const parts = changes.map((c: any) => {
-      switch (c.action) {
-        case 'added':         return `Add ${c.label}`;
-        case 'removed':       return `Remove ${c.label}`;
-        case 'renamed':       return `Rename ${c.from} → ${c.to}`;
-        case 'likely_rename': return `Rename ${c.from} → ${c.to}`;
-        case 'moved':         return `Move ${c.label}`;
-        case 'modified': {
-          // Summarise what changed inside this track
-          const children: any[] = c.children || [];
-          const swap = children.find((ch: any) => ch.action === 'instrument_swap');
-          if (swap) return `Swap instrument on ${c.label} (${swap.from} → ${swap.to})`;
-          const deviceAdded = children.filter((ch: any) => ch.type === 'Device' && ch.action === 'added');
-          const deviceRemoved = children.filter((ch: any) => ch.type === 'Device' && ch.action === 'removed');
-          if (deviceAdded.length === 1 && deviceRemoved.length === 0)
-            return `Add ${deviceAdded[0].label} to ${c.label}`;
-          if (deviceRemoved.length === 1 && deviceAdded.length === 0)
-            return `Remove ${deviceRemoved[0].label} from ${c.label}`;
-          return `Update ${c.label}`;
-        }
-        case 'value_change':  return `${c.label} ${c.from} → ${c.to}`;
-        default:              return `${c.action} ${c.label}`;
-      }
-    });
-    return parts.join(', ');
-  }
-
-  // For larger diffs, use a stat-based summary
-  const parts: string[] = [];
-  if (stats.added)    parts.push(`${stats.added} track${stats.added > 1 ? 's' : ''} added`);
-  if (stats.removed)  parts.push(`${stats.removed} track${stats.removed > 1 ? 's' : ''} removed`);
-  if (stats.renamed)  parts.push(`${stats.renamed} renamed`);
-  if (stats.modified) parts.push(`${stats.modified} modified`);
-  if (stats.moved)    parts.push(`${stats.moved} moved`);
-
-  return parts.length > 0 ? `Update project: ${parts.join(', ')}` : 'Update project';
-}
 
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -127,7 +75,8 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
 });
 
 ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) => {
-  return await getAlsContent(alsPath);
+  const projectJson = await parseAls(alsPath);
+  return JSON.parse(projectJson);
 });
 
 ipcMain.handle('init-repo', async(_event: IpcMainInvokeEvent, folderPath: string, projectInfo?: any) => {
@@ -185,9 +134,8 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
         const headBuf = Buffer.from(headRaw);
         const currentBuf = await fs.promises.readFile(alsPath);
 
-        const rawJson = parseXmlFromBuffer(currentBuf, headBuf);
-        const report = JSON.parse(rawJson);
-        commitMessage = buildCommitMessage(report);
+        const rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
+        commitMessage = await generateCommitMessage(rawJson);
       } catch {
         // No HEAD yet — first commit
         commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
@@ -200,7 +148,7 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
         const sessionName = path.basename(alsPath, '.als');
         const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
         await fs.promises.mkdir(snapshotDir, { recursive: true });
-        const snapshotJson = parseAls(alsPath);
+        const snapshotJson = await parseAls(alsPath);
         await fs.promises.writeFile(path.join(snapshotDir, 'snapshot.json'), snapshotJson, 'utf8');
       } catch (snapshotErr) {
         // Non-fatal — commit proceeds without the snapshot if something goes wrong
@@ -235,17 +183,34 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
       await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
     } catch {
       // No commits yet — return a no-commits baseline built from the current file
-      const fallback = await buildLocalDiffFromAls(alsPath);
-      return { ok: true, baselineStatus: 'no-commits', ...fallback };
+      const projectJson = await parseAls(alsPath);
+      const project = JSON.parse(projectJson);
+      const legacyTracks = (project.tracks || []).map((t: any) => ({
+        Type: t.track_type,
+        Id: t.id,
+        EffectiveName: t.effective_name,
+        UserName: t.user_name || null,
+      }));
+      const summary = legacyTracks.map((t: any) => `New track: ${t.EffectiveName}`).join('\n');
+      return { ok: true, baselineStatus: 'no-commits', summary, project: { Tracks: legacyTracks } };
     }
 
-    // Read HEAD bytes and current ALS bytes entirely in-memory — no temp files
-    const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
-    const headBuf = Buffer.from(headRaw);
-    const currentBuf = await fs.promises.readFile(alsPath);
-
-    // Diff entirely in Rust — no temp files, no JS decompression
-    const rawJson = parseXmlFromBuffer(currentBuf, headBuf);
+    // Fast path: if the previous commit already contains a snapshot.json, use it
+    // to skip re-parsing the HEAD ALS blob entirely.
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+    let rawJson: string;
+    try {
+      const { stdout: snapshotRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`], { encoding: 'utf8' })) as any;
+      // Snapshot found in HEAD — diff from JSON, no ALS parsing needed
+      rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    } catch {
+      // No snapshot in HEAD (first commit or pre-Phase-2 history) — full buffer diff
+      const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
+      const headBuf = Buffer.from(headRaw);
+      const currentBuf = await fs.promises.readFile(alsPath);
+      rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
+    }
     const report = JSON.parse(rawJson);
 
     // Build a flat summary string for the Changes panel
