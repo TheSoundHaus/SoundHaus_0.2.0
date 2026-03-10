@@ -122,6 +122,49 @@ export interface EnrichedRepo {
   snippet_metadata: SnippetMetadata | null;
   genres: string[];              // array of genre name strings
   is_starred: boolean;
+  role: "owner" | "collaborator"; // whether user owns or collaborates on the repo
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVITATIONS
+// Matches GET /invitations/pending, POST /invitations/{id}/accept|decline
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface Invitation {
+  id: number;
+  repo_name: string;
+  owner_username: string;
+  owner_email: string;
+  permission: string;
+  created_at: string;            // ISO timestamp
+  expires_at: string;            // ISO timestamp
+}
+
+// Owner-view invitation (from GET /repos/{repo_name}/invitations or GET /invitations/sent)
+export interface SentInvitation {
+  id: string;
+  repo_name?: string;            // present in /invitations/sent
+  invitee_email: string;
+  permission: string;
+  status: "pending" | "accepted" | "declined";
+  created_at: string;
+  expires_at: string;
+  responded_at: string | null;
+}
+
+// Gitea collaborator (from GET /repos/{repo_name}/collaborators)
+export interface Collaborator {
+  id: number;
+  login: string;
+  email: string;
+  avatar_url: string;
+}
+
+// User search result (from GET /users/search)
+export interface UserSearchResult {
+  username: string;
+  email: string;
+  avatar_url: string;
 }
 
 // POST /repos/{owner}/{repo}/clone

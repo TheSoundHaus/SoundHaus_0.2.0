@@ -61,6 +61,9 @@ def init_db():
     from models.clone_models import CloneEvent
     from models.genre_models import GenreList, repo_genres
     from models.pat_models import PersonalAccessToken
+    from models.commit_models import CommitDetail
+    from models.diff_models import AlsDiff
+    from models.profile_models import Profile
     
     Base.metadata.create_all(bind=engine)
     logger.info("database_tables_created", status="success")
