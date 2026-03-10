@@ -4,7 +4,7 @@
 //! with smart identity resolution (rename detection, instrument swaps, track
 //! moves, CRC-based sample replacement, and Levenshtein confidence scoring).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::models::*;
 use crate::utils::{name_similarity, LIKELY_RENAME_THRESHOLD};
@@ -100,6 +100,8 @@ fn diff_tracks(
             unmatched_old.push(old_track);
         }
     }
+    // Sort by original position for deterministic output
+    unmatched_old.sort_by_key(|t| old_map[t.id.as_str()].0);
 
     // 2. Check tracks that exist in new but not old (added or renamed)
     for (id, (_idx, new_track)) in &new_map {
@@ -107,6 +109,8 @@ fn diff_tracks(
             unmatched_new.push(new_track);
         }
     }
+    // Sort by new position for deterministic output
+    unmatched_new.sort_by_key(|t| new_map[t.id.as_str()].0);
 
     // 3. Fuzzy match unmatched tracks using Levenshtein distance on names
     let mut matched_old_ids: Vec<String> = Vec::new();
@@ -171,27 +175,46 @@ fn diff_tracks(
     }
 
     // 5. Matched tracks (same ID in both) — deep diff
+    //
+    // To detect genuine reorders (not false positives from insertions/deletions
+    // shifting indices), compute the LCS of the matched track ordering.
+    // Tracks in the LCS preserved their relative order and are NOT moved.
+    let matched_ids: Vec<&str> = new_map
+        .keys()
+        .filter(|id| old_map.contains_key(*id))
+        .copied()
+        .collect();
+    let mut old_order: Vec<&str> = matched_ids.clone();
+    old_order.sort_by_key(|id| old_map[id].0);
+    let mut new_order: Vec<&str> = matched_ids;
+    new_order.sort_by_key(|id| new_map[id].0);
+    let stable_ids = lcs_set(&old_order, &new_order);
+
+    // Collect into a sortable Vec so output order matches new track positions
+    let mut matched_results: Vec<(usize, ChangeNode)> = Vec::new();
     for (id, (new_idx, new_track)) in &new_map {
-        if let Some((old_idx, old_track)) = old_map.get(id) {
-            let children = diff_track_contents(old_track, new_track, *old_idx, *new_idx);
+        if let Some((_old_idx, old_track)) = old_map.get(id) {
+            let truly_moved = !stable_ids.contains(*id);
+            let children = diff_track_contents(old_track, new_track, truly_moved);
             if !children.is_empty() {
                 let mut node = ChangeNode::new("Track", &new_track.effective_name, "modified");
                 node.id = Some(new_track.id.clone());
                 node.context = Some(new_track.track_type.clone());
                 node.children = children;
-                changes.push(node);
+                matched_results.push((*new_idx, node));
                 stats.modified += 1;
             }
         }
     }
+    matched_results.sort_by_key(|(idx, _)| *idx);
+    changes.extend(matched_results.into_iter().map(|(_, node)| node));
 }
 
 /// Deep diff of a matched track pair. Returns child ChangeNodes.
 fn diff_track_contents(
     old: &Track,
     new: &Track,
-    old_idx: usize,
-    new_idx: usize,
+    truly_moved: bool,
 ) -> Vec<ChangeNode> {
     let mut children = Vec::new();
 
@@ -213,12 +236,9 @@ fn diff_track_contents(
         children.push(ChangeNode::value_change("Property", "UserName", old_un, new_un));
     }
 
-    // Move detection
-    if old_idx != new_idx {
-        let mut node = ChangeNode::new("Track", &new.effective_name, "moved");
-        node.from = Some(format!("Position {}", old_idx + 1));
-        node.to = Some(format!("Position {}", new_idx + 1));
-        children.push(node);
+    // Move detection — only fires for genuine reorders (LCS-based)
+    if truly_moved {
+        children.push(ChangeNode::new("Track", &new.effective_name, "moved"));
     }
 
     // Color change
@@ -542,6 +562,43 @@ fn diff_routing(old: &TrackRouting, new: &TrackRouting) -> Vec<ChangeNode> {
 /// Convert send index to letter (0 -> A, 1 -> B, etc.)
 fn send_letter(idx: usize) -> char {
     (b'A' + idx as u8) as char
+}
+
+/// Compute the set of elements that belong to the Longest Common Subsequence
+/// of two sequences. Elements in the LCS preserved their relative order across
+/// both versions; elements outside it were genuinely reordered.
+fn lcs_set<'a>(a: &[&'a str], b: &[&'a str]) -> HashSet<&'a str> {
+    let m = a.len();
+    let n = b.len();
+
+    // Build DP table
+    let mut dp = vec![vec![0u32; n + 1]; m + 1];
+    for i in 1..=m {
+        for j in 1..=n {
+            if a[i - 1] == b[j - 1] {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = dp[i - 1][j].max(dp[i][j - 1]);
+            }
+        }
+    }
+
+    // Backtrack to collect the LCS elements
+    let mut result = HashSet::new();
+    let (mut i, mut j) = (m, n);
+    while i > 0 && j > 0 {
+        if a[i - 1] == b[j - 1] {
+            result.insert(a[i - 1]);
+            i -= 1;
+            j -= 1;
+        } else if dp[i - 1][j] >= dp[i][j - 1] {
+            i -= 1;
+        } else {
+            j -= 1;
+        }
+    }
+
+    result
 }
 
 // ─────────────────────────────────────────────
