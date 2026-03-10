@@ -41,5 +41,6 @@ contextBridge.exposeInMainWorld('electron', {
 	removeMenuActionListener: () => {
 		ipcRenderer.removeAllListeners('menu-action');
 	},
-	setLastProjectPath: (projectPath: string | null) => ipcRenderer.invoke('set-last-project-path', projectPath)
+	setLastProjectPath: (projectPath: string | null) => ipcRenderer.invoke('set-last-project-path', projectPath),
+	setCurrentRoute: (route: string) => ipcRenderer.invoke('set-current-route', route)
 });

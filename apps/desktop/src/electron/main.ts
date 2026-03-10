@@ -18,6 +18,7 @@ const isPreview = process.env.PREVIEW != undefined;
 // Tracks the last project path selected by the user so View > Project View
 // can navigate back to it. Starts null (menu item disabled).
 let lastSelectedProjectPath: string | null = null;
+let isOnProjectRoute = false;
 
 function updateProjectViewMenuEnabled() {
   const menu = Menu.getApplicationMenu();
@@ -25,6 +26,16 @@ function updateProjectViewMenuEnabled() {
   const item = menu.getMenuItemById('view-project');
   if (item) {
     item.enabled = lastSelectedProjectPath !== null;
+  }
+}
+
+function updateProjectGitMenuEnabled() {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const enabled = isOnProjectRoute && lastSelectedProjectPath !== null;
+  for (const id of ['project-pull', 'project-commit', 'project-push']) {
+    const item = menu.getMenuItemById(id);
+    if (item) item.enabled = enabled;
   }
 }
 
@@ -291,6 +302,13 @@ ipcMain.handle('set-last-project-path', async(_event: IpcMainInvokeEvent, projec
   if (projectPath !== null && typeof projectPath !== 'string') return;
   lastSelectedProjectPath = projectPath;
   updateProjectViewMenuEnabled();
+  updateProjectGitMenuEnabled();
+});
+
+ipcMain.handle('set-current-route', async(_event: IpcMainInvokeEvent, route: string) => {
+  if (typeof route !== 'string') return;
+  isOnProjectRoute = route === '/project';
+  updateProjectGitMenuEnabled();
 });
 
 // This method will be called when Electron has finished
@@ -333,8 +351,6 @@ app.whenReady().then(() => {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
-        { type: 'separator' },
-        { label: 'Find' }
       ]
     },
     {
@@ -366,11 +382,38 @@ app.whenReady().then(() => {
     {
       label: 'Project',
       submenu: [
-        { label: 'Download Snapshots' },
-        { label: 'Save Snapshot'},
-        { label: 'Upload Snapshots' },
+        {
+          id: 'project-pull',
+          label: 'Download Snapshots',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'project-pull', { projectPath: lastSelectedProjectPath });
+          }
+        },
+        {
+          id: 'project-commit',
+          label: 'Save Snapshot',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'project-commit', { projectPath: lastSelectedProjectPath });
+          }
+        },
+        {
+          id: 'project-push',
+          label: 'Upload Snapshots',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'project-push', { projectPath: lastSelectedProjectPath });
+          }
+        },
         { type: 'separator' },
-        { label: 'View On SoundHaus'},
+        { 
+          label: 'View On SoundHaus',
+          click: () => shell.openExternal('http://www.rickleinecker.com/')
+        },
         { label: 'Project Settings' }
       ]
     },
@@ -385,6 +428,7 @@ app.whenReady().then(() => {
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
+  updateProjectGitMenuEnabled();
 
   app.on("activate", () => {
     // On macOS it's common to re-create a window in the app when the

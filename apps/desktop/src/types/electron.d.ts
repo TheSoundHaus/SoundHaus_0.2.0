@@ -40,6 +40,7 @@ declare global {
       onMenuAction: (callback: (action: string, payload?: any) => void) => void
       removeMenuActionListener: () => void
       setLastProjectPath: (projectPath: string | null) => Promise<void>
+      setCurrentRoute: (route: string) => Promise<void>
     }
   }
 }
