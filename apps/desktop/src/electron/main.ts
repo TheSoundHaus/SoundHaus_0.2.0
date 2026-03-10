@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
+import './env';
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
 import { gitBin, pull, commit, push } from "./project";
@@ -285,10 +286,18 @@ app.whenReady().then(() => {
     {
       label: 'File',
       submenu: [
-        { label: 'Import Ableton Project' },
-        { label: 'Clone SoundHaus Project' },
-        { label: 'Open SoundHaus Project' },
-        { label: 'Browse Public Projects' },
+        {
+          label: 'Import Ableton Project',
+          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-ableton')
+        },
+        {
+          label: 'Import SoundHaus Project',
+          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-soundhaus')
+        },
+        {
+          label: 'Browse Public Projects',
+          click: () => shell.openExternal('http://www.rickleinecker.com/')
+        },
         { type: 'separator' },
         { label: 'Options' },
         { type: 'separator' },

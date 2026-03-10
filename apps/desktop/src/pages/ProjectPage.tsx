@@ -8,10 +8,9 @@ import electronAPI from '../services/electronAPI';
 
 const ProjectPage = () => {
     const location = useLocation();
-    const initialPath = (location.state as any)?.projectPath || null
+    const selectedProject = (location.state as any)?.projectPath || null
 
     const [alsStruct, setAlsStruct] = useState<any | null>(null)
-    const [selectedProject] = useState<string | null>(initialPath)
     // Track Information closed by default, Changes open by default
     const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
     const [showChanges, setShowChanges] = useState<boolean>(true)
