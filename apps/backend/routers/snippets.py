@@ -20,7 +20,7 @@ router = APIRouter(tags=["snippets"])
 # ── Upload ───────────────────────────────────────────────────────────────────
 
 @router.post("/repos/{owner}/{repo}/snippet")
-@limiter.limit("5/minute")
+@limiter.limit(settings.rate_limit_upload)
 async def upload_audio_snippet(
     request: Request,
     owner: str,

@@ -3,6 +3,9 @@
 Test runner. Discovers and runs test scripts under auth/, gitea/, supabase/.
 Writes results and logs into each feature folder. Use --dry-run to list without running.
 
+Loads .env from tests/.env and apps/backend/.env so TEST_USER_EMAIL, TEST_USER_PASSWORD,
+and API_BASE_URL are available to test scripts when you run from the backend directory.
+
 Usage:
   python tests/run_all.py [--auth | --gitea | --supabase] [--base-url URL] [--dry-run]
 """
@@ -17,8 +20,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 TESTS_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = TESTS_DIR.parent
 SYSTEMS = ("auth", "gitea", "supabase")
 SCRIPT_GLOB = "test_*.py"
+
+
+def load_env() -> None:
+    """Load .env from apps/backend/ into os.environ."""
+    env_file = BACKEND_DIR / ".env"
+    if not env_file.exists():
+        print(f"WARNING: {env_file} not found", file=sys.stderr)
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_file, override=True)
+    except ImportError:
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ[key.strip()] = value.strip()
 
 
 def find_feature_scripts(system: str) -> list[tuple[str, Path]]:
@@ -55,6 +77,9 @@ def run_script(script: Path, base_url: str, env: dict) -> tuple[int, str, dict]:
 
 
 def main() -> int:
+    load_env()
+    print("TEST_USER_EMAIL:", os.environ.get("TEST_USER_EMAIL", "(not set)"))
+    print("TEST_USER_PASSWORD:", os.environ.get("TEST_USER_PASSWORD", "(not set)"))
     parser = argparse.ArgumentParser(description="Run Phase 0 feature tests")
     parser.add_argument("--auth", action="store_true", help="Run only auth tests")
     parser.add_argument("--gitea", action="store_true", help="Run only gitea tests")
