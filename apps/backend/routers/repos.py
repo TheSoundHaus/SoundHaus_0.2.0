@@ -147,7 +147,7 @@ async def get_repo_contents(
 
 
 @router.post("/repos/{repo_name}/upload")
-@user_limiter.limit("30/minute")
+@user_limiter.limit(settings.rate_limit_upload)
 async def upload_file(
     request: Request,
     repo_name: str,

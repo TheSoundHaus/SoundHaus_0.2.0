@@ -1,31 +1,23 @@
 #!/usr/bin/env python3
 """
-Auth signup test.
+Sign up a user via the API (Supabase + Gitea provisioning).
 
-Flow:
-- POST /api/auth/signup with a unique email and password
-- Verify Supabase user creation succeeded
-- Verify Gitea user provisioning succeeded
-- Exit 0 on success, 1 on failure
+Usage:
+    python scripts/signup_user.py
+
+Creates a user with a unique email (testuser+<uuid>@gmail.com) and hardcoded password.
 """
 
 import json
 import os
 import sys
 import uuid
-from pathlib import Path
 
 import httpx
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=True)
-except ImportError:
-    pass
-
 
 def fail(message: str) -> None:
-    print(f"[signup] ERROR: {message}", file=sys.stderr)
+    print(f"[signup_user] ERROR: {message}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -41,7 +33,7 @@ def main() -> None:
         payload = {
             "email": email,
             "password": password,
-            "metadata": {"source": "test_signup"},
+            "metadata": {"source": "signup_user"},
         }
 
         resp = client.post("/api/auth/signup", json=payload)
@@ -68,9 +60,9 @@ def main() -> None:
         print(
             json.dumps(
                 {
-                    "test": "auth_signup",
                     "status": "ok",
                     "email": email,
+                    "password": password,
                     "supabase_user_id": supabase_user_id,
                     "gitea_username": gitea.get("username"),
                     "gitea_is_new": gitea.get("is_new"),

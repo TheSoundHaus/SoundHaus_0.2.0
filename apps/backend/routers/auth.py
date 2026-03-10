@@ -5,6 +5,7 @@ Authentication endpoints – signup, login, logout, refresh, user, reset-passwor
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Dict, Any
 
+from config import settings
 from dependencies import limiter, user_limiter, verify_token, get_auth
 from logging_config import get_logger, log_external_service
 from services.auth_service import SupabaseAuthService
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # ── Signup ───────────────────────────────────────────────────────────────────
 
 @router.post("/signup")
-@limiter.limit("5/minute")
+@limiter.limit(settings.rate_limit_signup)
 async def signup(
     request: Request,
     signup_request: SignUpRequest,
@@ -103,7 +104,7 @@ async def signup(
 # ── Login / Logout / Refresh ─────────────────────────────────────────────────
 
 @router.post("/login")
-@limiter.limit("10/minute")
+@limiter.limit(settings.rate_limit_auth)
 async def login(
     request: Request,
     login_request: SignInRequest,
