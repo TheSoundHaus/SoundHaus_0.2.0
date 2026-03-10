@@ -17,6 +17,7 @@ export function useProjectActions() {
 
             const git = await hasGitFile(clonedRepoPath);
             if (git) {
+                window.electron?.setLastProjectPath(clonedRepoPath);
                 navigate('/project', {state: {projectPath: clonedRepoPath}});
             }
         } catch(error) {
@@ -49,6 +50,7 @@ export function useProjectActions() {
             // Backup check
             const git = await hasGitFile(folder);
             if(git) {
+                window.electron?.setLastProjectPath(folder);
                 navigate('/project', {state: {projectPath: folder}});
             }
         }
@@ -59,6 +61,7 @@ export function useProjectActions() {
         if(folder) {
             const git = await hasGitFile(folder);
             if(git) {
+                window.electron?.setLastProjectPath(folder);
                 navigate('/project', {state: {projectPath: folder}});
             }
         }

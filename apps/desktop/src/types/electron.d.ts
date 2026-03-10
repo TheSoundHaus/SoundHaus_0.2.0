@@ -37,8 +37,9 @@ declare global {
       showCloneUrl: () => Promise<{ url: string; path: string } | null>
       submitCloneUrl: (data: { url: string; path: string }) => void
       cancelCloneUrl: () => void
-      onMenuAction: (callback: (action: string) => void) => void
+      onMenuAction: (callback: (action: string, payload?: any) => void) => void
       removeMenuActionListener: () => void
+      setLastProjectPath: (projectPath: string | null) => Promise<void>
     }
   }
 }

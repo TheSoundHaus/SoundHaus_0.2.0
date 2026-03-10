@@ -15,6 +15,19 @@ import { parseXmlFromBuffer, parseAls, diffFromSnapshot, generateCommitMessage }
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
 
+// Tracks the last project path selected by the user so View > Project View
+// can navigate back to it. Starts null (menu item disabled).
+let lastSelectedProjectPath: string | null = null;
+
+function updateProjectViewMenuEnabled() {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const item = menu.getMenuItemById('view-project');
+  if (item) {
+    item.enabled = lastSelectedProjectPath !== null;
+  }
+}
+
 const execFileP = promisify(execFile);
 
 function createWindow() {
@@ -274,6 +287,12 @@ ipcMain.handle('set-allowed-clone-remote', async(_event: IpcMainInvokeEvent, rem
   return await setAllowedCloneRemote(remote);
 });
 
+ipcMain.handle('set-last-project-path', async(_event: IpcMainInvokeEvent, projectPath: string | null) => {
+  if (projectPath !== null && typeof projectPath !== 'string') return;
+  lastSelectedProjectPath = projectPath;
+  updateProjectViewMenuEnabled();
+});
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -321,10 +340,20 @@ app.whenReady().then(() => {
     {
       label: 'View',
       submenu: [
-        { label: 'Project List' },
-        { label: 'Branches List' },
+        {
+          label: 'Home',
+          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'view-home')
+        },
+        {
+          id: 'view-project',
+          label: 'Project View',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'view-project', { projectPath: lastSelectedProjectPath });
+          }
+        },
         { type: 'separator' },
-        { label: 'Go To Summary' },
         { role: 'togglefullscreen' },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -337,17 +366,12 @@ app.whenReady().then(() => {
     {
       label: 'Project',
       submenu: [
-        { label: 'Push' },
-        { label: 'Pull' },
+        { label: 'Download Snapshots' },
+        { label: 'Save Snapshot'},
+        { label: 'Upload Snapshots' },
         { type: 'separator' },
         { label: 'View On SoundHaus'},
         { label: 'Project Settings' }
-      ]
-    },
-    {
-      label: 'Branch',
-      submenu: [
-        { label: 'TODO' }
       ]
     },
     {

@@ -34,11 +34,12 @@ contextBridge.exposeInMainWorld('electron', {
 	showCloneUrl: () => ipcRenderer.invoke('show-clone-url'),
 	submitCloneUrl: (data: any) => ipcRenderer.send('clone-url-submit', data),
 	cancelCloneUrl: () => ipcRenderer.send('clone-url-cancel'),
-	
-	onMenuAction: (callback: (action: string) => void) => {
-		ipcRenderer.on('menu-action', (_event, action) => callback(action));
+
+	onMenuAction: (callback: (action: string, payload?: any) => void) => {
+		ipcRenderer.on('menu-action', (_event, action, payload) => callback(action, payload));
 	},
 	removeMenuActionListener: () => {
 		ipcRenderer.removeAllListeners('menu-action');
-	}
+	},
+	setLastProjectPath: (projectPath: string | null) => ipcRenderer.invoke('set-last-project-path', projectPath)
 });
