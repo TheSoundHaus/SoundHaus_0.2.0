@@ -1,6 +1,6 @@
 "use client";
 
-import { logout } from "@/actions/auth";
+import { logout } from "@/lib/services/auth.service";
 import Link from "next/link";
 import { useState } from "react";
 

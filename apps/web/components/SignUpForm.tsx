@@ -1,5 +1,5 @@
 import React, { useActionState } from "react";
-import { signup } from "@/actions/auth";
+import { signup } from "@/lib/services/auth.service";
 import Spinner from "@/components/Spinner";
 
 export default function SignUpForm() {

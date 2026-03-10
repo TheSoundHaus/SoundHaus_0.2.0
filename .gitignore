@@ -318,3 +318,10 @@ coverage.xml
 
 # pyright
 pyrightconfig.json
+
+# FORCE IGNORE EVERYTHING IN SUBDIRECTORIES
+**/node_modules/
+**/dist/
+**/.next/
+**/.cache/
+**/build/

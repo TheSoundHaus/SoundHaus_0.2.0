@@ -22,6 +22,7 @@ from services.auth_service import SupabaseAuthService
 from services.gitea_service import GiteaAdminService
 from services.pat_service import PATService
 from models.schemas import SignInRequest
+from models.gitea_token_models import GiteaToken
 
 logger = get_logger(__name__)
 
@@ -199,20 +200,22 @@ async def get_desktop_credentials(
     db: Session = Depends(get_db),
 ):
     """
-    Get Gitea credentials for desktop Git operations.
+    Get Gitea credentials for git operations (works for both web and desktop).
 
-    Validates the Backend PAT and either reuses a cached Gitea PAT
-    or creates a new one if the cached one is invalid / missing.
+    Desktop: Passes cached_gitea_token parameter from OS keychain
+    Web: Token is looked up from database cache
+
+    Either reuses a cached Gitea PAT or creates a new one if invalid/missing.
     """
     user_id = user_info["user_id"]
     gitea_admin_service = GiteaAdminService()
 
-    # Try to reuse cached Gitea token
+    # Try desktop's parameter-based cache first (for backward compatibility)
     if cached_gitea_token:
-        logger.debug("get_desktop_credentials", action="validating_cached_token")
+        logger.info("get_desktop_credentials", action="validating_desktop_cached_token")
         token_check = gitea_admin_service.verify_gitea_token(cached_gitea_token)
         if token_check.get("valid"):
-            logger.debug("get_desktop_credentials", action="cached_token_valid")
+            logger.info("get_desktop_credentials", action="desktop_cached_token_valid")
             return {
                 "success": True,
                 "gitea_url": settings.gitea_public_url,
@@ -221,12 +224,47 @@ async def get_desktop_credentials(
                 "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
             }
         else:
-            logger.debug("get_desktop_credentials", action="cached_token_invalid")
+            logger.info("get_desktop_credentials", action="desktop_cached_token_invalid")
+
+    # Try database cache (for web users or if desktop cache failed)
+    db_token = db.query(GiteaToken).filter(
+        GiteaToken.user_id == user_id,
+        (GiteaToken.is_revoked == False) | (GiteaToken.is_revoked.is_(None))
+    ).first()
+
+    if db_token:
+        logger.info("get_desktop_credentials", action="validating_db_cached_token", user_id=user_id)
+        # Verify the stored token is still valid with Gitea
+        # Note: We store the plaintext token in token_hash for Gitea tokens
+        # (unlike PATs which are bcrypt hashed, Gitea tokens need to be retrievable)
+        token_check = gitea_admin_service.verify_gitea_token(db_token.token_hash)
+        if token_check.get("valid"):
+            logger.info("get_desktop_credentials", action="db_cached_token_valid")
+            # Update last_used timestamp
+            db_token.last_used = datetime.now(timezone.utc)
+            db_token.usage_count = (db_token.usage_count or 0) + 1
+            db.commit()
+            return {
+                "success": True,
+                "gitea_url": settings.gitea_public_url,
+                "username": user_id,
+                "token": db_token.token_hash,
+                "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
+            }
+        else:
+            logger.info("get_desktop_credentials", action="db_cached_token_invalid_revoking")
+            # Token invalid, mark as revoked
+            db_token.is_revoked = True
+            db.commit()
 
     # Create a new Gitea token
     timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
-    token_name = f"Desktop Access Token - {timestamp}"
+    # Determine source based on auth type
+    auth_type = user_info.get("auth_type", "unknown")
+    created_via = "desktop" if auth_type == "pat" else "web"
+    token_name = f"{created_via.capitalize()} Access Token - {timestamp}"
 
+    logger.info("get_desktop_credentials", action="creating_new_gitea_token", created_via=created_via)
     gitea_result = gitea_admin_service.create_or_get_user_token(user_id, token_name)
 
     if not gitea_result.get("success"):
@@ -235,10 +273,30 @@ async def get_desktop_credentials(
             detail=gitea_result.get("message", "Failed to get Gitea credentials"),
         )
 
+    new_token = gitea_result["token"]["sha1"]
+
+    # Store the new token in database for future reuse
+    try:
+        new_gitea_token = GiteaToken(
+            user_id=user_id,
+            token_hash=new_token,  # Store plaintext for Gitea (needs to be retrievable)
+            token_prefix=new_token[:16] if len(new_token) >= 16 else new_token[:8],
+            token_name=token_name,
+            created_via=created_via,
+            scopes='["write:repository", "read:user"]',  # Default Gitea scopes
+        )
+        db.add(new_gitea_token)
+        db.commit()
+        logger.info("get_desktop_credentials", action="stored_new_token_in_db", user_id=user_id)
+    except Exception as e:
+        logger.error("get_desktop_credentials", action="failed_to_store_token", error=str(e))
+        # Don't fail the request if DB storage fails, just log it
+        db.rollback()
+
     return {
         "success": True,
         "gitea_url": settings.gitea_public_url,
         "username": user_id,
-        "token": gitea_result["token"]["sha1"],
+        "token": new_token,
         "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
     }

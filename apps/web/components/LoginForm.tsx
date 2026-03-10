@@ -1,5 +1,5 @@
 import React, { useActionState } from "react";
-import { login } from "@/actions/auth";
+import { login } from "@/lib/services/auth.service";
 import Link from "next/link";
 import Spinner from "./Spinner";
 
