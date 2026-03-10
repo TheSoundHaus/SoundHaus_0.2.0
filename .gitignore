@@ -325,3 +325,5 @@ pyrightconfig.json
 **/.next/
 **/.cache/
 **/build/
+
+# for new pr
