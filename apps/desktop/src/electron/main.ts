@@ -6,6 +6,7 @@ import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, 
 import { gitBin, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
+import { buildSearchableIndex } from './menuIndexer';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -324,14 +325,17 @@ app.whenReady().then(() => {
       label: 'File',
       submenu: [
         {
+          id: 'import-ableton',
           label: 'Import Ableton Project',
           click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-ableton')
         },
         {
+          id: 'import-soundhaus',
           label: 'Import SoundHaus Project',
           click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-soundhaus')
         },
         {
+          id: 'browse-public',
           label: 'Browse Public Projects',
           click: () => shell.openExternal('http://www.rickleinecker.com/')
         },
@@ -357,6 +361,7 @@ app.whenReady().then(() => {
       label: 'View',
       submenu: [
         {
+          id: 'view-home',
           label: 'Home',
           click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'view-home')
         },
@@ -411,6 +416,7 @@ app.whenReady().then(() => {
         },
         { type: 'separator' },
         { 
+          id: 'view-on-soundhaus',
           label: 'View On SoundHaus',
           click: () => shell.openExternal('http://www.rickleinecker.com/')
         },
@@ -420,7 +426,14 @@ app.whenReady().then(() => {
     {
       label: 'Help',
       submenu: [
-        { label: 'Search' },
+        {
+          id: 'help-search',
+          label: 'Search',
+          accelerator: 'CmdOrCtrl+Shift+P',
+          click: () => {
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'open-search-palette');
+          }
+        },
         { label: 'About' }
       ]
     }
@@ -429,6 +442,26 @@ app.whenReady().then(() => {
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
   updateProjectGitMenuEnabled();
+
+  // Build the searchable menu index on demand (reflects current enabled state)
+  ipcMain.handle('search-menu-get-entries', () => {
+    return buildSearchableIndex(template, (action) => {
+      if (['project-pull', 'project-commit', 'project-push', 'view-project'].includes(action) && lastSelectedProjectPath) {
+        return { projectPath: lastSelectedProjectPath };
+      }
+      if (['browse-public', 'view-on-soundhaus'].includes(action)) {
+        return { url: 'http://www.rickleinecker.com/' };
+      }
+      return undefined;
+    }).filter(e => e.action !== 'help-search'); // Exclude search itself (circular)
+  });
+
+  // Allow the renderer to open external URLs (for search palette results)
+  ipcMain.handle('open-external', (_event: IpcMainInvokeEvent, url: string) => {
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+      shell.openExternal(url);
+    }
+  });
 
   app.on("activate", () => {
     // On macOS it's common to re-create a window in the app when the

@@ -42,5 +42,8 @@ contextBridge.exposeInMainWorld('electron', {
 		ipcRenderer.removeAllListeners('menu-action');
 	},
 	setLastProjectPath: (projectPath: string | null) => ipcRenderer.invoke('set-last-project-path', projectPath),
-	setCurrentRoute: (route: string) => ipcRenderer.invoke('set-current-route', route)
+	setCurrentRoute: (route: string) => ipcRenderer.invoke('set-current-route', route),
+
+	getSearchMenuEntries: () => ipcRenderer.invoke('search-menu-get-entries'),
+	openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
 });

@@ -41,6 +41,8 @@ declare global {
       removeMenuActionListener: () => void
       setLastProjectPath: (projectPath: string | null) => Promise<void>
       setCurrentRoute: (route: string) => Promise<void>
+      getSearchMenuEntries: () => Promise<Array<{ label: string; breadcrumb: string; action: string | null; payload?: Record<string, unknown>; enabled: boolean; accelerator?: string }>>
+      openExternal: (url: string) => Promise<void>
     }
   }
 }
