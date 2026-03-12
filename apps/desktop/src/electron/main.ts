@@ -2,14 +2,14 @@ import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
-import { decompressAls, getAlsFromGitHead, structuralCompareAls, getAlsContent, buildLocalDiffFromAls, pull, commit, push } from "./project";
+import { gitBin, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseXml } from '../../dist/vendor/custom_modules/semantic-diff/parser/index.js'
+import { parseXmlFromBuffer, parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
@@ -52,22 +52,9 @@ ipcMain.handle('check-git', async (_event: IpcMainInvokeEvent, folderPath: strin
   return await hasGitFile(folderPath);
 });
 
-ipcMain.handle('find-instrument-changes', async (_event: IpcMainInvokeEvent, alsPath) => {
-  try {
-    const local = await decompressAls(alsPath);
-    const startDir = path.dirname(alsPath);
-
-    const { stdout } = await execFileP('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    const repoRoot = stdout.trim();
-    const relPath = path.relative(repoRoot, alsPath);
-    const head = await getAlsFromGitHead(repoRoot, relPath);
-    const struct = structuralCompareAls(local.text, head.text, { allowTrackNameFallback: false });
-    return struct;
-  }
-  catch(e: any) {
-    return { ok: false, reason: e && e.message ? e.message : String(e) };
-  }
-});
+// DEPRECATED: find-instrument-changes handler removed.
+// The Rust semantic-diff parser now handles all diffing via the 'diff-xml' IPC channel.
+// structuralCompareAls() from project.ts is no longer called.
 
 ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
   if(!folderPath) {
@@ -88,7 +75,8 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
 });
 
 ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) => {
-  return await getAlsContent(alsPath);
+  const projectJson = await parseAls(alsPath);
+  return JSON.parse(projectJson);
 });
 
 ipcMain.handle('init-repo', async(_event: IpcMainInvokeEvent, folderPath: string, projectInfo?: any) => {
@@ -121,46 +109,144 @@ ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
-  return await commit(repoPath);
+  // Generate a semantic commit message from the current diff before committing
+  let commitMessage: string | undefined;
+  let alsPath: string | undefined;
+  try {
+    // Find the ALS file in the repo
+    // TODO: Revamp file selection — the ALS session name is currently derived by
+    // auto-discovering the first .als file in the project folder. In a future ticket,
+    // the user will select a specific ALS file directly; all naming decisions
+    // (e.g. .soundhaus/{als_session_name}/) will be based on that explicit selection.
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+
+    if (alsFile) {
+      alsPath = path.join(repoPath, alsFile.name);
+
+      // Check if HEAD exists — no commit message generation on first commit
+      try {
+        await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+
+        // Read HEAD bytes and current ALS bytes entirely in-memory — no temp files
+        const relPath = path.relative(repoPath, alsPath);
+        const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoPath, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
+        const headBuf = Buffer.from(headRaw);
+        const currentBuf = await fs.promises.readFile(alsPath);
+
+        const rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
+        commitMessage = await generateCommitMessage(rawJson);
+      } catch {
+        // No HEAD yet — first commit
+        commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
+      }
+
+      // Write the Minimal Project Description snapshot before committing so
+      // git add . stages it alongside the .als file.
+      // Path: .soundhaus/{als_session_name}/snapshot.json
+      try {
+        const sessionName = path.basename(alsPath, '.als');
+        const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
+        await fs.promises.mkdir(snapshotDir, { recursive: true });
+        const snapshotJson = await parseAls(alsPath);
+        await fs.promises.writeFile(path.join(snapshotDir, 'snapshot.json'), snapshotJson, 'utf8');
+      } catch (snapshotErr) {
+        // Non-fatal — commit proceeds without the snapshot if something goes wrong
+        console.warn('[commit-changes] Failed to write snapshot:', snapshotErr);
+      }
+    }
+  } catch (e) {
+    // If message generation fails, fall back to a generic but still reasonable message
+    commitMessage = undefined;
+  }
+
+  return await commit(repoPath, commitMessage);
 })
 
 ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return await push(repoPath);
 });
 
-ipcMain.handle('diff-xml', async(_event: IpcMainInvokeEvent, curAlsPath: string, oldAlsPath: string) => {
-  try {
-    return await parseXml(curAlsPath, oldAlsPath);
-  } catch (e: any) {
-    console.log(e)
-    return { ok: false, error: e && e.message ? e.message : String(e) };
-  }
-});
-
-ipcMain.handle('get-remote-head-als', async(_event: IpcMainInvokeEvent, alsPath: string) => {
+// TODO: Revamp file selection — the ALS session name is currently derived by auto-discovering
+// the first .als file in the project folder. In a future ticket, the user will select a
+// specific ALS file directly; all naming decisions (e.g. .soundhaus/{als_session_name}/)
+// will be based on that explicit selection rather than auto-discovery.
+ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string) => {
   try {
     const startDir = path.dirname(alsPath);
-    const { stdout } = await execFileP('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    const repoRoot = stdout.trim();
+    const { stdout: rootStdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    const repoRoot = rootStdout.trim();
     const relPath = path.relative(repoRoot, alsPath);
 
+    // Check if any commits exist
     try {
-      await execFileP('git', ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
-    } catch (_e: any) {
-      const fallback = await buildLocalDiffFromAls(alsPath);
-      return { ok: true, baselineStatus: 'no-commits', ...fallback };
+      await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+    } catch {
+      // No commits yet — return a no-commits baseline built from the current file
+      const projectJson = await parseAls(alsPath);
+      const project = JSON.parse(projectJson);
+      const legacyTracks = (project.tracks || []).map((t: any) => ({
+        Type: t.track_type,
+        Id: t.id,
+        EffectiveName: t.effective_name,
+        UserName: t.user_name || null,
+      }));
+      const summary = legacyTracks.map((t: any) => `New track: ${t.EffectiveName}`).join('\n');
+      return { ok: true, baselineStatus: 'no-commits', summary, project: { Tracks: legacyTracks } };
     }
-    
-    // Get the remote HEAD version
-    const head = await getAlsFromGitHead(repoRoot, relPath);
-    
-    // Save to a temporary file
-    const tmpPath = path.join(path.dirname(alsPath), `.${path.basename(alsPath)}.remote-head.tmp`);
-    await fs.promises.writeFile(tmpPath, head.buffer);
-    
-    return { ok: true, tmpPath };
+
+    // Fast path: if the previous commit already contains a snapshot.json, use it
+    // to skip re-parsing the HEAD ALS blob entirely.
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+    let rawJson: string;
+    try {
+      const { stdout: snapshotRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`], { encoding: 'utf8' })) as any;
+      // Snapshot found in HEAD — diff from JSON, no ALS parsing needed
+      rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    } catch {
+      // No snapshot in HEAD (first commit or pre-Phase-2 history) — full buffer diff
+      const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
+      const headBuf = Buffer.from(headRaw);
+      const currentBuf = await fs.promises.readFile(alsPath);
+      rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
+    }
+    const report = JSON.parse(rawJson);
+
+    // Build a flat summary string for the Changes panel
+    // TODO (Phase 5): move this formatting into Rust via generate_commit_message / format_changes_summary export
+    const summaryLines: string[] = [];
+    for (const change of (report.changes || [])) {
+      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
+      let line = `${prefix}${change.type}: ${change.label}`;
+      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
+      summaryLines.push(line);
+
+      for (const child of (change.children || [])) {
+        let childLine = `  ${child.action}: ${child.type} - ${child.label}`;
+        if (child.from && child.to) childLine += ` (${child.from} \u2192 ${child.to})`;
+        summaryLines.push(childLine);
+      }
+    }
+
+    // Map tracks to legacy field names for the Track Information panel
+    const legacyTracks = (report.project?.tracks || []).map((t: any) => ({
+      Type: t.track_type,
+      Id: t.id,
+      EffectiveName: t.effective_name,
+      UserName: t.user_name || null,
+    }));
+
+    return {
+      ok: true,
+      summary: summaryLines.join('\n'),
+      diffStatus: summaryLines.length > 0 ? 'has-changes' : 'in-sync',
+      project: { Tracks: legacyTracks },
+      report,
+    };
   } catch (e: any) {
-    return { ok: false, error: e && e.message ? e.message : String(e) };
+    console.error('[get-changes]', e);
+    return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
 });
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
