@@ -44,6 +44,27 @@ class RepoService:
             logger.error("get_repo_error", username=username, repo=repo_name, error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
 
+    def delete_repo(self, owner: str, repo_name: str) -> Dict[str, Any]:
+        """Delete a repository from Gitea."""
+        try:
+            resp = requests.delete(
+                self._url(f"/api/v1/repos/{owner}/{repo_name}"),
+                headers=self.headers,
+                timeout=15
+            )
+            logger.debug("delete_repo_response", owner=owner, repo=repo_name, status_code=resp.status_code)
+            
+            if resp.status_code == 204:
+                return {"success": True, "message": "Repository deleted"}
+            else:
+                msg = self._extract_msg(resp)
+                logger.warning("delete_repo_failed", owner=owner, repo=repo_name, error=msg)
+                return {"success": False, "status": resp.status_code, "message": msg}
+                
+        except requests.RequestException as e:
+            logger.error("delete_repo_error", owner=owner, repo=repo_name, error=str(e))
+            return {"success": False, "status": 0, "message": f"Network error: {e}"}
+
     def list_user_repos(self, username: str) -> Dict[str, Any]:
         """List repositories for a specific user (includes private via admin token and repos where user is a collaborator)."""
         try:

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 
 /**
@@ -145,51 +144,34 @@ export default function SettingsPage() {
 
             {activeTab === "stats" && (
               <div className="space-y-6">
+                {/* TODO: Fetch real user statistics from API */}
                 <div className="rounded-lg border border-zinc-800 p-8">
                   <h2 className="mb-6 text-2xl font-semibold">Your Statistics</h2>
                   <div className="grid gap-6 md:grid-cols-2">
                     <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">12</div>
+                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
                       <div className="text-sm text-zinc-400">
                         Total Repositories
                       </div>
                     </div>
                     <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">142</div>
+                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
                       <div className="text-sm text-zinc-400">Total Commits</div>
                     </div>
                     <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">8</div>
+                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
                       <div className="text-sm text-zinc-400">Collaborations</div>
                     </div>
                     <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">2.4 GB</div>
+                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
                       <div className="text-sm text-zinc-400">Storage Used</div>
                     </div>
                   </div>
                 </div>
                 <div className="rounded-lg border border-zinc-800 p-8">
+                  {/* TODO: Fetch real activity feed from API */}
                   <h3 className="mb-4 text-xl font-semibold">Recent Activity</h3>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-                      <div>
-                        <div className="font-medium">Pushed to My Project 1</div>
-                        <div className="text-sm text-zinc-400">2 hours ago</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-                      <div>
-                        <div className="font-medium">Created new repository</div>
-                        <div className="text-sm text-zinc-400">1 day ago</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">Added collaborator</div>
-                        <div className="text-sm text-zinc-400">3 days ago</div>
-                      </div>
-                    </div>
-                  </div>
+                  <p className="text-sm text-zinc-500">No recent activity to display.</p>
                 </div>
               </div>
             )}

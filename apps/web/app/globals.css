@@ -528,6 +528,74 @@
     @apply shadow-elevation-2;
     @apply animate-fade-in;
   }
+
+  /* ----------------------------------------
+     AUDIO PLAYER RANGE SLIDER
+     ---------------------------------------- */
+  .audio-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 9999px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .audio-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4.5px;
+    border-radius: 50%;
+    background: var(--brand-primary);
+    box-shadow:
+      0 0 6px rgba(167, 199, 231, 0.4),
+      0 0 12px rgba(167, 199, 231, 0.2);
+    border: none;
+    cursor: pointer;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+  }
+
+  .audio-range:hover::-webkit-slider-thumb {
+    background: var(--brand-highlight);
+    box-shadow:
+      0 0 8px rgba(207, 230, 255, 0.5),
+      0 0 16px rgba(167, 199, 231, 0.3);
+    transform: scale(1.15);
+  }
+
+  .audio-range::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--brand-primary);
+    box-shadow:
+      0 0 6px rgba(167, 199, 231, 0.4),
+      0 0 12px rgba(167, 199, 231, 0.2);
+    border: none;
+    cursor: pointer;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+  }
+
+  .audio-range:hover::-moz-range-thumb {
+    background: var(--brand-highlight);
+    box-shadow:
+      0 0 8px rgba(207, 230, 255, 0.5),
+      0 0 16px rgba(167, 199, 231, 0.3);
+    transform: scale(1.15);
+  }
+
+  .audio-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+  }
+
+  .audio-range::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: var(--background-depth);
+  }
 }
 
 /* ============================================
