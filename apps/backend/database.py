@@ -61,7 +61,6 @@ def init_db():
     from models.clone_models import CloneEvent
     from models.genre_models import GenreList, repo_genres
     from models.pat_models import PersonalAccessToken
-    from models.gitea_token_models import GiteaToken
     
     Base.metadata.create_all(bind=engine)
     logger.info("database_tables_created", status="success")
