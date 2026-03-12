@@ -9,7 +9,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseXmlFromBuffer, parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
+import { parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
@@ -128,16 +128,16 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
       try {
         await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
 
-        // Read HEAD bytes and current ALS bytes entirely in-memory — no temp files
-        const relPath = path.relative(repoPath, alsPath);
-        const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoPath, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
-        const headBuf = Buffer.from(headRaw);
-        const currentBuf = await fs.promises.readFile(alsPath);
-
-        const rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
+        // Use the committed snapshot.json to diff against the current ALS file.
+        // This avoids touching the LFS-tracked ALS blob entirely.
+        const sessionName = path.basename(alsPath, '.als');
+        const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+        const { stdout: snapshotRaw } = await execFileP(gitBin, ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`], { encoding: 'utf8' });
+        const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
         commitMessage = await generateCommitMessage(rawJson);
-      } catch {
-        // No HEAD yet — first commit
+      } catch (e) {
+        // No HEAD yet, or no snapshot in HEAD (first commit / legacy repo)
+        console.warn('[commit-changes] Falling back to initial snapshot message:', e);
         commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
       }
 
@@ -176,7 +176,6 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     const startDir = path.dirname(alsPath);
     const { stdout: rootStdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
     const repoRoot = rootStdout.trim();
-    const relPath = path.relative(repoRoot, alsPath);
 
     // Check if any commits exist
     try {
@@ -195,22 +194,11 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
       return { ok: true, baselineStatus: 'no-commits', summary, project: { Tracks: legacyTracks } };
     }
 
-    // Fast path: if the previous commit already contains a snapshot.json, use it
-    // to skip re-parsing the HEAD ALS blob entirely.
+    // Diff from the committed snapshot.json — avoids touching the LFS-tracked ALS blob.
     const sessionName = path.basename(alsPath, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-    let rawJson: string;
-    try {
-      const { stdout: snapshotRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`], { encoding: 'utf8' })) as any;
-      // Snapshot found in HEAD — diff from JSON, no ALS parsing needed
-      rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
-    } catch {
-      // No snapshot in HEAD (first commit or pre-Phase-2 history) — full buffer diff
-      const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
-      const headBuf = Buffer.from(headRaw);
-      const currentBuf = await fs.promises.readFile(alsPath);
-      rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
-    }
+    const { stdout: snapshotRaw } = await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`], { encoding: 'utf8' });
+    const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
     const report = JSON.parse(rawJson);
 
     // Build a flat summary string for the Changes panel
