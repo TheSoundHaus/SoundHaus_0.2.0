@@ -97,8 +97,6 @@ services:
       - GITEA__webhook__ALLOWED_HOST_LIST=fastapi,external
     volumes:
       - ./gitea:/data
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
     ports:
       - "3000:3000"
       - "2222:2222"
@@ -171,11 +169,9 @@ services:
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DEMUCS_MODEL=mdx
-      - MAX_AUDIO_DURATION=600
-      - WORKER_POLL_INTERVAL=5
-      - OMP_NUM_THREADS=8
-      - MKL_NUM_THREADS=8
+      # Thread counts should match available CPU cores on the droplet
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
     logging:
       driver: "json-file"
       options:
@@ -195,7 +191,7 @@ services:
       gitea:
         condition: service_started
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-auto}
       - BROKER_PORT=9000
