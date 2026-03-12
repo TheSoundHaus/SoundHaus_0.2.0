@@ -132,7 +132,11 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
         // This avoids touching the LFS-tracked ALS blob entirely.
         const sessionName = path.basename(alsPath, '.als');
         const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-        const { stdout: snapshotRaw } = await execFileP(gitBin, ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`], { encoding: 'utf8' });
+        const { stdout: snapshotRaw } = await execFileP(
+          gitBin,
+          ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`],
+          { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 }
+        );
         const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
         commitMessage = await generateCommitMessage(rawJson);
       } catch (e) {
@@ -197,7 +201,11 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     // Diff from the committed snapshot.json — avoids touching the LFS-tracked ALS blob.
     const sessionName = path.basename(alsPath, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-    const { stdout: snapshotRaw } = await execFileP(gitBin, ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`], { encoding: 'utf8' });
+    const { stdout: snapshotRaw } = await execFileP(
+      gitBin,
+      ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`],
+      { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+    );
     const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
     const report = JSON.parse(rawJson);
 
