@@ -124,21 +124,34 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
     if (alsFile) {
       alsPath = path.join(repoPath, alsFile.name);
 
-      // Check if HEAD exists — no commit message generation on first commit
+      // Check if HEAD exists first; only first-commit repos should use the
+      // "Initial snapshot" message. Generation/parsing errors should not be
+      // treated as "no HEAD".
+      let hasHead = false;
       try {
         await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
-
-        // Read HEAD bytes and current ALS bytes entirely in-memory — no temp files
-        const relPath = path.relative(repoPath, alsPath);
-        const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoPath, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
-        const headBuf = Buffer.from(headRaw);
-        const currentBuf = await fs.promises.readFile(alsPath);
-
-        const rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
-        commitMessage = await generateCommitMessage(rawJson);
+        hasHead = true;
       } catch {
         // No HEAD yet — first commit
         commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
+      }
+
+      if (hasHead) {
+        // Read HEAD bytes and current ALS bytes entirely in-memory — no temp files
+        const relPath = path.relative(repoPath, alsPath);
+        try {
+          const { stdout: headRaw } = (await execFileP(gitBin, ['-C', repoPath, 'show', `HEAD:${relPath}`], { encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })) as any;
+          const headBuf = Buffer.from(headRaw);
+          const currentBuf = await fs.promises.readFile(alsPath);
+
+          const rawJson = await parseXmlFromBuffer(currentBuf, headBuf);
+          commitMessage = await generateCommitMessage(rawJson);
+        } catch (semanticErr) {
+          // Preserve existing fallback behavior while surfacing the real cause.
+          // `commit()` will use its default message when commitMessage is undefined.
+          console.warn('[commit-changes] Semantic commit message generation failed:', semanticErr);
+          commitMessage = undefined;
+        }
       }
 
       // Write the Minimal Project Description snapshot before committing so
@@ -157,6 +170,7 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
     }
   } catch (e) {
     // If message generation fails, fall back to a generic but still reasonable message
+    console.warn('[commit-changes] Failed before commit message generation could complete:', e);
     commitMessage = undefined;
   }
 

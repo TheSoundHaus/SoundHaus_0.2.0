@@ -247,6 +247,8 @@ pub struct SendInfo {
 /// Summary of a clip on a track.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ClipSummary {
+    /// XML @Id attribute — stable identity across versions when present
+    pub clip_id: Option<String>,
     /// Clip name (if set)
     pub name: String,
     /// Start time in beats
@@ -344,7 +346,7 @@ pub struct ChangeNode {
     pub confidence: Option<f64>,
 
     /// Child changes (e.g. devices within a track, parameters within a device)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ChangeNode>,
 }
 

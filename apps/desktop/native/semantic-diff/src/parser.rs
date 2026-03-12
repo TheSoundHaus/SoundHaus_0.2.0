@@ -738,6 +738,7 @@ fn parse_main_sequencer(
                 match tag_bytes.as_slice() {
                     b"AudioClip" | b"MidiClip" if depth >= 2 => {
                         let mut clip = ClipSummary {
+                            clip_id: get_id(e),
                             name: String::new(),
                             start_time: 0.0,
                             end_time: 0.0,

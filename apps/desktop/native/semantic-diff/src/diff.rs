@@ -613,14 +613,14 @@ fn lcs_set<'a>(a: &[&'a str], b: &[&'a str]) -> HashSet<&'a str> {
 fn diff_clips(old: &[ClipSummary], new: &[ClipSummary]) -> Vec<ChangeNode> {
     let mut changes = Vec::new();
 
-    // Clips don't have stable IDs yet (TODO: parse clip XML Id attribute).
-    // Match in two passes before falling back to treating unmatched clips as
+    // Match in three passes before falling back to treating unmatched clips as
     // added/removed — this avoids the positional cascade where inserting one
     // clip makes every subsequent clip appear as "modified".
     //
-    // Pass 1: match by non-empty name (most reliable when the user has named clips).
+    // Pass 0: match by stable clip_id when both sides have an XML @Id.
+    // Pass 1: match remaining clips by non-empty name.
     // Pass 2: match remaining clips by (start_time, end_time) tuple.
-    //         Note: this breaks if the user moves a clip; clip_id will fix that.
+    // Pass 3: match remaining clips by content-shape heuristics.
     // Remaining: unmatched old = removed, unmatched new = added.
 
     let clip_label = |clip: &ClipSummary, idx: usize| -> String {
@@ -630,8 +630,33 @@ fn diff_clips(old: &[ClipSummary], new: &[ClipSummary]) -> Vec<ChangeNode> {
     let mut matched_old: HashSet<usize> = HashSet::new();
     let mut matched_new: HashSet<usize> = HashSet::new();
 
+    // Pass 0: match by stable clip_id
+    for (oi, old_clip) in old.iter().enumerate() {
+        let Some(old_clip_id) = old_clip.clip_id.as_deref() else { continue; };
+        if let Some(ni) = new.iter().enumerate().find_map(|(ni, nc)| {
+            if matched_new.contains(&ni) {
+                return None;
+            }
+
+            match nc.clip_id.as_deref() {
+                Some(new_clip_id) if new_clip_id == old_clip_id => Some(ni),
+                _ => None,
+            }
+        }) {
+            matched_old.insert(oi);
+            matched_new.insert(ni);
+            let clip_changes = diff_single_clip(old_clip, &new[ni]);
+            if !clip_changes.is_empty() {
+                let mut node = ChangeNode::new("Clip", &clip_label(&new[ni], ni), "modified");
+                node.children = clip_changes;
+                changes.push(node);
+            }
+        }
+    }
+
     // Pass 1: match by name
     for (oi, old_clip) in old.iter().enumerate() {
+        if matched_old.contains(&oi) { continue; }
         if old_clip.name.is_empty() { continue; }
         if let Some(ni) = new.iter().enumerate().find_map(|(ni, nc)| {
             if !matched_new.contains(&ni) && nc.name == old_clip.name { Some(ni) } else { None }
@@ -667,6 +692,46 @@ fn diff_clips(old: &[ClipSummary], new: &[ClipSummary]) -> Vec<ChangeNode> {
         }
     }
 
+    // Pass 3: match remaining by clip content/shape
+    // This helps classify clip moves (including swaps) as modifications instead
+    // of removed+added when clip_id/name/timing do not directly align.
+    for (oi, old_clip) in old.iter().enumerate() {
+        if matched_old.contains(&oi) { continue; }
+        if let Some(ni) = new.iter().enumerate().find_map(|(ni, nc)| {
+            if matched_new.contains(&ni) {
+                return None;
+            }
+
+            let crc_match = match (&old_clip.sample_ref, &nc.sample_ref) {
+                (Some(old_sr), Some(new_sr)) => old_sr.original_crc == new_sr.original_crc,
+                _ => false,
+            };
+
+            let duration_match = (old_clip.end_time - old_clip.start_time - (nc.end_time - nc.start_time)).abs() <= 0.001;
+            let unnamed_midi_shape_match = old_clip.name.is_empty()
+                && nc.name.is_empty()
+                && old_clip.sample_ref.is_none()
+                && nc.sample_ref.is_none()
+                && old_clip.color == nc.color
+                && duration_match;
+
+            if crc_match || unnamed_midi_shape_match {
+                Some(ni)
+            } else {
+                None
+            }
+        }) {
+            matched_old.insert(oi);
+            matched_new.insert(ni);
+            let clip_changes = diff_single_clip(old_clip, &new[ni]);
+            if !clip_changes.is_empty() {
+                let mut node = ChangeNode::new("Clip", &clip_label(&new[ni], ni), "modified");
+                node.children = clip_changes;
+                changes.push(node);
+            }
+        }
+    }
+
     // Unmatched new = added
     for (ni, new_clip) in new.iter().enumerate() {
         if !matched_new.contains(&ni) {
@@ -686,6 +751,13 @@ fn diff_clips(old: &[ClipSummary], new: &[ClipSummary]) -> Vec<ChangeNode> {
 
 fn diff_single_clip(old: &ClipSummary, new: &ClipSummary) -> Vec<ChangeNode> {
     let mut changes = Vec::new();
+
+    if (old.start_time - new.start_time).abs() > 0.001 || (old.end_time - new.end_time).abs() > 0.001 {
+        let mut node = ChangeNode::new("Clip", "Timeline Position", "moved");
+        node.from = Some(format!("{:.3}-{:.3}", old.start_time, old.end_time));
+        node.to = Some(format!("{:.3}-{:.3}", new.start_time, new.end_time));
+        changes.push(node);
+    }
 
     if old.name != new.name && !old.name.is_empty() && !new.name.is_empty() {
         changes.push(ChangeNode::value_change(
