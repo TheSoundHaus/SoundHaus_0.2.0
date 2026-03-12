@@ -8,7 +8,7 @@ import { updateProfileAction, uploadAvatarAction, deleteAvatarAction } from "@/a
 import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "@/components/UserAvatar";
 import type { SentInvitation } from "@/lib/types/api";
-import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2 } from "lucide-react";
+import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock } from "lucide-react";
 
 /**
  * User Profile Page - Profile settings, account, stats, and invitation management
@@ -43,6 +43,11 @@ export default function SettingsPage() {
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
+  // Visibility toggle state
+  const [visibilityDialogOpen, setVisibilityDialogOpen] = useState(false);
+  const [pendingVisibility, setPendingVisibility] = useState<boolean | null>(null);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
+
   // Populate form when user data loads
   useEffect(() => {
     if (user) {
@@ -65,6 +70,32 @@ export default function SettingsPage() {
       setProfileMessage({ type: "error", text: result.error });
     }
     setProfileSaving(false);
+  };
+
+  const handleVisibilityToggle = (newValue: boolean) => {
+    setPendingVisibility(newValue);
+    setVisibilityDialogOpen(true);
+  };
+
+  const confirmVisibilityChange = async () => {
+    if (pendingVisibility === null) return;
+    setVisibilitySaving(true);
+    setProfileMessage(null);
+    const result = await updateProfileAction({ is_public: pendingVisibility });
+    if (result.success) {
+      setProfileMessage({
+        type: "success",
+        text: pendingVisibility
+          ? "Your profile is now public!"
+          : "Your profile is now private.",
+      });
+      await refreshUser();
+    } else {
+      setProfileMessage({ type: "error", text: result.error });
+    }
+    setVisibilitySaving(false);
+    setVisibilityDialogOpen(false);
+    setPendingVisibility(null);
   };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -360,6 +391,41 @@ export default function SettingsPage() {
                         {bio.length}/500
                       </p>
                     </div>
+
+                    {/* Profile Visibility Toggle */}
+                    <div className="rounded-md border border-zinc-700 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {user?.is_public ? (
+                            <Globe size={18} className="text-green-400" />
+                          ) : (
+                            <Lock size={18} className="text-zinc-400" />
+                          )}
+                          <div>
+                            <p className="text-sm font-medium">
+                              Profile Visibility
+                            </p>
+                            <p className="text-xs text-zinc-500">
+                              {user?.is_public ? "Your profile is public" : "Your profile is private"}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleVisibilityToggle(!user?.is_public)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            user?.is_public ? "bg-green-500" : "bg-zinc-600"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                              user?.is_public ? "translate-x-6" : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
                     <button
                       onClick={handleProfileSave}
                       disabled={profileSaving}
@@ -518,6 +584,60 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+      {/* Visibility Confirmation Dialog */}
+      {visibilityDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold">
+              {pendingVisibility ? "Make Profile Public?" : "Make Profile Private?"}
+            </h3>
+
+            {pendingVisibility ? (
+              <div className="mb-6 space-y-3 text-sm text-zinc-400">
+                <div className="flex items-start gap-3">
+                  <Globe size={16} className="mt-0.5 shrink-0 text-green-400" />
+                  <p>
+                    <strong className="text-zinc-200">Public</strong> — Anyone can view
+                    your profile, bio, and avatar. Your username will be discoverable
+                    by other SoundHaus users.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6 space-y-3 text-sm text-zinc-400">
+                <div className="flex items-start gap-3">
+                  <Lock size={16} className="mt-0.5 shrink-0 text-zinc-400" />
+                  <p>
+                    <strong className="text-zinc-200">Private</strong> — Your profile
+                    page will not be visible to others. Collaborators can still see
+                    your username within shared projects.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setVisibilityDialogOpen(false);
+                  setPendingVisibility(null);
+                }}
+                className="rounded-md border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmVisibilityChange}
+                disabled={visibilitySaving}
+                className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+              >
+                {visibilitySaving ? "Saving…" : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </main>
   );
 }

@@ -3,7 +3,7 @@
 // All user-triggered auth actions such as signup, signin, logout
 import { SignupFormSchema, LoginFormSchema, type FormState, type LoginFormState } from "@/lib/zod/authDefinition";
 import { redirect } from "next/navigation";
-import { setAuthCookies } from "@/lib/utils/auth";
+import { setAuthCookies, getAccessToken, clearAuthCookies } from "@/lib/utils/auth";
 
 const API_BASE_URL = process.env.API_URL || "http://localhost:8000";
 
@@ -140,4 +140,33 @@ export async function login(
 
   // Redirect to dashboard on success
   redirect("/dashboard");
+}
+
+/**
+ * Logout – revokes the session token on the backend and clears cookies.
+ */
+export async function logout(): Promise<{ error?: string }> {
+  try {
+    const token = await getAccessToken();
+
+    if (token) {
+      // Tell the backend to revoke the session
+      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+    }
+
+    // Always clear cookies, even if the backend call fails
+    await clearAuthCookies();
+  } catch (error) {
+    console.error("Logout error:", error);
+    // Still clear cookies on error so the user isn't stuck
+    await clearAuthCookies();
+  }
+
+  redirect("/login");
 }

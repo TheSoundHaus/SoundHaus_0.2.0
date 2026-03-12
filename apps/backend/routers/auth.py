@@ -311,6 +311,8 @@ async def update_profile(
         updates["display_name"] = body.display_name
     if body.bio is not None:
         updates["bio"] = body.bio
+    if body.is_public is not None:
+        updates["is_public"] = body.is_public
 
     if not updates:
         raise HTTPException(status_code=400, detail="No updates provided")
@@ -364,3 +366,33 @@ async def delete_avatar(
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result
+
+
+# ── Public Profile ───────────────────────────────────────────────────────────
+
+@router.get("/profile/{username}/public")
+@limiter.limit("60/minute")
+async def get_public_profile(
+    request: Request,
+    username: str,
+    db: Session = Depends(get_db),
+):
+    """Get a user's public profile by username (no auth required)."""
+    profile = profile_service.get_profile_by_username(username, db)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not profile.get("is_public", False):
+        raise HTTPException(status_code=404, detail="This profile is private")
+
+    # Return only public-safe fields (exclude email and id)
+    return {
+        "success": True,
+        "profile": {
+            "username": profile["username"],
+            "display_name": profile["display_name"],
+            "avatar_url": profile["avatar_url"],
+            "bio": profile["bio"],
+            "created_at": profile["created_at"],
+        },
+    }

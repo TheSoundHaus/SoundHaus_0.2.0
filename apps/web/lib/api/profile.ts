@@ -2,7 +2,6 @@
 
 import type { ApiResponse } from "../types/api";
 import { authFetch } from "./client";
-import { getAccessToken } from "../utils/auth";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -13,8 +12,17 @@ export interface UserProfile {
     display_name: string;
     avatar_url: string | null;
     bio: string | null;
+    is_public: boolean;
     created_at: string | null;
     updated_at: string | null;
+}
+
+export interface PublicProfile {
+    username: string;
+    display_name: string | null;
+    avatar_url: string | null;
+    bio: string | null;
+    created_at: string | null;
 }
 
 // ─── GET /api/auth/profile ──────────────────────────────────────────────────
@@ -28,7 +36,7 @@ export async function getProfile(): Promise<ApiResponse<UserProfile>> {
 // ─── PUT /api/auth/profile ──────────────────────────────────────────────────
 
 export async function updateProfile(
-    updates: { display_name?: string; bio?: string }
+    updates: { display_name?: string; bio?: string; is_public?: boolean }
 ): Promise<ApiResponse<UserProfile>> {
     const result = await authFetch<{ profile: UserProfile }>("/api/auth/profile", {
         method: "PUT",
@@ -41,35 +49,13 @@ export async function updateProfile(
 // ─── POST /api/auth/profile/avatar ──────────────────────────────────────────
 
 export async function uploadAvatar(formData: FormData): Promise<ApiResponse<{ avatar_url: string }>> {
-    const token = await getAccessToken();
-    const API_BASE_URL = process.env.API_URL || "http://localhost:8000";
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/profile/avatar`, {
-            method: "POST",
-            headers: {
-                Authorization: token ? `Bearer ${token}` : "",
-                // Do NOT set Content-Type — let the browser set multipart boundary
-            },
-            body: formData,
-        });
-
-        if (!response.ok) {
-            let errorMessage = `HTTP ${response.status}`;
-            try {
-                const body = await response.json();
-                errorMessage = body.detail ?? errorMessage;
-            } catch {
-                errorMessage = response.statusText || errorMessage;
-            }
-            return { success: false, error: errorMessage };
-        }
-
-        const data = await response.json();
-        return { success: true, data: { avatar_url: data.avatar_url } };
-    } catch (e) {
-        return { success: false, error: e instanceof Error ? e.message : "Upload failed" };
-    }
+    const result = await authFetch<{ avatar_url: string }>("/api/auth/profile/avatar", {
+        method: "POST",
+        body: formData,
+        // Do NOT set Content-Type — authFetch skips it for FormData
+    });
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: { avatar_url: result.data!.avatar_url } };
 }
 
 // ─── DELETE /api/auth/profile/avatar ────────────────────────────────────────
@@ -80,4 +66,29 @@ export async function deleteAvatar(): Promise<ApiResponse<null>> {
     });
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: null };
+}
+
+// ─── GET /api/auth/profile/{username}/public ────────────────────────────────
+
+export async function getPublicProfile(username: string): Promise<ApiResponse<PublicProfile>> {
+    const baseUrl = process.env.API_URL || "http://localhost:8000";
+    try {
+        const res = await fetch(`${baseUrl}/api/auth/profile/${encodeURIComponent(username)}/public`, {
+            cache: "no-store",
+        });
+        if (!res.ok) {
+            let errorMessage = `HTTP ${res.status}`;
+            try {
+                const body = await res.json();
+                errorMessage = body.detail ?? errorMessage;
+            } catch {
+                errorMessage = res.statusText || errorMessage;
+            }
+            return { success: false, error: errorMessage };
+        }
+        const data = await res.json();
+        return { success: true, data: data.profile };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Network error" };
+    }
 }

@@ -21,7 +21,7 @@ export async function getProfileAction(): Promise<
 }
 
 export async function updateProfileAction(
-    updates: { display_name?: string; bio?: string }
+    updates: { display_name?: string; bio?: string; is_public?: boolean }
 ): Promise<{ success: true; profile: UserProfile } | { success: false; error: string }> {
     try {
         const result = await updateProfile(updates);
