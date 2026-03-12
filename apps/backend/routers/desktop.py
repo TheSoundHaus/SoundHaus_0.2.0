@@ -3,7 +3,7 @@ Desktop app & Personal Access Token endpoints – desktop-login, PAT CRUD,
 and Gitea credential provisioning.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Header
 from sqlalchemy.orm import Session
 from typing import Optional, Dict
 from datetime import datetime, timezone
@@ -196,6 +196,7 @@ async def revoke_personal_access_token(
 async def get_desktop_credentials(
     request: Request,
     user_info: Dict = Depends(verify_token_or_pat),
+    cached_gitea_token_header: Optional[str] = Header(default=None, alias="X-Cached-Gitea-Token"),
     cached_gitea_token: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
@@ -210,23 +211,26 @@ async def get_desktop_credentials(
     user_id = user_info["user_id"]
     gitea_admin_service = GiteaAdminService()
 
-    # Try desktop's parameter-based cache first (for backward compatibility)
-    if cached_gitea_token:
-        logger.info("get_desktop_credentials", action="validating_desktop_cached_token")
-        token_check = gitea_admin_service.verify_gitea_token(cached_gitea_token)
+    # Prefer header transport for cached token. Keep query param for backwards compatibility.
+    cached_token = cached_gitea_token_header or cached_gitea_token
+
+    # Try cached token if provided
+    if cached_token:
+        logger.info("get_desktop_credentials", action="validating_cached_token")
+        token_check = gitea_admin_service.verify_gitea_token(cached_token)
         if token_check.get("valid"):
-            logger.info("get_desktop_credentials", action="desktop_cached_token_valid")
+            logger.info("get_desktop_credentials", action="cached_token_valid")
             return {
                 "success": True,
                 "gitea_url": settings.gitea_public_url,
                 "username": user_id,
-                "token": cached_gitea_token,
+                "token": cached_token,
                 "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
             }
         else:
-            logger.info("get_desktop_credentials", action="desktop_cached_token_invalid")
+            logger.info("get_desktop_credentials", action="cached_token_invalid")
 
-    # Try database cache (for web users or if desktop cache failed)
+    # Try database cache (for web users or if cached token failed)
     db_token = db.query(GiteaToken).filter(
         GiteaToken.user_id == user_id,
         (GiteaToken.is_revoked == False) | (GiteaToken.is_revoked.is_(None))
@@ -265,7 +269,11 @@ async def get_desktop_credentials(
     token_name = f"{created_via.capitalize()} Access Token - {timestamp}"
 
     logger.info("get_desktop_credentials", action="creating_new_gitea_token", created_via=created_via)
-    gitea_result = gitea_admin_service.create_or_get_user_token(user_id, token_name)
+    gitea_result = gitea_admin_service.create_or_get_user_token(
+        user_id,
+        token_name,
+        cached_token=cached_token,
+    )
 
     if not gitea_result.get("success"):
         raise HTTPException(

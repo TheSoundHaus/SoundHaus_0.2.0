@@ -18,6 +18,7 @@ declare global {
     }
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
+      cloneRepo: (cloneUrl: string, destinationPath: string) => Promise<string>
       pullRepo: (repoPath: string) => Promise<string>
       commitChange: (repoPath: string) => Promise<string>
       pushRepo: (repoPath: string) => Promise<string>
@@ -27,11 +28,16 @@ declare global {
       setSoundHausCredentials: (token: string) => Promise<string>
       getGiteaCredentials: () => Promise<string | null>
       setGiteaCredentials: (token: string) => Promise<string>
+      getAllowedCloneRemote: () => Promise<string | null>
+      setAllowedCloneRemote: (remote: string) => Promise<string>
     }
     electron?: {
       showProjectSetup: () => Promise<ProjectSetupData | null>
       submitProjectSetup: (data: ProjectSetupData) => void
       cancelProjectSetup: () => void
+      showCloneUrl: () => Promise<{ url: string; path: string } | null>
+      submitCloneUrl: (data: { url: string; path: string }) => void
+      cancelCloneUrl: () => void
     }
   }
 }

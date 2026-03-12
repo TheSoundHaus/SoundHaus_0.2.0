@@ -296,6 +296,61 @@ class GiteaAdminService:
 			logger.error("admin_token_network_error", error=str(e))
 			return {"valid": False, "error": str(e)}
 
+	def _mint_user_token_via_broker(
+		self,
+		username: str,
+		token_name: str,
+		scopes: list[str],
+	) -> Dict[str, Any]:
+		"""Create a user token via internal token broker service."""
+		url = f"{settings.token_broker_url.rstrip('/')}/mint-token"
+		headers = {
+			"Content-Type": "application/json",
+			"Accept": "application/json",
+		}
+
+		if settings.token_broker_api_key:
+			headers["X-Internal-API-Key"] = settings.token_broker_api_key
+
+		payload: Dict[str, Any] = {
+			"username": username,
+			"token_name": token_name,
+			"scopes": scopes,
+		}
+
+		logger.debug("create_user_token_broker_request", username=username, token_name=token_name, url=url)
+
+		try:
+			resp = requests.post(url, headers=headers, json=payload, timeout=15)
+			if resp.status_code != 200:
+				logger.warning("create_user_token_broker_http_failed", status_code=resp.status_code, response=resp.text[:200])
+				return {"success": False, "message": "Token broker request failed"}
+
+			broker_response = resp.json()
+			if not broker_response.get("success"):
+				logger.warning("create_user_token_broker_failed", username=username, message=broker_response.get("message"))
+				return {
+					"success": False,
+					"message": broker_response.get("message") or "Token broker failed",
+				}
+
+			token_data = broker_response.get("token") or {}
+			if not token_data.get("sha1"):
+				logger.error("create_user_token_broker_missing_sha1", username=username)
+				return {"success": False, "message": "Token broker did not return a usable token"}
+
+			logger.info("create_user_token_broker_success", username=username, token_name=token_name)
+			return {"success": True, "token": token_data}
+		except requests.Timeout:
+			logger.warning("create_user_token_broker_timeout", username=username, url=url)
+			return {"success": False, "message": "Token broker timeout"}
+		except requests.RequestException as e:
+			logger.warning("create_user_token_broker_network_error", username=username, error=str(e))
+			return {"success": False, "message": f"Token broker network error: {e}"}
+		except Exception as e:
+			logger.warning("create_user_token_broker_unexpected_error", username=username, error=str(e), exc_info=True)
+			return {"success": False, "message": "Token broker unexpected error"}
+
 	def create_or_get_user_token_cli(
 		self,
 		username: str,
@@ -343,55 +398,8 @@ class GiteaAdminService:
 		gitea_ssh_host = settings.gitea_ssh_host  # e.g., "git@localhost" or "user@129.212.182.247"
 		gitea_ssh_port = settings.gitea_ssh_port  # Default to 22, use 2222 for local Docker
 		
-		try:
-			# Method 1: Try SSH (for remote Gitea servers) - PRIMARY METHOD
-			if gitea_ssh_host:
-				# Build the SSH command to run docker exec on the remote server
-				# Using -u git to run as the git user (Gitea doesn't run as root)
-				ssh_port_arg = f"-p {gitea_ssh_port}" if gitea_ssh_port != "22" else ""
-				ssh_command = (
-					f'ssh {ssh_port_arg} {gitea_ssh_host} '
-					f'"docker exec -u git gitea gitea admin user generate-access-token '
-					f'--username \'{username}\' '
-					f'--token-name \'{token_name}\' '
-					f'--scopes \'{scopes_str}\' '
-					f'--raw"'
-				)
-				
-				logger.debug("create_token_cli_ssh_attempt", host=gitea_ssh_host, port=gitea_ssh_port)
-				
-				try:
-					result = subprocess.run(
-						ssh_command,
-						shell=True,
-						capture_output=True,
-						text=True,
-						timeout=30
-					)
-					
-					if result.returncode == 0:
-						token = result.stdout.strip()
-						if token and len(token) > 20:  # Validate token looks valid
-							logger.info("create_token_cli_ssh_success", token_prefix=token[:10])
-							return {
-								"success": True,
-								"token": {
-									"sha1": token,
-									"name": token_name
-								}
-							}
-						else:
-							logger.warning("create_token_cli_ssh_invalid_token", token_snippet=token[:20] if token else "<empty>", stderr=result.stderr)
-					else:
-						logger.warning("create_token_cli_ssh_failed", exit_code=result.returncode, stderr=result.stderr, stdout=result.stdout)
-				except subprocess.TimeoutExpired:
-					logger.warning("create_token_cli_ssh_timeout")
-				except Exception as e:
-					logger.exception("create_token_cli_ssh_error", error=str(e))
-			else:
-				logger.debug("create_token_cli_ssh_not_configured")
-			
-			# Method 2: Try Docker exec (for local Gitea containers) - FALLBACK
+		try:	
+			#Try Docker exec (for local Gitea containers)
 			docker_cmd = [
 				"docker", "exec", "-u", "git", gitea_container,
 				"gitea", "admin", "user", "generate-access-token",
@@ -480,14 +488,15 @@ class GiteaAdminService:
 		self,
 		username: str,
 		token_name: str,
-		scopes: Optional[list] = None
+		scopes: Optional[list] = None,
+		cached_token: Optional[str] = None,
 	) -> Dict[str, Any]:
 		"""
 		Create a Gitea Personal Access Token for a user.
 		
-		Uses SSH CLI method exclusively since Gitea REST API does not support
-		creating tokens for other users via token authentication (requires admin:user
-		scope which is not available in Gitea 1.24.6).
+		Primary path is API-based token creation using admin token + Sudo header.
+		When a cached token is provided, validates and reuses it only if it belongs
+		to the same user.
 		
 		Args:
 			username: Gitea username (Supabase UUID)
@@ -509,49 +518,59 @@ class GiteaAdminService:
 			if result["success"]:
 				git_token = result["token"]["sha1"]  # Use this for Git operations
 		"""
-		# Try CLI method first (more reliable for admin operations)
-		cli_result = self.create_or_get_user_token_cli(username, token_name, scopes)
-		if cli_result.get("success"):
-			return cli_result
+		logger.info("create_user_token_start", username=username, has_cached_token=bool(cached_token))
+
+		# Reuse cached token only if it is valid and owned by this user.
+		if cached_token:
+			cached_check = self.verify_gitea_token(cached_token)
+			if cached_check.get("valid"):
+				cached_user = ((cached_check.get("user") or {}).get("login") or "").strip()
+				if cached_user == username:
+					logger.info("cached_user_token_reused", username=username)
+					return {
+						"success": True,
+						"token": {
+							"sha1": cached_token,
+							"name": "cached-token",
+						}
+					}
+				logger.warning("cached_token_owner_mismatch", expected_username=username, actual_username=cached_user)
+			else:
+				logger.info("cached_user_token_invalid", username=username, reason=cached_check.get("error"))
 		
-		# Fallback to API method (kept for backwards compatibility)
-		logger.debug("cli_method_failed_fallback_to_api")
+		if scopes is None:
+			scopes = ["write:repository", "read:user", "write:user"]
+
+		if settings.token_broker_enabled:
+			logger.info("create_user_token_using_broker", username=username)
+			broker_result = self._mint_user_token_via_broker(username, token_name, scopes)
+			if broker_result.get("success"):
+				return broker_result
+			logger.warning("create_user_token_broker_fallback_to_api", username=username, reason=broker_result.get("message"))
 		
-		# First, verify our admin token is valid
+		# First, verify our admin token is valid for API fallback path
 		token_check = self.verify_admin_token()
 		if not token_check.get("valid"):
 			logger.error("admin_token_verification_failed", error=token_check.get('error'))
 			return {
-				"success": False, 
+				"success": False,
 				"message": f"Admin token is invalid: {token_check.get('error')}"
 			}
-		
-		# Verify the user exists in Gitea
-		user_check = self.get_user_by_username(username)
-		if not user_check.get("exists"):
-			logger.error("user_not_found_in_gitea", username=username)
-			return {
-				"success": False,
-				"message": "User not found in Gitea. Create the user first."
-			}
-		
-		if scopes is None:
-			scopes = ["write:repository", "read:user", "write:user"]
-		
+
 		url = f"{self.base_url}/api/v1/users/{username}/tokens"
 		
 		# Use Sudo mode: admin creates token on behalf of user
 		# Documentation: https://docs.gitea.com/api/1.24/
 		# Endpoint: POST /users/{username}/tokens requires Sudo header
 		headers = self.headers.copy()
-		# headers["Sudo"] = username
+		headers["Sudo"] = username
 		
 		payload = {"name": token_name, "scopes": scopes}
 
 		logger.debug("create_user_token_api", username=username, token_name=token_name, scopes=scopes, url=url, auth_header_prefix=headers['Authorization'][:20])
 
 		try:
-			resp = requests.get(
+			resp = requests.post(
 				url, 
 				headers=headers, 
 				json=payload, 
@@ -562,10 +581,13 @@ class GiteaAdminService:
 			
 			if resp.status_code in (200, 201):
 				token_data = resp.json()
+				if not token_data.get("sha1"):
+					logger.error("token_created_missing_sha1", username=username, token_name=token_data.get("name"))
+					return {"success": False, "message": "Gitea did not return a usable token"}
 				logger.info("token_created_successfully", username=username, token_id=token_data.get('id'), token_name=token_data.get('name'))
 				return {"success": True, "token": token_data}
 			elif resp.status_code == 404:
-				logger.error("user_not_found_gitea", username=username)
+				logger.error("user_not_found_gitea", username=username, response=resp.text[:200])
 				return {"success": False, "message": "User not found in Gitea"}
 			elif resp.status_code == 422:
 				logger.warning("token_name_exists", token_name=token_name)
