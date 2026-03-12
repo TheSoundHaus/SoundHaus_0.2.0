@@ -7,8 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	getAlsContent: (alsPath: string): Promise<string | null> => ipcRenderer.invoke('get-als-content', alsPath),
 	getAlsStruct: (alsPath: string): Promise<any> => ipcRenderer.invoke('find-instrument-changes', alsPath),
 	findAls: (folderPath: string) => ipcRenderer.invoke('find-als', folderPath),
-	diffXml: (curAlsPath: string, oldAlsPath:string): Promise<any> => ipcRenderer.invoke('diff-xml', curAlsPath, oldAlsPath),
-	getRemoteHeadAls: (alsPath: string): Promise<any> => ipcRenderer.invoke('get-remote-head-als', alsPath),
+	getChanges: (alsPath: string): Promise<any> => ipcRenderer.invoke('get-changes', alsPath),
 });
 
 contextBridge.exposeInMainWorld('gitService', {

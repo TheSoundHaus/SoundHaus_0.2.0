@@ -10,11 +10,10 @@
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
-    "fast-xml-parser": "^5.3.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6",
-    "semantic-differ": "file:./dist/vendor/custom_modules/semantic-diff"
+    "semantic-differ": "file:./native/semantic-diff"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.10.2",
