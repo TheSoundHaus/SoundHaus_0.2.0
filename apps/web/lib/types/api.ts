@@ -100,6 +100,7 @@ export interface RecentClone {
 export interface RepoStats {
   success: boolean;
   gitea_id: string;              // "owner/repo-name"
+  description: string;           // Gitea repo description
   clone_count: number;
   audio_snippet: string | null;
   genres: GenreRef[];
@@ -161,6 +162,7 @@ export interface Collaborator {
   email: string;
   avatar_url: string;
   bio: string | null;
+  permission: "admin" | "write" | "read";  // role on the project
 }
 
 // User search result (from GET /users/search)

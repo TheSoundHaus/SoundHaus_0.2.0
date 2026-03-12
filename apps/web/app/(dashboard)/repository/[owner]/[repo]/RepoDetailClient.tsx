@@ -35,7 +35,7 @@ import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import DiffView from "@/components/DiffView";
 import UserAvatar from "@/components/UserAvatar";
-import { deleteRepoAction, renameRepoAction } from "@/actions/repos";
+import { deleteRepoAction, renameRepoAction, updateDescriptionAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
@@ -88,6 +88,7 @@ export default function RepoDetailClient({
 
   // Settings form state
   const [newName, setNewName] = useState(repo);
+  const [description, setDescription] = useState(stats?.description ?? "");
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Commits state — deduplicate by SHA on init to guard against backend duplicates
@@ -122,6 +123,7 @@ export default function RepoDetailClient({
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [collabError, setCollabError] = useState<string | null>(null);
   const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
+  const [invitePermission, setInvitePermission] = useState<"write" | "admin">("write");
 
   // Fetch collaborators & invitations when tab is active
   const loadCollaboratorsData = useCallback(async () => {
@@ -163,9 +165,9 @@ export default function RepoDetailClient({
     setInviteError(null);
     setInviteSuccess(null);
     startTransition(async () => {
-      const result = await inviteCollaboratorAction(repo, email);
+      const result = await inviteCollaboratorAction(repo, email, invitePermission);
       if (result.success) {
-        setInviteSuccess(`Invitation sent to ${email}`);
+        setInviteSuccess(`Invitation sent to ${email} as ${invitePermission === "admin" ? "Admin" : "Contributor"}`);
         setSearchQuery("");
         setSearchResults([]);
         loadCollaboratorsData();
@@ -173,7 +175,7 @@ export default function RepoDetailClient({
         setInviteError(result.error);
       }
     });
-  }, [repo, loadCollaboratorsData]);
+  }, [repo, invitePermission, loadCollaboratorsData]);
 
   // Cancel invite handler
   const handleCancelInvite = useCallback(async (invitationId: string) => {
@@ -222,6 +224,19 @@ export default function RepoDetailClient({
       const result = await renameRepoAction(owner, repo, newName.trim());
       if (result.success) {
         router.push(`/repository/${owner}/${newName.trim()}`);
+        router.refresh();
+      } else {
+        setSettingsError(result.error);
+      }
+    });
+  }
+
+  function handleSaveDescription(e: React.FormEvent) {
+    e.preventDefault();
+    setSettingsError(null);
+    startTransition(async () => {
+      const result = await updateDescriptionAction(owner, repo, description);
+      if (result.success) {
         router.refresh();
       } else {
         setSettingsError(result.error);
@@ -298,7 +313,7 @@ export default function RepoDetailClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
-    { key: "events" as const, label: "Events", icon: Activity },
+    { key: "events" as const, label: "Timeline", icon: Activity },
     { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "settings" as const, label: "Settings", icon: Settings },
   ];
@@ -318,7 +333,10 @@ export default function RepoDetailClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
-          {stats && (
+          {stats?.description && (
+            <p className="mb-3 text-base text-zinc-400">{stats.description}</p>
+          )}
+          {stats && !stats.description && (
             <p className="mb-3 text-lg text-zinc-400">
               {stats.audio_snippet ? "Audio snippet available" : "No audio snippet"}
             </p>
@@ -659,9 +677,9 @@ export default function RepoDetailClient({
       {/* ── Events Tab ─────────────────────────────────────────────── */}
       {activeTab === "events" && (
         <div className="rounded-lg border border-zinc-800 p-6">
-          <h2 className="mb-6 text-2xl font-semibold">Project Events</h2>
+          <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
           {repoEvents.length === 0 ? (
-            <p className="text-zinc-500">No events recorded yet.</p>
+            <p className="text-zinc-500">No activity recorded yet.</p>
           ) : (
             <div className="space-y-4">
               {repoEvents.map((ev) => (
@@ -780,6 +798,35 @@ export default function RepoDetailClient({
                   <Send size={14} /> Send Invite
                 </button>
               </form>
+
+              {/* Role selector */}
+              <div className="mt-3 flex items-center gap-3">
+                <span className="text-xs text-zinc-400">Invite as:</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("write")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "write"
+                        ? "border-glass-cyan-500 bg-glass-cyan-500/10 text-glass-cyan-500"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Contributor
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("admin")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "admin"
+                        ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Admin
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -854,7 +901,18 @@ export default function RepoDetailClient({
                         >
                           <UserAvatar src={c.avatar_url} alt={c.username} size={40} />
                           <div>
-                            <div className="text-base font-bold text-white">{c.username}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-bold text-white">{c.username}</span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  c.permission === "admin"
+                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                                    : "bg-glass-cyan-500/10 text-glass-cyan-500 border border-glass-cyan-500/30"
+                                }`}
+                              >
+                                {c.permission === "admin" ? "Admin" : "Contributor"}
+                              </span>
+                            </div>
                             <div className="text-sm text-zinc-500">{c.display_name || c.email || ""}</div>
                           </div>
                           <ChevronDown
@@ -971,6 +1029,31 @@ export default function RepoDetailClient({
                   className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Save size={14} /> Rename
+                </button>
+              </div>
+            </form>
+
+            {/* 2. Description */}
+            <form onSubmit={handleSaveDescription}>
+              <label className="mb-2 block text-sm font-medium">
+                Description
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe your project…"
+                rows={3}
+                maxLength={500}
+                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none resize-none"
+              />
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-zinc-500">{description.length}/500</span>
+                <button
+                  type="submit"
+                  disabled={isPending || description === (stats?.description ?? "")}
+                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Save size={14} /> Save Description
                 </button>
               </div>
             </form>

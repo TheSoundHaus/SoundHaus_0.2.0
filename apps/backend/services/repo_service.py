@@ -594,6 +594,16 @@ class RepoService:
                 # Gitea login is the Supabase UUID — look up the SoundHaus profile
                 gitea_login = collab.get("login", "")
                 profile = db.query(Profile).filter(Profile.id == gitea_login).first()
+
+                # Derive role from Gitea permissions object
+                perms = collab.get("permissions", {})
+                if perms.get("admin"):
+                    role = "admin"
+                elif perms.get("push"):
+                    role = "write"
+                else:
+                    role = "read"
+
                 enriched.append({
                     "login": gitea_login,  # UUID, needed for remove operations
                     "username": profile.username if profile else gitea_login,
@@ -601,6 +611,7 @@ class RepoService:
                     "email": profile.email if profile else collab.get("email", ""),
                     "avatar_url": profile.avatar_url if profile else collab.get("avatar_url", ""),
                     "bio": profile.bio if profile else None,
+                    "permission": role,
                 })
 
             return {"success": True, "collaborators": enriched}

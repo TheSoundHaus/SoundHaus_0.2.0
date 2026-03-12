@@ -369,9 +369,20 @@ async def get_repo_stats(
         .all()
     )
 
+    # Fetch description from Gitea
+    svc = RepoService()
+    description = ""
+    try:
+        gitea_info = svc.get_repo(owner, repo)
+        if gitea_info.get("success"):
+            description = gitea_info.get("repo", {}).get("description", "")
+    except Exception:
+        pass  # Non-critical: description is cosmetic
+
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
+        "description": description,
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
