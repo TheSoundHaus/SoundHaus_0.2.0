@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from config import settings
 from logging_config import get_logger
@@ -35,15 +35,16 @@ def get_db():
 def test_connection():
     """Test if database connection works."""
     from sqlalchemy import text
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         db.execute(text("SELECT 1"))
-        db.close()
         logger.info("database_connection_test", status="success")
         return True
     except Exception as e:
         logger.error("database_connection_test", status="failed", error=str(e))
         return False
+    finally:
+        db.close()
 
 # Initialize database tables
 def init_db():

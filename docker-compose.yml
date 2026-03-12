@@ -148,6 +148,41 @@ services:
         max-file: "3"
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
+  # ── Stem Worker ──────────────────────────────────────────────────────────
+  # Polls DB for QUEUED SnippetVersion rows and runs Demucs separation.
+  # Shares the same image/code as fastapi but runs the worker script.
+  worker:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.worker
+    image: soundhaus_worker:${TAG:-latest}
+    container_name: worker
+    restart: unless-stopped
+    networks: [appnet]
+    depends_on:
+      fastapi:
+        condition: service_started
+    volumes:
+      - ./apps/backend:/app
+      - ./workers:/workers
+      - /app/venv
+    env_file:
+      - ./apps/backend/.env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEMUCS_MODEL=mdx
+      - MAX_AUDIO_DURATION=600
+      - WORKER_POLL_INTERVAL=5
+      - OMP_NUM_THREADS=8
+      - MKL_NUM_THREADS=8
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: python /workers/stem_worker.py
+
   token-broker:
     build:
       context: ./apps/token-broker
