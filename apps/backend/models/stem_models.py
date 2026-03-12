@@ -74,8 +74,8 @@ class SnippetVersion(Base):
     created_by = Column(String(255), nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime, server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Demucs model used (for regeneration tracking)
     demucs_model_version = Column(String, default="htdemucs", nullable=False)

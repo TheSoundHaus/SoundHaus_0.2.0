@@ -3,6 +3,24 @@
 import { authenticatedFetch } from "@/lib/utils/auth";
 import type { SnippetMetadata } from "@/lib/types/api";
 
+/** Normalise a FastAPI error body into a human-readable string. */
+function extractErrorMessage(body: unknown, fallback: string): string {
+    if (!body || typeof body !== "object") return fallback;
+    const detail = (body as Record<string, unknown>).detail;
+    if (typeof detail === "string") return detail;
+    // Pydantic validation errors → array of {loc, msg, type, input}
+    if (Array.isArray(detail)) {
+        return detail
+            .map((d) =>
+                typeof d === "object" && d !== null && "msg" in d
+                    ? String((d as Record<string, unknown>).msg)
+                    : JSON.stringify(d),
+            )
+            .join("; ");
+    }
+    return fallback;
+}
+
 /**
  * Upload an audio snippet for a repository.
  * Accepts FormData with a "file" field (browser File → FormData serialisation).
@@ -28,7 +46,7 @@ export async function uploadSnippetAction(
             let errorMessage = `HTTP ${response.status}`;
             try {
                 const body = await response.json();
-                errorMessage = body.detail ?? errorMessage;
+                errorMessage = extractErrorMessage(body, response.statusText || errorMessage);
             } catch {
                 errorMessage = response.statusText || errorMessage;
             }
@@ -66,7 +84,7 @@ export async function deleteSnippetAction(
             let errorMessage = `HTTP ${response.status}`;
             try {
                 const body = await response.json();
-                errorMessage = body.detail ?? errorMessage;
+                errorMessage = extractErrorMessage(body, response.statusText || errorMessage);
             } catch {
                 errorMessage = response.statusText || errorMessage;
             }

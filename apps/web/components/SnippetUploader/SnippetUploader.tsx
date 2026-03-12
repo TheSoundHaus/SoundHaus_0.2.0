@@ -34,8 +34,11 @@ interface SnippetUploaderProps {
     existingUrl: string | null;
     /** Currently stored metadata */
     existingMetadata: SnippetMetadata | null;
-    /** Called after successful upload or delete so parent can refresh */
-    onUpdate?: () => void;
+    /** Called after successful upload or delete so parent can refresh.
+     *  Receives the new snippet URL on upload, or null on delete. */
+    onUpdate?: (newUrl: string | null) => void;
+    /** Optional content rendered between the snippet display and the drop zone */
+    middleContent?: React.ReactNode;
 }
 
 /**
@@ -53,6 +56,7 @@ export default function SnippetUploader({
     existingUrl,
     existingMetadata,
     onUpdate,
+    middleContent,
 }: SnippetUploaderProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [isPending, startTransition] = useTransition();
@@ -160,7 +164,7 @@ export default function SnippetUploader({
                 setSnippetUrl(result.url);
                 setSnippetMeta(result.metadata);
                 setSuccessMsg("Snippet uploaded successfully!");
-                onUpdate?.();
+                onUpdate?.(result.url ?? null);
             });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -170,7 +174,7 @@ export default function SnippetUploader({
     // ── Delete handler ──────────────────────────────────────────────
 
     const handleDelete = useCallback(() => {
-        if (!confirm("Remove the audio snippet from this repository?")) return;
+        if (!confirm("Remove the audio snippet from this project?")) return;
         setError(null);
         setSuccessMsg(null);
 
@@ -183,7 +187,7 @@ export default function SnippetUploader({
             setSnippetUrl(null);
             setSnippetMeta(null);
             setSuccessMsg("Snippet removed.");
-            onUpdate?.();
+            onUpdate?.(null);
         });
     }, [owner, repo, onUpdate]);
 
@@ -267,6 +271,9 @@ export default function SnippetUploader({
                     <AudioPlayer src={snippetUrl} />
                 </div>
             )}
+
+            {/* Middle content slot (e.g. StemPlayer) */}
+            {middleContent}
 
             {/* Drop zone */}
             <div
