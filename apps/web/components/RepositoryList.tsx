@@ -14,12 +14,17 @@ interface Repository {
   author: string;
   updatedAt: string;
   stats: {
-    stars?: number;
-    tracks: number;
-    collaborators: number;
+    stars: number;
+    tracks?: number;
+    collaborators?: number;
     commits?: number;
   };
   isPublic?: boolean;
+  cloneCount: number;
+  audioSnippet?: string | null;
+  isStarred?: boolean;
+  isOwner?: boolean;
+  genres?: string[];
 }
 
 interface RepositoryListProps {
@@ -56,6 +61,11 @@ export default function RepositoryList({
           updatedAt={repo.updatedAt}
           stats={repo.stats}
           isPublic={repo.isPublic}
+          cloneCount={repo.cloneCount}
+          audioSnippet={repo.audioSnippet}
+          isStarred={repo.isStarred}
+          isOwner={repo.isOwner}
+          genres={repo.genres}
         />
       ))}
     </div>

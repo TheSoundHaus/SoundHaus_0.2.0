@@ -8,7 +8,7 @@ import { setAuthCookies, getAccessToken, clearAuthCookies } from "@/lib/utils/au
 const API_BASE_URL = process.env.API_URL || "http://localhost:8000";
 
 export async function signup(
-  state: FormState,
+  _state: FormState,
   formData: FormData,
 ): Promise<FormState> {
   // Validate form fields
@@ -81,7 +81,7 @@ export async function signup(
 }
 
 export async function login(
-  state: LoginFormState,
+  _state: LoginFormState,
   formData: FormData,
 ): Promise<LoginFormState> {
   // Validate form fields
