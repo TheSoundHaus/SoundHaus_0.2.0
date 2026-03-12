@@ -337,21 +337,31 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
                           const parts = repo.full_name.split("/");
                           const o = parts[0] ?? "";
                           const n = parts[1] ?? "";
-                          if (repo.is_starred) {
-                            await unstarRepoAction(o, n);
-                          } else {
-                            await starRepoAction(o, n);
+                          const result = repo.is_starred
+                            ? await unstarRepoAction(o, n)
+                            : await starRepoAction(o, n);
+                          if (!result.success) {
+                            setError(result.error);
+                            return;
                           }
                           router.refresh();
                         }}
                         onDelete={async () => {
                           const parts = repo.full_name.split("/");
-                          await deleteRepoAction(parts[0] ?? "", parts[1] ?? "");
+                          const result = await deleteRepoAction(parts[0] ?? "", parts[1] ?? "");
+                          if (!result.success) {
+                            setError(result.error);
+                            return;
+                          }
                           router.refresh();
                         }}
                         onRename={async (newName: string) => {
                           const parts = repo.full_name.split("/");
-                          await renameRepoAction(parts[0] ?? "", parts[1] ?? "", newName);
+                          const result = await renameRepoAction(parts[0] ?? "", parts[1] ?? "", newName);
+                          if (!result.success) {
+                            setError(result.error);
+                            return;
+                          }
                           router.refresh();
                         }}
                     />

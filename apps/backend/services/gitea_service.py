@@ -402,7 +402,7 @@ class GiteaAdminService:
 		
 		# Try multiple methods to execute the Gitea CLI command
 		gitea_container = settings.gitea_container_name
-		gitea_ssh_host = settings.gitea_ssh_host  # e.g., "git@localhost" or "user@129.212.182.247"
+		gitea_ssh_host = settings.gitea_ssh_host  # e.g., "git@localhost" or "user@localhost"
 		gitea_ssh_port = settings.gitea_ssh_port  # Default to 22, use 2222 for local Docker
 		
 		try:	

@@ -224,9 +224,8 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         const remoteURL = await new Promise<string>((resolve, reject) => {
             const giteaRequestTarget = getGiteaApiRequestOptions();
             const reqOptions = {
-                protocol: giteaRequestTarget.protocol,
-                hostname: giteaRequestTarget.hostname,
-                port: giteaRequestTarget.port,
+                hostname: 'localhost',
+                port: 3000,
                 path: '/api/v1/user/repos',
                 method: 'POST',
                 headers: {

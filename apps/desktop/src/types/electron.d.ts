@@ -13,8 +13,7 @@ declare global {
       getAlsContent: (alsPath: string) => Promise<string | null>
       getAlsStruct: (alsPath: string) => Promise<any>
       findAls: (folderPath: string) => Promise<string | null>
-      diffXml: (curAlsPath, oldAlsPath) => Promise<any>
-      getRemoteHeadAls: (alsPath: string) => Promise<any>
+      getChanges: (alsPath: string) => Promise<any>
     }
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
