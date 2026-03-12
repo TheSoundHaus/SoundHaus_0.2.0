@@ -44,8 +44,9 @@ MIME_NORMALIZE = {
 }
 
 # Maximum snippet duration in seconds (configurable via env var)
-# Audio longer than this will be silently trimmed on upload
-MAX_SNIPPET_DURATION_SECONDS = float(os.getenv("MAX_SNIPPET_DURATION", "90.0"))
+# Audio longer than this will be silently trimmed on upload.
+# Default 30s keeps AI stem-separation (Demucs) fast and responsive.
+MAX_SNIPPET_DURATION_SECONDS = float(os.getenv("MAX_SNIPPET_DURATION", "30.0"))
 
 # Try to import pydub for audio trimming
 try:

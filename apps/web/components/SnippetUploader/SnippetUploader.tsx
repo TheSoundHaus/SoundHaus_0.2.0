@@ -21,8 +21,9 @@ const ALLOWED_TYPES = new Set([
 
 const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".flac", ".aiff", ".aif", ".ogg", ".m4a"];
 
-/** Max snippet duration in seconds — files longer than this are rejected with a message */
-const MAX_DURATION_SECONDS = 90;
+/** Max snippet duration in seconds — files longer than this are rejected with a message.
+ *  30s keeps AI stem-separation (Demucs) fast and responsive. */
+const MAX_DURATION_SECONDS = 30;
 
 /** 10 MB — matches backend MAX_AUDIO_SNIPPET_SIZE */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -122,7 +123,7 @@ export default function SnippetUploader({
         try {
             const duration = await getAudioDuration(file);
             if (duration > MAX_DURATION_SECONDS) {
-                return `Audio is ${Math.round(duration)}s long — max allowed is ${MAX_DURATION_SECONDS}s. Please trim before uploading.`;
+                return `Audio is ${Math.round(duration)}s long — max allowed is ${MAX_DURATION_SECONDS}s for AI stem separation. Please trim or upload a shorter clip.`;
             }
         } catch {
             // Some audio formats (e.g. certain .ogg containers) don't expose
@@ -235,6 +236,10 @@ export default function SnippetUploader({
             <p className="text-xs text-zinc-400">
                 Upload a short audio preview for your project (max {MAX_DURATION_SECONDS}s, up to{" "}
                 {formatBytes(MAX_FILE_SIZE)}).
+            </p>
+            <p className="text-xs text-amber-400/80">
+                Snippets are limited to {MAX_DURATION_SECONDS}s for AI stem separation.
+                Longer files will be automatically trimmed.
             </p>
 
             {/* Existing snippet player + delete */}
