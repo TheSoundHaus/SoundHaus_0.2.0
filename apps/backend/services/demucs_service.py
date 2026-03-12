@@ -32,6 +32,11 @@ class DemucsService:
     # Supabase bucket for stems (separate from snippets)
     STEMS_BUCKET = "stems"
 
+    # Hard ceiling – reject audio longer than this at separation time
+    MAX_SEPARATION_SECONDS = 30
+    # Timeout for apply_model() to prevent infinite hangs (seconds)
+    SEPARATION_TIMEOUT = 300  # 5 minutes
+
     def __init__(self, db: Session):
         self.db = db
         self.model_name = os.getenv("DEMUCS_MODEL", "htdemucs")
@@ -114,9 +119,23 @@ class DemucsService:
             wav = torchaudio.transforms.Resample(sr, model.samplerate)(wav)
             sr = model.samplerate
 
+        # ── Enforce duration limit ──────────────────────────────────────
+        duration_secs = wav.shape[-1] / sr
+        if duration_secs > self.MAX_SEPARATION_SECONDS:
+            logger.warning(
+                "audio_too_long_trimming",
+                duration=duration_secs,
+                limit=self.MAX_SEPARATION_SECONDS,
+            )
+            max_samples = int(self.MAX_SEPARATION_SECONDS * sr)
+            wav = wav[..., :max_samples]
+            duration_secs = self.MAX_SEPARATION_SECONDS
+
+        logger.info("demucs_audio_info", duration=round(duration_secs, 1), sr=sr)
+
         # Demucs expects (batch, channels, samples)
         ref = wav.mean(0)  # mono reference for normalization
-        wav = (wav - ref.mean()) / ref.std()
+        wav = (wav - ref.mean()) / (ref.std() + 1e-8)  # epsilon prevents div-by-zero
         wav = wav.unsqueeze(0)  # add batch dim
 
         # Run inference
@@ -193,10 +212,12 @@ class DemucsService:
         """
         End-to-end stem generation. Called by the worker loop.
         1. Download source audio
-        2. Run Demucs
+        2. Run Demucs (in a thread with timeout)
         3. Upload stems
         4. Create StemFile rows
         """
+        import asyncio
+
         version = self.db.query(SnippetVersion).get(snippet_version_id)
         if not version:
             raise ValueError(f"SnippetVersion {snippet_version_id} not found")
@@ -211,8 +232,17 @@ class DemucsService:
             # 1. Download
             source_file = await self.download_source_audio(version.source_upload_url)
 
-            # 2. Separate
-            stem_dir = self.run_demucs(source_file, tmp_dir)
+            # 2. Separate — run in thread to avoid blocking the async loop,
+            #    with a timeout to prevent infinite hangs
+            try:
+                stem_dir = await asyncio.wait_for(
+                    asyncio.to_thread(self.run_demucs, source_file, tmp_dir),
+                    timeout=self.SEPARATION_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Stem separation timed out after {self.SEPARATION_TIMEOUT}s"
+                )
 
             # 3. Upload
             uploaded = await self.upload_stems_to_storage(
