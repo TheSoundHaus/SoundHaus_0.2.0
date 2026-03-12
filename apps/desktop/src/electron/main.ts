@@ -6,6 +6,7 @@ import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, 
 import { gitBin, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
+import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -37,6 +38,35 @@ function updateProjectGitMenuEnabled() {
   for (const id of ['project-pull', 'project-commit', 'project-push']) {
     const item = menu.getMenuItemById(id);
     if (item) item.enabled = enabled;
+  }
+}
+
+// IDs of all actionable (non-role) menu items that should be disabled on login
+const actionableMenuIds = [
+  'import-ableton', 'import-soundhaus', 'browse-public',
+  'view-home', 'view-project',
+  'project-pull', 'project-commit', 'project-push', 'view-on-soundhaus',
+  'help-search', 'help-about',
+];
+
+function updateMenuForRoute(route: string) {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+
+  if (route === '/') {
+    // On login: disable all actionable items
+    for (const id of actionableMenuIds) {
+      const item = menu.getMenuItemById(id);
+      if (item) item.enabled = false;
+    }
+  } else {
+    // Leaving login: re-enable all actionable items, then apply specific rules
+    for (const id of actionableMenuIds) {
+      const item = menu.getMenuItemById(id);
+      if (item) item.enabled = true;
+    }
+    updateProjectViewMenuEnabled();
+    updateProjectGitMenuEnabled();
   }
 }
 
@@ -309,7 +339,7 @@ ipcMain.handle('set-last-project-path', async(_event: IpcMainInvokeEvent, projec
 ipcMain.handle('set-current-route', async(_event: IpcMainInvokeEvent, route: string) => {
   if (typeof route !== 'string') return;
   isOnProjectRoute = route === '/project';
-  updateProjectGitMenuEnabled();
+  updateMenuForRoute(route);
 });
 
 // This method will be called when Electron has finished
@@ -434,7 +464,14 @@ app.whenReady().then(() => {
             BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'open-search-palette');
           }
         },
-        { label: 'About' }
+        {
+          id: 'help-about',
+          label: 'About',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            if (win) createAboutDialog(win);
+          }
+        }
       ]
     }
   ];
