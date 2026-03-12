@@ -20,6 +20,7 @@ from dependencies import (
 from logging_config import get_logger
 from services.auth_service import SupabaseAuthService
 from services.gitea_service import GiteaAdminService
+from services.gitea_token_service import GiteaTokenService
 from services.pat_service import PATService
 from models.schemas import SignInRequest
 
@@ -201,13 +202,31 @@ async def get_desktop_credentials(
     """
     Get Gitea credentials for desktop Git operations.
 
-    Validates the Backend PAT and either reuses a cached Gitea PAT
-    or creates a new one if the cached one is invalid / missing.
+    Now checks database first for stored token (created during signup).
+    Only creates new token if none exists in database.
+    This eliminates the need for admin token on every login!
     """
     user_id = user_info["user_id"]
     gitea_admin_service = GiteaAdminService()
 
-    # Try to reuse cached Gitea token
+    # STEP 1: Check if token is stored in database (created during signup)
+    stored_token = await GiteaTokenService.get_user_token(user_id, db)
+    if stored_token:
+        # Verify the stored token is still valid
+        token_check = gitea_admin_service.verify_gitea_token(stored_token)
+        if token_check.get("valid"):
+            logger.info("get_desktop_credentials", action="using_stored_token", user_id=user_id)
+            return {
+                "success": True,
+                "gitea_url": settings.gitea_public_url,
+                "username": user_id,
+                "token": stored_token,
+                "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
+            }
+        else:
+            logger.warning("get_desktop_credentials", action="stored_token_invalid", user_id=user_id)
+
+    # STEP 2: Fallback - check cached token from parameter
     if cached_gitea_token:
         logger.debug("get_desktop_credentials", action="validating_cached_token")
         token_check = gitea_admin_service.verify_gitea_token(cached_gitea_token)
@@ -220,25 +239,31 @@ async def get_desktop_credentials(
                 "token": cached_gitea_token,
                 "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
             }
-        else:
-            logger.debug("get_desktop_credentials", action="cached_token_invalid")
 
-    # Create a new Gitea token
+    # STEP 3: Last resort - create new token (requires admin token)
+    logger.info("get_desktop_credentials", action="creating_new_token", user_id=user_id)
     timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
-    token_name = f"Desktop Access Token - {timestamp}"
+    token_name = f"Fallback Token - {timestamp}"
 
-    gitea_result = gitea_admin_service.create_or_get_user_token(user_id, token_name)
+    # Try to create and store the token
+    token_result = await GiteaTokenService.create_and_store_token(
+        user_id=user_id,
+        token_name=token_name,
+        db=db,
+        created_via="credentials_endpoint",
+        scopes=["write:repository", "write:user", "read:user"]
+    )
 
-    if not gitea_result.get("success"):
+    if not token_result.get("success"):
         raise HTTPException(
             status_code=500,
-            detail=gitea_result.get("message", "Failed to get Gitea credentials"),
+            detail=token_result.get("message", "Failed to get Gitea credentials"),
         )
 
     return {
         "success": True,
         "gitea_url": settings.gitea_public_url,
         "username": user_id,
-        "token": gitea_result["token"]["sha1"],
+        "token": token_result["token"],
         "clone_url_format": f"{settings.gitea_public_url}/{user_id}/{{repo_name}}.git",
     }

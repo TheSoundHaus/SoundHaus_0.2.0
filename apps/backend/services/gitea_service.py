@@ -24,10 +24,13 @@ class GiteaAdminService:
 	def __init__(self, base_url: Optional[str] = None, admin_token: Optional[str] = None) -> None:
 		self.base_url = (base_url or settings.gitea_url).rstrip("/")
 		self.token = admin_token or settings.gitea_admin_token		# Debug (non-sensitive)
-		logger.debug("gitea_service_init",
+		logger.info("gitea_service_init",
 			base_url=self.base_url or "<unset>",
 			admin_token_present=bool(self.token),
-			admin_token_length=len(self.token) if self.token else 0
+			admin_token_length=len(self.token) if self.token else 0,
+			token_prefix=self.token[:10] if self.token else None,
+			token_from_param=bool(admin_token),
+			token_from_settings=bool(settings.gitea_admin_token)
 		)
 
 		if not self.base_url:
@@ -265,21 +268,25 @@ class GiteaAdminService:
 
 	def verify_admin_token(self) -> Dict[str, Any]:
 		"""Verify that the admin token is valid and has necessary permissions.
-		
+
 		Tests the token by making a simple API call to get the authenticated user.
-		
+
 		Returns:
 			{"valid": True, "user": user_data} if token works
 			{"valid": False, "error": str} if token is invalid
 		"""
-		logger.debug("verify_admin_token_request")
+		logger.debug("verify_admin_token_request",
+			token_prefix=self.token[:10] if self.token else None,
+			token_length=len(self.token) if self.token else 0,
+			base_url=self.base_url
+		)
 		try:
 			resp = requests.get(
 				self._url("/api/v1/user"),
 				headers=self.headers,
 				timeout=10
 			)
-			
+
 			logger.debug("admin_token_verify_status", status_code=resp.status_code)
 			
 			if resp.status_code == 200:

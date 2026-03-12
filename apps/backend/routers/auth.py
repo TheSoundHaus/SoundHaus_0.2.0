@@ -4,11 +4,14 @@ Authentication endpoints – signup, login, logout, refresh, user, reset-passwor
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import Dict, Any
+from sqlalchemy.orm import Session
 
+from database import get_db
 from dependencies import limiter, user_limiter, verify_token, get_auth
 from logging_config import get_logger, log_external_service
 from services.auth_service import SupabaseAuthService
 from services.gitea_service import GiteaAdminService
+from services.gitea_token_service import GiteaTokenService
 from models.schemas import (
     SignUpRequest,
     SignInRequest,
@@ -31,8 +34,9 @@ async def signup(
     request: Request,
     signup_request: SignUpRequest,
     auth_service: SupabaseAuthService = Depends(get_auth),
+    db: Session = Depends(get_db),
 ):
-    """Register a new user and provision a matching Gitea account."""
+    """Register a new user and provision a matching Gitea account with persistent token."""
     logger.info("signup", email=signup_request.email)
 
     sb = await auth_service.sign_up(
@@ -97,7 +101,17 @@ async def signup(
         }
         logger.error("signup", service="gitea", error=str(e), exc_info=True)
 
-    return {"success": True, "supabase": sb, "gitea": gitea_result}
+    # Gitea token creation disabled for web-only flow
+    # Users don't need git credentials for web-based operations
+    # The backend uses admin token for all Gitea operations on behalf of users
+    # Note: Re-enable this for Desktop app or if users need local git access
+    logger.info("signup", action="gitea_token_skipped", reason="web_only_flow", user_id=supabase_user_id)
+
+    return {
+        "success": True,
+        "supabase": sb,
+        "gitea": gitea_result,
+    }
 
 
 # ── Login / Logout / Refresh ─────────────────────────────────────────────────
