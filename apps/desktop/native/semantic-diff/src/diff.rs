@@ -113,8 +113,8 @@ fn diff_tracks(
     unmatched_new.sort_by_key(|t| new_map[t.id.as_str()].0);
 
     // 3. Fuzzy match unmatched tracks using Levenshtein distance on names
-    let mut matched_old_ids: Vec<String> = Vec::new();
-    let mut matched_new_ids: Vec<String> = Vec::new();
+    let mut matched_old_ids: HashSet<String> = HashSet::new();
+    let mut matched_new_ids: HashSet<String> = HashSet::new();
 
     for old_track in &unmatched_old {
         let mut best_score = 0.0f64;
@@ -145,8 +145,8 @@ fn diff_tracks(
                 changes.push(node);
                 stats.renamed += 1;
 
-                matched_old_ids.push(old_track.id.clone());
-                matched_new_ids.push(new_match.id.clone());
+                matched_old_ids.insert(old_track.id.clone());
+                matched_new_ids.insert(new_match.id.clone());
             }
         }
     }
@@ -613,41 +613,71 @@ fn lcs_set<'a>(a: &[&'a str], b: &[&'a str]) -> HashSet<&'a str> {
 fn diff_clips(old: &[ClipSummary], new: &[ClipSummary]) -> Vec<ChangeNode> {
     let mut changes = Vec::new();
 
-    // Simple positional matching for clips (they don't have stable IDs)
-    let max_len = old.len().max(new.len());
+    // Clips don't have stable IDs yet (TODO: parse clip XML Id attribute).
+    // Match in two passes before falling back to treating unmatched clips as
+    // added/removed — this avoids the positional cascade where inserting one
+    // clip makes every subsequent clip appear as "modified".
+    //
+    // Pass 1: match by non-empty name (most reliable when the user has named clips).
+    // Pass 2: match remaining clips by (start_time, end_time) tuple.
+    //         Note: this breaks if the user moves a clip; clip_id will fix that.
+    // Remaining: unmatched old = removed, unmatched new = added.
 
-    for i in 0..max_len {
-        match (old.get(i), new.get(i)) {
-            (Some(old_clip), Some(new_clip)) => {
-                let clip_changes = diff_single_clip(old_clip, new_clip);
-                if !clip_changes.is_empty() {
-                    let label = if !new_clip.name.is_empty() {
-                        new_clip.name.clone()
-                    } else {
-                        format!("Clip {}", i + 1)
-                    };
-                    let mut node = ChangeNode::new("Clip", &label, "modified");
-                    node.children = clip_changes;
-                    changes.push(node);
-                }
+    let clip_label = |clip: &ClipSummary, idx: usize| -> String {
+        if !clip.name.is_empty() { clip.name.clone() } else { format!("Clip {}", idx + 1) }
+    };
+
+    let mut matched_old: HashSet<usize> = HashSet::new();
+    let mut matched_new: HashSet<usize> = HashSet::new();
+
+    // Pass 1: match by name
+    for (oi, old_clip) in old.iter().enumerate() {
+        if old_clip.name.is_empty() { continue; }
+        if let Some(ni) = new.iter().enumerate().find_map(|(ni, nc)| {
+            if !matched_new.contains(&ni) && nc.name == old_clip.name { Some(ni) } else { None }
+        }) {
+            matched_old.insert(oi);
+            matched_new.insert(ni);
+            let clip_changes = diff_single_clip(old_clip, &new[ni]);
+            if !clip_changes.is_empty() {
+                let mut node = ChangeNode::new("Clip", &clip_label(&new[ni], ni), "modified");
+                node.children = clip_changes;
+                changes.push(node);
             }
-            (None, Some(new_clip)) => {
-                let label = if !new_clip.name.is_empty() {
-                    new_clip.name.clone()
-                } else {
-                    format!("Clip {}", i + 1)
-                };
-                changes.push(ChangeNode::new("Clip", &label, "added"));
+        }
+    }
+
+    // Pass 2: match remaining by (start_time, end_time)
+    for (oi, old_clip) in old.iter().enumerate() {
+        if matched_old.contains(&oi) { continue; }
+        if let Some(ni) = new.iter().enumerate().find_map(|(ni, nc)| {
+            if !matched_new.contains(&ni)
+                && nc.start_time == old_clip.start_time
+                && nc.end_time == old_clip.end_time
+            { Some(ni) } else { None }
+        }) {
+            matched_old.insert(oi);
+            matched_new.insert(ni);
+            let clip_changes = diff_single_clip(old_clip, &new[ni]);
+            if !clip_changes.is_empty() {
+                let mut node = ChangeNode::new("Clip", &clip_label(&new[ni], ni), "modified");
+                node.children = clip_changes;
+                changes.push(node);
             }
-            (Some(old_clip), None) => {
-                let label = if !old_clip.name.is_empty() {
-                    old_clip.name.clone()
-                } else {
-                    format!("Clip {}", i + 1)
-                };
-                changes.push(ChangeNode::new("Clip", &label, "removed"));
-            }
-            _ => {}
+        }
+    }
+
+    // Unmatched new = added
+    for (ni, new_clip) in new.iter().enumerate() {
+        if !matched_new.contains(&ni) {
+            changes.push(ChangeNode::new("Clip", &clip_label(new_clip, ni), "added"));
+        }
+    }
+
+    // Unmatched old = removed
+    for (oi, old_clip) in old.iter().enumerate() {
+        if !matched_old.contains(&oi) {
+            changes.push(ChangeNode::new("Clip", &clip_label(old_clip, oi), "removed"));
         }
     }
 
