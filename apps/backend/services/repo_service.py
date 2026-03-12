@@ -11,13 +11,25 @@ from config import settings
 logger = get_logger("soundhaus.repo")
 
 class RepoService:
-    def __init__(self, base_url: Optional[str] = None, admin_token: Optional[str] = None) -> None:
+    def __init__(self, base_url: Optional[str] = None, user_token: Optional[str] = None, admin_token: Optional[str] = None) -> None:
+        """
+        Initialize RepoService with either a user token or admin token.
+
+        Args:
+            base_url: Gitea base URL (defaults to settings.gitea_url)
+            user_token: User's personal Gitea token (PREFERRED - enables proper access control)
+            admin_token: Admin token (FALLBACK - only for admin operations)
+
+        For user operations, ALWAYS pass user_token to ensure proper access control.
+        The admin_token should only be used for system-level operations.
+        """
         self.base_url = (base_url or settings.gitea_url).rstrip("/")
-        self.token = admin_token or settings.gitea_admin_token
+        # Prefer user_token over admin_token
+        self.token = user_token or admin_token or settings.gitea_admin_token
         if not self.base_url:
             raise ValueError("GITEA_URL not configured")
         if not self.token:
-            raise ValueError("GITEA_ADMIN_TOKEN (or GITEA_TOKEN) not configured")
+            raise ValueError("No Gitea token provided (user_token or admin_token required)")
         self.headers = {"Authorization": f"token {self.token}", "Content-Type": "application/json"}
 
     def _url(self, path: str) -> str:

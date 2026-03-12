@@ -15,6 +15,7 @@ from dependencies import limiter, user_limiter, verify_token, get_auth
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
+from services.gitea_token_service import GiteaTokenService
 from services.webhook_service import webhook_service
 from models.repo_models import RepoData
 from models.clone_models import CloneEvent
@@ -35,7 +36,7 @@ router = APIRouter(tags=["repos"])
 
 @router.get("/repos")
 @user_limiter.limit("60/minute")
-async def list_repos(request: Request, token: str = Depends(verify_token)):
+async def list_repos(request: Request, token: str = Depends(verify_token), db: Session = Depends(get_db)):
     """List Gitea repositories for the current user (protected)."""
     logger.debug("list_repos", endpoint="/repos", method="GET")
     user_res = await get_auth().get_user(token)
@@ -48,7 +49,13 @@ async def list_repos(request: Request, token: str = Depends(verify_token)):
     user_id = user_res["user"]["id"]
     logger.debug("list_repos", user_id=user_id)
 
-    svc = RepoService()
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        logger.error("list_repos_token_failed", user_id=user_id)
+        raise HTTPException(status_code=401, detail="Gitea session expired. Please log in again.")
+
+    svc = RepoService(user_token=gitea_token)
     res = svc.list_user_repos(user_id)
     logger.info("list_repos", success=res.get("success"), repo_count=len(res.get("repos", [])))
 
@@ -73,7 +80,12 @@ async def create_repo(
     user_id = user_res["user"]["id"]
     gitea_username = user_id
 
-    svc = RepoService()
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        raise HTTPException(status_code=401, detail="Gitea session expired. Please log in again.")
+
+    svc = RepoService(user_token=gitea_token)
     res = svc.create_user_repo(
         gitea_username,
         create_request.name,
@@ -131,6 +143,7 @@ async def get_repo_contents(
     repo_name: str,
     path: str = "",
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Get contents of a repository at a specific path (protected)."""
     user_res = await get_auth().get_user(token)
@@ -138,7 +151,13 @@ async def get_repo_contents(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    svc = RepoService()
+
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        raise HTTPException(status_code=401, detail="Gitea session expired. Please log in again.")
+
+    svc = RepoService(user_token=gitea_token)
     res = svc.get_repo_contents(user_id, repo_name, path)
 
     if not res.get("success"):
@@ -153,6 +172,7 @@ async def upload_file(
     repo_name: str,
     upload_request: UploadFileRequest,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Upload a file to a repository (protected)."""
     user_res = await get_auth().get_user(token)
@@ -160,7 +180,13 @@ async def upload_file(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    svc = RepoService()
+
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        raise HTTPException(status_code=401, detail="Gitea session expired. Please log in again.")
+
+    svc = RepoService(user_token=gitea_token)
     branch = upload_request.branch or "main"
     res = svc.upload_file(user_id, repo_name, upload_request.file_path, upload_request.content, upload_request.message, branch)
 
@@ -177,6 +203,7 @@ async def delete_file(
     file_path: str,
     delete_request: DeleteFileRequest,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Delete a file from a repository (protected)."""
     user_res = await get_auth().get_user(token)
@@ -184,7 +211,13 @@ async def delete_file(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    svc = RepoService()
+
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        raise HTTPException(status_code=401, detail="Gitea session expired. Please log in again.")
+
+    svc = RepoService(user_token=gitea_token)
     branch = delete_request.branch or "main"
     res = svc.delete_file(user_id, repo_name, file_path, delete_request.message, branch)
 
@@ -203,6 +236,7 @@ async def patch_repo_settings(
     repo: str,
     settings: dict,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Update repository settings via Gitea (protected, owner only)."""
     user_res = await get_auth().get_user(token)
@@ -213,7 +247,12 @@ async def patch_repo_settings(
     if str(user_id) != str(owner):
         raise HTTPException(status_code=403, detail="Not authorized to modify this repo")
 
-    svc = RepoService()
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        raise HTTPException(status_code=401, detail="Gitea session expired. Please log in again.")
+
+    svc = RepoService(user_token=gitea_token)
     res = svc.update_repo_settings(owner, repo, settings)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to update repo settings"))
@@ -294,7 +333,8 @@ async def get_public_repos(
         subq = base.subquery()
         query = query.filter(RepoData.gitea_id.in_(subq))
 
-    svc = RepoService()
+    # Use admin token for public repos (not user-specific)
+    svc = RepoService(admin_token=settings.gitea_admin_token)
     result = []
     for repo in query:
         try:

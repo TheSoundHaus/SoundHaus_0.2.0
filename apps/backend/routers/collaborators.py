@@ -16,6 +16,7 @@ from dependencies import limiter, user_limiter, verify_token, get_auth
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
+from services.gitea_token_service import GiteaTokenService
 from models.invitation_models import CollaboratorInvitation
 
 logger = get_logger(__name__)
@@ -44,8 +45,13 @@ async def invite_collaborator(
         email = user_res["user"]["email"]
         owner_username = user_id
 
+        # Get user's Gitea token
+        gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+        if not gitea_token:
+            return JSONResponse({"success": False, "message": "Gitea session expired. Please log in again."}, status_code=401)
+
         # Verify repo exists
-        repo_service = RepoService()
+        repo_service = RepoService(user_token=gitea_token)
         repo_check = repo_service.get_repo(owner_username, repo_name)
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
@@ -103,6 +109,7 @@ async def list_collaborators(
     request: Request,
     repo_name: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """List all collaborators for a repository."""
     user_res = await get_auth().get_user(token)
@@ -110,7 +117,13 @@ async def list_collaborators(
         return JSONResponse({"success": False}, status_code=401)
 
     user_id = user_res["user"]["id"]
-    repo_service = RepoService()
+
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        return JSONResponse({"success": False, "message": "Gitea session expired. Please log in again."}, status_code=401)
+
+    repo_service = RepoService(user_token=gitea_token)
     result = repo_service.list_collaborators(user_id, repo_name)
 
     if not result.get("success"):
@@ -218,8 +231,13 @@ async def accept_invitation(
                 logger.error("accept_invitation", action="create_gitea_user", status="failed", message=create_result.get("message"))
                 raise HTTPException(status_code=500, detail="Failed to provision Git account")
 
+        # Get invitee's Gitea token
+        gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+        if not gitea_token:
+            raise HTTPException(status_code=401, detail="Gitea session expired. Please log in again.")
+
         # Add collaborator to repository
-        repo_service = RepoService()
+        repo_service = RepoService(user_token=gitea_token)
         result = repo_service.add_collaborator(
             invitation.owner_username,
             invitation.repo_name,
@@ -293,6 +311,7 @@ async def remove_collaborator(
     repo_name: str,
     username: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Remove a collaborator from a repository."""
     user_res = await get_auth().get_user(token)
@@ -300,7 +319,13 @@ async def remove_collaborator(
         return JSONResponse({"success": False}, status_code=401)
 
     user_id = user_res["user"]["id"]
-    repo_service = RepoService()
+
+    # Get user's Gitea token
+    gitea_token = await GiteaTokenService.get_or_create_token(user_id, db, created_via="web")
+    if not gitea_token:
+        return JSONResponse({"success": False, "message": "Gitea session expired. Please log in again."}, status_code=401)
+
+    repo_service = RepoService(user_token=gitea_token)
     result = repo_service.remove_collaborator(user_id, repo_name, username)
 
     if not result.get("success"):
