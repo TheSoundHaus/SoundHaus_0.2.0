@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
+import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import DiffView from "@/components/DiffView";
 import UserAvatar from "@/components/UserAvatar";
@@ -49,6 +50,7 @@ import type {
   SentInvitation,
   Collaborator,
   UserSearchResult,
+  SnippetVersion,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
 
@@ -61,6 +63,7 @@ interface RepoDetailClientProps {
   snippet: Snippet | null;
   allGenres: Genre[];
   initialCommits: CommitListResponse | null;
+  initialStems: SnippetVersion | null;
 }
 
 export default function RepoDetailClient({
@@ -72,12 +75,16 @@ export default function RepoDetailClient({
   snippet,
   allGenres,
   initialCommits,
+  initialStems,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
     "overview" | "commits" | "events" | "collaborators" | "settings"
   >("overview");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+
+  // Track current snippet URL (updates after upload without full page reload)
+  const [currentSnippetUrl, setCurrentSnippetUrl] = useState(snippet?.url ?? null);
 
   // Settings form state
   const [newName, setNewName] = useState(repo);
@@ -111,24 +118,24 @@ export default function RepoDetailClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [collabError, setCollabError] = useState<string | null>(null);
+  const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
 
   // Fetch collaborators & invitations when tab is active
   const loadCollaboratorsData = useCallback(async () => {
     setCollabLoading(true);
     setCollabError(null);
     const [collabRes, invRes] = await Promise.all([
-      listCollaborators(repo),
+      listCollaborators(owner, repo),
       getRepoInvitations(repo),
     ]);
     if (collabRes.success) setCollaborators(collabRes.data ?? []);
     else setCollabError(collabRes.error);
     if (invRes.success) setRepoInvitations(invRes.data ?? []);
     setCollabLoading(false);
-  }, [repo]);
+  }, [owner, repo]);
 
   useEffect(() => {
     if (activeTab === "collaborators") {
@@ -159,7 +166,6 @@ export default function RepoDetailClient({
       const result = await inviteCollaboratorAction(repo, email);
       if (result.success) {
         setInviteSuccess(`Invitation sent to ${email}`);
-        setInviteEmail("");
         setSearchQuery("");
         setSearchResults([]);
         loadCollaboratorsData();
@@ -319,10 +325,6 @@ export default function RepoDetailClient({
           )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
-              <User size={14} /> {owner}
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1">
               <Lock size={14} /> Private
             </span>
             <span>•</span>
@@ -342,9 +344,9 @@ export default function RepoDetailClient({
       </div>
 
       {/* Audio Player */}
-      {snippet?.url && (
+      {currentSnippetUrl && (
         <div className="mb-8">
-          <AudioPlayer src={snippet.url} />
+          <AudioPlayer src={currentSnippetUrl} />
         </div>
       )}
 
@@ -457,7 +459,7 @@ export default function RepoDetailClient({
                   {stats.recent_clones.map((c, i) => (
                     <div key={i} className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2 text-zinc-300">
-                        <User size={14} /> {c.user_id.slice(0, 8)}…
+                        <User size={14} /> User
                       </span>
                       <span className="text-zinc-500">{timeAgo(c.cloned_at)}</span>
                     </div>
@@ -507,9 +509,9 @@ export default function RepoDetailClient({
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1 text-zinc-400">
-                    <Calendar size={12} /> ID
+                    <Calendar size={12} /> Project
                   </span>
-                  <span className="font-mono text-xs">{owner}/{repo}</span>
+                  <span className="font-mono text-xs">{repo}</span>
                 </div>
               </div>
             </div>
@@ -711,79 +713,74 @@ export default function RepoDetailClient({
               <UserPlus size={18} /> Invite Collaborators
             </h2>
 
-            {/* Search users */}
-            <div className="relative mb-4">
-              <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
-                <Search size={16} className="text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Search users by email or username…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none text-sm"
-                />
-                {searchQuery && (
-                  <button onClick={() => { setSearchQuery(""); setSearchResults([]); }}>
-                    <X size={14} className="text-zinc-500 hover:text-zinc-300" />
-                  </button>
-                )}
-              </div>
+            {/* Single search bar with inline send button */}
+            <div className="relative">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const value = searchQuery.trim();
+                  if (value) handleInvite(value);
+                }}
+                className="flex gap-3"
+              >
+                <div className="relative flex-1">
+                  <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
+                    <Search size={16} className="text-zinc-400 shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Search by email or username…"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none text-sm"
+                    />
+                    {searchQuery && (
+                      <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }}>
+                        <X size={14} className="text-zinc-500 hover:text-zinc-300" />
+                      </button>
+                    )}
+                  </div>
 
-              {/* Search results dropdown */}
-              {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
-                <div className="absolute z-10 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg max-h-48 overflow-y-auto">
-                  {searchLoading ? (
-                    <div className="px-4 py-3 text-sm text-zinc-500">Searching…</div>
-                  ) : (
-                    searchResults.map((u) => (
-                      <div
-                        key={u.username}
-                        className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <UserAvatar src={u.avatar_url} alt={u.username} size={32} />
-                          <div>
-                            <div className="text-sm font-medium text-zinc-200">{u.username}</div>
-                            <div className="text-xs text-zinc-500">{u.email}</div>
+                  {/* Search results dropdown */}
+                  {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
+                    <div className="absolute z-10 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg max-h-48 overflow-y-auto">
+                      {searchLoading ? (
+                        <div className="px-4 py-3 text-sm text-zinc-500">Searching…</div>
+                      ) : (
+                        searchResults.map((u) => (
+                          <div
+                            key={u.username}
+                            className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <UserAvatar src={u.avatar_url} alt={u.username} size={20} />
+                              <div>
+                                <div className="text-sm font-medium text-zinc-200">{u.username}</div>
+                                <div className="text-xs text-zinc-500">{u.email}</div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleInvite(u.email)}
+                              disabled={isPending}
+                              className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
+                            >
+                              <Send size={11} /> Invite
+                            </button>
                           </div>
-                        </div>
-                        <button
-                          onClick={() => handleInvite(u.email)}
-                          disabled={isPending}
-                          className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
-                        >
-                          <Send size={11} /> Invite
-                        </button>
-                      </div>
-                    ))
+                        ))
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+                <button
+                  type="submit"
+                  disabled={isPending || !searchQuery.trim()}
+                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 shrink-0"
+                >
+                  <Send size={14} /> Send Invite
+                </button>
+              </form>
             </div>
-
-            {/* Manual email invite */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (inviteEmail.trim()) handleInvite(inviteEmail.trim());
-              }}
-              className="flex gap-3"
-            >
-              <input
-                type="email"
-                placeholder="Or invite by email address…"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={isPending || !inviteEmail.trim()}
-                className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Send size={14} /> Send Invite
-              </button>
-            </form>
           </div>
 
           {/* Pending Invitations */}
@@ -841,27 +838,55 @@ export default function RepoDetailClient({
               <p className="text-sm text-zinc-500">No collaborators yet. Invite someone above!</p>
             ) : (
               <div className="space-y-3">
-                {collaborators.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <UserAvatar src={c.avatar_url} alt={c.login} size={40} />
-                      <div>
-                        <div className="text-sm font-medium text-zinc-200">{c.login}</div>
-                        <div className="text-xs text-zinc-500">{c.email || "No email"}</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveCollaborator(c.login)}
-                      disabled={isPending}
-                      className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                {collaborators.map((c) => {
+                  const isExpanded = expandedCollab === c.login;
+                  return (
+                    <div
+                      key={c.login}
+                      className="rounded-md border border-zinc-700/50 bg-zinc-800/30 overflow-hidden"
                     >
-                      <UserMinus size={11} /> Remove
-                    </button>
-                  </div>
-                ))}
+                      {/* Main row */}
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCollab(isExpanded ? null : c.login)}
+                          className="flex items-center gap-3 text-left group"
+                        >
+                          <UserAvatar src={c.avatar_url} alt={c.username} size={40} />
+                          <div>
+                            <div className="text-base font-bold text-white">{c.username}</div>
+                            <div className="text-sm text-zinc-500">{c.display_name || c.email || ""}</div>
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            className={`ml-1 text-zinc-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        <button
+                          onClick={() => handleRemoveCollaborator(c.login)}
+                          disabled={isPending}
+                          className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          <UserMinus size={11} /> Remove
+                        </button>
+                      </div>
+
+                      {/* Expanded dropdown */}
+                      {isExpanded && (
+                        <div className="border-t border-zinc-700/50 bg-zinc-900/40 px-5 py-4 space-y-3">
+                          {c.bio ? (
+                            <div>
+                              <div className="text-xs font-medium text-zinc-400 mb-1">Bio</div>
+                              <p className="text-sm text-zinc-300 leading-relaxed">{c.bio}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-zinc-600 italic">No bio provided.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -928,7 +953,7 @@ export default function RepoDetailClient({
           )}
 
           <div className="space-y-6">
-            {/* Rename */}
+            {/* 1. Project Name */}
             <form onSubmit={handleRename}>
               <label className="mb-2 block text-sm font-medium">
                 Project Name
@@ -950,7 +975,7 @@ export default function RepoDetailClient({
               </div>
             </form>
 
-            {/* Genre Editor */}
+            {/* 2. Genre Selector */}
             <GenreEditor
               owner={owner}
               repo={repo}
@@ -958,7 +983,7 @@ export default function RepoDetailClient({
               currentGenres={stats?.genres ?? []}
             />
 
-            {/* Audio Snippet Upload */}
+            {/* 3. Snippet History → 4. Stem Separation (middleContent) → 5. Replace Snippet drop zone */}
             <SnippetUploader
               owner={owner}
               repo={repo}
@@ -974,16 +999,47 @@ export default function RepoDetailClient({
                     }
                   : null
               }
+              onUpdate={(newUrl) => {
+                setCurrentSnippetUrl(newUrl);
+                router.refresh();
+              }}
+              middleContent={
+                <StemPlayer
+                  owner={owner}
+                  repo={repo}
+                  snippetUrl={currentSnippetUrl}
+                  initialStems={initialStems}
+                />
+              }
             />
 
-            {/* Delete project */}
-            <button
-              onClick={handleDelete}
-              disabled={isPending}
-              className="flex items-center gap-2 rounded-md border border-red-500/30 px-6 py-3 font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:opacity-50"
-            >
-              <Trash2 size={16} /> Delete Project
-            </button>
+            {/* 6. Delete project — bottom right */}
+            <div className="flex justify-end pt-4 border-t border-zinc-800">
+              <button
+                onClick={handleDelete}
+                disabled={isPending}
+                className="flex items-center gap-2 rounded-md bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 size={14} /> Delete Project
+              </button>
+            </div>
+
+            {/* 7. Quick Settings Bar */}
+            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Quick Settings
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {/* Privacy toggle */}
+                <div className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5">
+                  <Lock size={14} className="text-zinc-400" />
+                  <span className="text-sm text-zinc-300">Private Project</span>
+                  <span className="ml-1 rounded bg-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
+                    Always
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

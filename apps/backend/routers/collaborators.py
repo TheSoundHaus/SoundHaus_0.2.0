@@ -99,21 +99,22 @@ async def invite_collaborator(
 
 # ── List Collaborators ───────────────────────────────────────────────────────
 
-@router.get("/repos/{repo_name}/collaborators")
+@router.get("/repos/{owner}/{repo_name}/collaborators")
 @user_limiter.limit("60/minute")
 async def list_collaborators(
     request: Request,
+    owner: str,
     repo_name: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
-    """List all collaborators for a repository."""
+    """List all collaborators for a repository, enriched with SoundHaus usernames."""
     user_res = await get_auth().get_user(token)
     if not user_res.get("success"):
         return JSONResponse({"success": False}, status_code=401)
 
-    user_id = user_res["user"]["id"]
     repo_service = RepoService()
-    result = repo_service.list_collaborators(user_id, repo_name)
+    result = repo_service.list_collaborators(owner, repo_name, db)
 
     if not result.get("success"):
         return JSONResponse({"success": False, "message": result.get("message")}, status_code=400)
@@ -142,7 +143,7 @@ async def get_pending_invitations(
             .filter(
                 CollaboratorInvitation.invitee_email == email,
                 CollaboratorInvitation.status == "pending",
-                CollaboratorInvitation.expires_at > datetime.utcnow(),
+                CollaboratorInvitation.expires_at > datetime.now(timezone.utc),
             )
             .all()
         )
@@ -201,7 +202,7 @@ async def accept_invitation(
         if invitation.status != "pending":
             raise HTTPException(status_code=400, detail=f"Invitation already {invitation.status}")
 
-        if invitation.expires_at < datetime.utcnow():
+        if invitation.expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="Invitation has expired")
 
         # Ensure invitee has a Gitea account
@@ -233,7 +234,7 @@ async def accept_invitation(
             raise HTTPException(status_code=400, detail=f"Failed to add collaborator: {result.get('message')}")
 
         invitation.status = "accepted"
-        invitation.responded_at = datetime.utcnow()
+        invitation.responded_at = datetime.now(timezone.utc)
         db.commit()
 
         return {"success": True, "message": f"You are now a collaborator on {invitation.repo_name}"}
@@ -273,7 +274,7 @@ async def decline_invitation(
             raise HTTPException(status_code=403, detail="This invitation is not for you")
 
         invitation.status = "declined"
-        invitation.responded_at = datetime.utcnow()
+        invitation.responded_at = datetime.now(timezone.utc)
         db.commit()
 
         return {"success": True, "message": "Invitation declined"}

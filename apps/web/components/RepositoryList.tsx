@@ -34,7 +34,7 @@ export default function RepositoryList({
   if (repositories.length === 0) {
     return (
       <div className="rounded-lg border border-zinc-800 p-12 text-center">
-        <p className="text-lg text-zinc-400">No repositories found</p>
+        <p className="text-lg text-zinc-400">No projects found</p>
       </div>
     );
   }

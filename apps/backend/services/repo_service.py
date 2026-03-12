@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from services.gitea_service import GiteaAdminService
 from sqlalchemy.orm import Session
 from models.webhook_models import WebhookConfig
+from models.profile_models import Profile
 from logging_config import get_logger
 from config import settings
 
@@ -99,7 +100,8 @@ class RepoService:
                 logger.warning("list_user_repos_collab_failed", username=username, error=self._extract_msg(collab_resp))
             
             # Combine owned and collaborated repos, avoiding duplicates
-            repo_ids = {repo["id"] for repo in owned_repos}
+            owned_ids = {repo["id"] for repo in owned_repos}
+            repo_ids = set(owned_ids)
             all_repos = list(owned_repos)
             
             for repo in collaborated_repos:
@@ -108,7 +110,7 @@ class RepoService:
                     repo_ids.add(repo["id"])
             
             logger.info("list_user_repos_total", username=username, count=len(all_repos))
-            return {"success": True, "repos": all_repos}
+            return {"success": True, "repos": all_repos, "owned_ids": owned_ids}
             
         except requests.RequestException as e:
             logger.error("list_user_repos_error", username=username, error=str(e))
@@ -128,20 +130,25 @@ class RepoService:
             return 0
 
     def create_user_repo(self, username: str, name: str, db: Session, description: str = "", private: bool = True,) -> Dict[str, Any]:
-        """Create a new repository owned by the specified user (admin operation)."""
+        """Create a new repository owned by the specified user (admin operation).
+        
+        Uses auto_init=False so the Gitea-default admin commit is avoided.
+        Instead we create a single initial commit with README + .gitattributes
+        attributed to the actual user.
+        """
         payload = {
             "name": name,
             "description": description,
             "private": private,
-            "auto_init": True,
+            "auto_init": False,
             "default_branch": "main",
         }
         try:
             resp = requests.post(self._url(f"/api/v1/admin/users/{username}/repos"), json=payload, headers=self.headers, timeout=20)
             if resp.status_code in (200, 201):
-                repo_data = resp.json()
-                # Initialize LFS with .gitattributes file
-                self._init_lfs_for_repo(username, name)
+                repo_data = resp.json()                # Create single initial commit with README + .gitattributes
+                # attributed to the actual user (not the admin)
+                self._init_repo_with_user_commit(username, name, description)
                 self._create_repo_webhook(username, name, db)
                 return {"success": True, "repo": repo_data}
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
@@ -173,10 +180,8 @@ class RepoService:
                     webhook_config = WebhookConfig(
                         repo_id=f"{username}/{repo_name}",
                         gitea_webhook_id=webhook_result.get("webhook_id"),
-                        webhook_url=webhook_url,
                         webhook_secret=settings.gitea_webhook_secret,
                         is_active=True,
-                        events=["push", "create", "delete", "repository"]
                     )
                     db.add(webhook_config)
                     db.commit()
@@ -202,6 +207,128 @@ class RepoService:
         except requests.RequestException as e:
             logger.error("update_repo_settings_error", owner=owner, repo=repo_name, error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
+
+    def _init_repo_with_user_commit(self, username: str, repo_name: str, description: str = "") -> None:
+        """Create the initial commit with README.md + .gitattributes in a single commit.
+        
+        Uses Gitea's ChangeFiles API (POST /repos/{owner}/{repo}/contents)
+        to create both files atomically, attributed to the actual user.
+        """
+        import base64
+        logger.info("init_repo_user_commit_start", username=username, repo=repo_name)
+
+        # Look up the user's email for commit attribution
+        user_email = f"{username}@noreply.soundhaus.app"
+        try:
+            user_resp = requests.get(
+                self._url(f"/api/v1/users/{username}"),
+                headers=self.headers,
+                timeout=10,
+            )
+            if user_resp.status_code == 200:
+                fetched_email = user_resp.json().get("email", "")
+                if fetched_email:
+                    user_email = fetched_email
+        except Exception:
+            pass
+
+        # README content
+        readme_content = f"# {repo_name}\n\n{description}\n" if description else f"# {repo_name}\n"
+        readme_b64 = base64.b64encode(readme_content.encode("utf-8")).decode("utf-8")
+
+        # .gitattributes content for LFS
+        lfs_config = """# Audio files (Ableton, samples, etc.)
+*.mp3 filter=lfs diff=lfs merge=lfs -text
+*.wav filter=lfs diff=lfs merge=lfs -text
+*.flac filter=lfs diff=lfs merge=lfs -text
+*.aac filter=lfs diff=lfs merge=lfs -text
+*.ogg filter=lfs diff=lfs merge=lfs -text
+*.m4a filter=lfs diff=lfs merge=lfs -text
+*.aif filter=lfs diff=lfs merge=lfs -text
+*.aiff filter=lfs diff=lfs merge=lfs -text
+
+# Ableton Live Project files
+*.als filter=lfs diff=lfs merge=lfs -text
+*.alp filter=lfs diff=lfs merge=lfs -text
+
+# Video files
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.mov filter=lfs diff=lfs merge=lfs -text
+*.avi filter=lfs diff=lfs merge=lfs -text
+
+# Image files
+*.psd filter=lfs diff=lfs merge=lfs -text
+*.ai filter=lfs diff=lfs merge=lfs -text
+
+# Archives
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.rar filter=lfs diff=lfs merge=lfs -text
+*.7z filter=lfs diff=lfs merge=lfs -text
+"""
+        gitattributes_b64 = base64.b64encode(lfs_config.encode("utf-8")).decode("utf-8")
+
+        author_info = {"name": username, "email": user_email}
+
+        # Try the batch ChangeFiles API (Gitea 1.21+)
+        batch_payload = {
+            "branch": "main",
+            "message": "Initial project setup",
+            "author": author_info,
+            "committer": author_info,
+            "files": [
+                {"operation": "create", "path": "README.md", "content": readme_b64},
+                {"operation": "create", "path": ".gitattributes", "content": gitattributes_b64},
+            ],
+        }
+
+        try:
+            batch_url = self._url(f"/api/v1/repos/{username}/{repo_name}/contents")
+            # Use Sudo header to impersonate the user so Gitea attributes the commit
+            # to the actual user rather than soundhaus_admin
+            sudo_headers = {**self.headers, "Sudo": username}
+            resp = requests.post(batch_url, json=batch_payload, headers=sudo_headers, timeout=20)
+            if resp.status_code in (200, 201):
+                logger.info("init_repo_user_commit_success", username=username, repo=repo_name, method="batch")
+                return
+            else:
+                logger.warning(
+                    "init_repo_batch_failed_fallback",
+                    username=username, repo=repo_name,
+                    status=resp.status_code, msg=self._extract_msg(resp),
+                )
+        except Exception as e:
+            logger.warning("init_repo_batch_exception_fallback", error=str(e))
+
+        # Fallback: create files one at a time (2 commits, but both by the user)
+        try:
+            readme_payload = {
+                "content": readme_b64,
+                "message": "Initial project setup",
+                "branch": "main",
+                "author": author_info,
+                "committer": author_info,
+            }
+            readme_url = self._url(f"/api/v1/repos/{username}/{repo_name}/contents/README.md")
+            r1 = requests.post(readme_url, json=readme_payload, headers=sudo_headers, timeout=20)
+            if r1.status_code not in (200, 201):
+                logger.error("init_readme_failed", status=r1.status_code, msg=self._extract_msg(r1))
+                return
+
+            ga_payload = {
+                "content": gitattributes_b64,
+                "message": "Configure Git LFS for audio files",
+                "branch": "main",
+                "author": author_info,
+                "committer": author_info,
+            }
+            ga_url = self._url(f"/api/v1/repos/{username}/{repo_name}/contents/.gitattributes")
+            r2 = requests.post(ga_url, json=ga_payload, headers=sudo_headers, timeout=20)
+            if r2.status_code in (200, 201):
+                logger.info("init_repo_user_commit_success", username=username, repo=repo_name, method="fallback")
+            else:
+                logger.error("init_gitattributes_failed", status=r2.status_code, msg=self._extract_msg(r2))
+        except Exception as e:
+            logger.error("init_repo_user_commit_exception", username=username, repo=repo_name, error=str(e))
 
     def _init_lfs_for_repo(self, username: str, repo_name: str) -> None:
         """Initialize Git LFS by creating .gitattributes file with common patterns."""
@@ -240,11 +367,28 @@ class RepoService:
         try:
             import base64
             content_base64 = base64.b64encode(lfs_config.encode('utf-8')).decode('utf-8')
-            
+
+            # Look up the user's email so the commit is attributed to them, not the admin
+            user_email = f"{username}@noreply.soundhaus.app"
+            try:
+                user_resp = requests.get(
+                    self._url(f"/api/v1/users/{username}"),
+                    headers=self.headers,
+                    timeout=10,
+                )
+                if user_resp.status_code == 200:
+                    fetched_email = user_resp.json().get("email", "")
+                    if fetched_email:
+                        user_email = fetched_email
+            except Exception:
+                pass
+
             payload = {
                 "content": content_base64,
                 "message": "Initialize Git LFS with .gitattributes",
                 "branch": "main",
+                "author": {"name": username, "email": user_email},
+                "committer": {"name": username, "email": user_email},
             }
             
             url = self._url(f"/api/v1/repos/{username}/{repo_name}/contents/.gitattributes")
@@ -431,21 +575,37 @@ class RepoService:
         except Exception:
             return f"HTTP {resp.status_code}: {resp.reason}"
 
-    def list_collaborators(self, username: str, repo_name: str) -> Dict[str, Any]:
-        """List all collaborators for a repository."""
+    def list_collaborators(self, owner: str, repo_name: str, db: Session) -> Dict[str, Any]:
+        """List all collaborators for a repository, enriched with SoundHaus profile data."""
         try:
-            url_path = f"/api/v1/repos/{username}/{repo_name}/collaborators"
+            url_path = f"/api/v1/repos/{owner}/{repo_name}/collaborators"
             resp = requests.get(self._url(url_path), headers=self.headers, timeout=15)
             
-            logger.debug("list_collaborators_response", owner=username, repo=repo_name, status_code=resp.status_code)
+            logger.debug("list_collaborators_response", owner=owner, repo=repo_name, status_code=resp.status_code)
             
             if resp.status_code != 200:
-                return {"success": False, "status": resp.status_code}
+                msg = self._extract_msg(resp)
+                logger.warning("list_collaborators_failed", owner=owner, repo=repo_name, status=resp.status_code, message=msg)
+                return {"success": False, "status": resp.status_code, "message": msg}
             
-            collaborators = resp.json()
-            return {"success": True, "collaborators": collaborators}
+            gitea_collaborators = resp.json()
+            enriched = []
+            for collab in gitea_collaborators:
+                # Gitea login is the Supabase UUID — look up the SoundHaus profile
+                gitea_login = collab.get("login", "")
+                profile = db.query(Profile).filter(Profile.id == gitea_login).first()
+                enriched.append({
+                    "login": gitea_login,  # UUID, needed for remove operations
+                    "username": profile.username if profile else gitea_login,
+                    "display_name": profile.display_name if profile else None,
+                    "email": profile.email if profile else collab.get("email", ""),
+                    "avatar_url": profile.avatar_url if profile else collab.get("avatar_url", ""),
+                    "bio": profile.bio if profile else None,
+                })
+
+            return {"success": True, "collaborators": enriched}
         except requests.RequestException as e:
-            logger.error("list_collaborators_error", owner=username, repo=repo_name, error=str(e))
+            logger.error("list_collaborators_error", owner=owner, repo=repo_name, error=str(e))
             return {"success": False, "message": str(e)}
 
     def add_collaborator(self, owner: str, repo_name: str, username: str, permission: str = "write") -> Dict[str, Any]:

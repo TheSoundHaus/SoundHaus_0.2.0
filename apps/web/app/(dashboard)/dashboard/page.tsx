@@ -29,7 +29,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-lg border border-zinc-800 p-6 bg-zinc-900/50">
               <div className="text-3xl font-bold text-glass-blue-400">12</div>
-              <div className="text-sm text-zinc-400">Repositories</div>
+              <div className="text-sm text-zinc-400">Projects</div>
             </div>
             <div className="rounded-lg border border-zinc-800 p-6 bg-zinc-900/50">
               <div className="text-3xl font-bold text-glass-blue-400">142</div>
@@ -48,7 +48,7 @@ export default function DashboardPage() {
               {/* Activity Items - Placeholder */}
               {[
                 { action: "Pushed 3 commits to", repo: "My Project 1", time: "2 hours ago" },
-                { action: "Created repository", repo: "New Track Ideas", time: "1 day ago" },
+                { action: "Created project", repo: "New Track Ideas", time: "1 day ago" },
                 { action: "Added collaborator to", repo: "Beat Collection", time: "2 days ago" },
                 { action: "Updated", repo: "Summer Mix 2024", time: "3 days ago" },
               ].map((activity, i) => (
@@ -85,7 +85,7 @@ export default function DashboardPage() {
                 href="/repositories"
                 className="block rounded-md border border-zinc-700 px-4 py-3 text-sm font-medium transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:text-glass-blue-400"
               >
-                + New Repository
+                Browse Projects
               </Link>
               <Link
                 href="/explore"
@@ -102,10 +102,10 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Your Repositories */}
+          {/* Your Projects */}
           <div className="rounded-lg border border-zinc-800 p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Your Repositories</h3>
+              <h3 className="text-lg font-semibold">Your Projects</h3>
               <Link
                 href="/repositories"
                 className="text-xs text-glass-blue-400 hover:text-glass-blue-300 transition-colors"
@@ -114,7 +114,7 @@ export default function DashboardPage() {
               </Link>
             </div>
             <div className="space-y-3">
-              {/* Repository Links - Placeholder */}
+              {/* Project Links - Placeholder */}
               {["My Project 1", "Beat Collection", "Summer Mix 2024"].map((repo, i) => (
                 <Link
                   key={i}

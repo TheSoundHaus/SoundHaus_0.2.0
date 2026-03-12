@@ -119,6 +119,8 @@ async def create_personal_access_token(
 ):
     """Create a Personal Access Token for desktop app authentication."""
     user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
     user_id = user_res["user"]["id"]
 
     token_name = request_body.get("token_name", "Unnamed_Token")
@@ -212,7 +214,7 @@ async def get_desktop_credentials(
     cached_token = cached_gitea_token_header or cached_gitea_token
 
     # Create a new Gitea token
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     token_name = f"Desktop Access Token - {timestamp}"
 
     gitea_result = gitea_admin_service.create_or_get_user_token(
