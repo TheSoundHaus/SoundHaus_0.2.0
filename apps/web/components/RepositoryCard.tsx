@@ -42,14 +42,14 @@ interface RepositoryCardProps {
   author: string;
   updatedAt: string;
   stats: {
-    stars?: number;
-    tracks?: number;
-    collaborators?: number;
-    commits?: number;
+    stars: number;
+    tracks?: number;         // Not yet available from API — wire up when endpoint provides it
+    collaborators?: number;  // Not yet available from API — wire up when endpoint provides it
+    commits?: number;        // Not yet available from API — wire up when endpoint provides it
   };
   isPublic?: boolean;
   audioSnippet?: string | null;
-  cloneCount?: number;
+  cloneCount: number;
   isStarred?: boolean;
   isOwner?: boolean;
   genres?: string[];
@@ -66,7 +66,7 @@ export default function RepositoryCard({
   stats,
   isPublic = true,
   audioSnippet,
-  cloneCount = 0,
+  cloneCount,
   isStarred = false,
   isOwner = false,
   genres = [],
@@ -75,7 +75,7 @@ export default function RepositoryCard({
   onRename,
 }: RepositoryCardProps) {
   const [starred, setStarred] = useState(isStarred);
-  const [starCount, setStarCount] = useState(stats.stars ?? 0);
+  const [starCount, setStarCount] = useState(stats.stars);
   const [showRenameInput, setShowRenameInput] = useState(false);
   const [renameValue, setRenameValue] = useState(title);
   const [, startTransition] = useTransition();
@@ -250,12 +250,12 @@ export default function RepositoryCard({
         <span className="flex items-center gap-1">
           <Download size={14} /> {cloneCount} clones
         </span>
-        {stats.collaborators !== undefined && stats.collaborators > 0 && (
+        {stats.collaborators != null && stats.collaborators > 0 && (
           <span className="flex items-center gap-1">
             <Users size={14} /> {stats.collaborators}
           </span>
         )}
-        {stats.commits !== undefined && stats.commits > 0 && (
+        {stats.commits != null && stats.commits > 0 && (
           <span className="flex items-center gap-1">
             <GitCommit size={14} /> {stats.commits}
           </span>

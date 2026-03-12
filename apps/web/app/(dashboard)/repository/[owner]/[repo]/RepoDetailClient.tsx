@@ -59,6 +59,7 @@ export default function RepoDetailClient({
 
   // Settings form state
   const [newName, setNewName] = useState(repo);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const pushes: PushActivity[] = activity?.activity ?? [];
   const repoEvents: RepoEvent[] = events?.events ?? [];
@@ -67,10 +68,13 @@ export default function RepoDetailClient({
 
   function handleDelete() {
     if (!confirm(`Delete "${repo}"? This cannot be undone.`)) return;
+    setSettingsError(null);
     startTransition(async () => {
       const result = await deleteRepoAction(owner, repo);
       if (result.success) {
         router.push("/repositories");
+      } else {
+        setSettingsError(result.error);
       }
     });
   }
@@ -78,11 +82,14 @@ export default function RepoDetailClient({
   function handleRename(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim() || newName === repo) return;
+    setSettingsError(null);
     startTransition(async () => {
       const result = await renameRepoAction(owner, repo, newName.trim());
       if (result.success) {
         router.push(`/repository/${owner}/${newName.trim()}`);
         router.refresh();
+      } else {
+        setSettingsError(result.error);
       }
     });
   }
@@ -409,6 +416,14 @@ export default function RepoDetailClient({
       {activeTab === "settings" && (
         <div className="rounded-lg border border-zinc-800 p-6">
           <h2 className="mb-6 text-2xl font-semibold">Repository Settings</h2>
+
+          {/* Settings error banner */}
+          {settingsError && (
+            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {settingsError}
+            </div>
+          )}
+
           <div className="space-y-6">
             {/* Rename */}
             <form onSubmit={handleRename}>
