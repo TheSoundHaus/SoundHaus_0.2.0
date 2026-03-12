@@ -121,7 +121,11 @@ export default function SnippetUploader({
                 return `Audio is ${Math.round(duration)}s long — max allowed is ${MAX_DURATION_SECONDS}s. Please trim before uploading.`;
             }
         } catch {
-            // If we can't read duration, let the backend decide
+            // Some audio formats (e.g. certain .ogg containers) don't expose
+            // duration via the browser's Audio element. Rather than blocking
+            // the upload we skip the client-side check and let the backend
+            // enforce the duration limit (it returns a clear 400 error).
+            console.warn(`Could not read duration for "${file.name}" — skipping client-side duration check.`);
         }
 
         return null; // valid
