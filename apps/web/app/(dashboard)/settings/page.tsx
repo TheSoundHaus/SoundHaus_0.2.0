@@ -201,7 +201,7 @@ export default function SettingsPage() {
       case "declined":
         return <XCircle size={14} className="text-red-500" />;
       default:
-        return <Clock size={14} className="text-zinc-500" />;
+        return <Clock size={14} className="text-zinc-400" />;
     }
   };
 
@@ -281,7 +281,7 @@ export default function SettingsPage() {
                 <h2 className="mb-6 text-2xl font-semibold">Profile Settings</h2>
 
                 {userLoading ? (
-                  <div className="flex items-center gap-3 text-sm text-zinc-500">
+                  <div className="flex items-center gap-3 text-sm text-zinc-400">
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
                     Loading profile…
                   </div>
@@ -317,7 +317,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-zinc-200">Profile Picture</p>
-                        <p className="text-xs text-zinc-500 mb-2">JPEG, PNG, WebP, or GIF. Max 2 MB.</p>
+                        <p className="text-xs text-zinc-400 mb-2">JPEG, PNG, WebP, or GIF. Max 2 MB.</p>
                         <div className="flex gap-2">
                           <button
                             onClick={() => fileInputRef.current?.click()}
@@ -362,7 +362,7 @@ export default function SettingsPage() {
                         disabled
                         className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-4 py-2 text-zinc-500 cursor-not-allowed"
                       />
-                      <p className="mt-1 text-xs text-zinc-600">Username cannot be changed.</p>
+                      <p className="mt-1 text-xs text-zinc-400">Username cannot be changed.</p>
                     </div>
                     <div>
                       <label className="mb-2 block text-sm font-medium">
@@ -387,7 +387,7 @@ export default function SettingsPage() {
                         maxLength={500}
                         className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 focus:border-zinc-500 focus:outline-none"
                       />
-                      <p className="mt-1 text-right text-xs text-zinc-600">
+                      <p className="mt-1 text-right text-xs text-zinc-400">
                         {bio.length}/500
                       </p>
                     </div>
@@ -474,7 +474,7 @@ export default function SettingsPage() {
                     </button>
                     <button
                       onClick={() => logout()}
-                      className="rounded-md border border-red-500 px-6 py-3 font-medium text-red-500 transition-colors hover:bg-red-500/10">
+                      className="flex items-center gap-2 rounded-md bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700">
                       Logout
                     </button>
                   </div>
@@ -498,9 +498,9 @@ export default function SettingsPage() {
                 )}
 
                 {invitationsLoading ? (
-                  <p className="text-sm text-zinc-500">Loading invitations…</p>
+                  <p className="text-sm text-zinc-400">Loading invitations…</p>
                 ) : sentInvitations.length === 0 ? (
-                  <p className="text-sm text-zinc-500">
+                  <p className="text-sm text-zinc-400">
                     You haven&apos;t sent any invitations yet. Go to a project&apos;s Collaborators tab to invite users.
                   </p>
                 ) : (
@@ -518,7 +518,7 @@ export default function SettingsPage() {
                             <div className="text-sm font-medium text-zinc-200">
                               {inv.invitee_email}
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-zinc-500">
+                            <div className="flex items-center gap-2 text-xs text-zinc-400">
                               {inv.repo_name && (
                                 <span className="text-glass-cyan-500">{inv.repo_name}</span>
                               )}
@@ -578,7 +578,7 @@ export default function SettingsPage() {
                 <div className="rounded-lg border border-zinc-800 p-8">
                   {/* TODO: Fetch real activity feed from API */}
                   <h3 className="mb-4 text-xl font-semibold">Recent Activity</h3>
-                  <p className="text-sm text-zinc-500">No recent activity to display.</p>
+                  <p className="text-sm text-zinc-400">No recent activity to display.</p>
                 </div>
               </div>
             )}

@@ -435,7 +435,7 @@ export default function RepoDetailClient({
             <div className="rounded-lg border border-zinc-800 p-6">
               <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
               {pushes.length === 0 ? (
-                <p className="text-sm text-zinc-500">No push activity recorded yet.</p>
+                <p className="text-sm text-zinc-400">No push activity recorded yet.</p>
               ) : (
                 <div className="space-y-4">
                   {pushes.slice(0, 5).map((p) => (
@@ -457,7 +457,7 @@ export default function RepoDetailClient({
                           {p.pusher} pushed {timeAgo(p.pushed_at)}
                         </div>
                       </div>
-                      <div className="font-mono text-sm text-zinc-500">
+                      <div className="font-mono text-sm text-zinc-400">
                         {p.after_sha ?? "—"}
                       </div>
                     </div>
@@ -479,12 +479,12 @@ export default function RepoDetailClient({
                       <span className="flex items-center gap-2 text-zinc-300">
                         <User size={14} /> User
                       </span>
-                      <span className="text-zinc-500">{timeAgo(c.cloned_at)}</span>
+                      <span className="text-zinc-400">{timeAgo(c.cloned_at)}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-zinc-500">No clones yet.</p>
+                <p className="text-sm text-zinc-400">No clones yet.</p>
               )}
             </div>
 
@@ -542,13 +542,13 @@ export default function RepoDetailClient({
         <div className="rounded-lg border border-zinc-800 p-6">
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-2xl font-semibold">Snapshot History</h2>
-            <span className="text-sm text-zinc-500">
+            <span className="text-sm text-zinc-400">
               {commitTotal} snapshot{commitTotal !== 1 ? "s" : ""}
             </span>
           </div>
 
           {commits.length === 0 ? (
-            <p className="text-zinc-500">No snapshots recorded yet.</p>
+            <p className="text-zinc-400">No snapshots recorded yet.</p>
           ) : (
             <div className="space-y-2">
               {commits.map((c) => {
@@ -572,7 +572,7 @@ export default function RepoDetailClient({
                         <div className="mb-1 font-medium text-zinc-200 truncate">
                           {c.message.split("\n")[0]}
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
                           <span className="flex items-center gap-1">
                             <User size={11} /> {c.author_name}
                           </span>
@@ -587,7 +587,7 @@ export default function RepoDetailClient({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="font-mono text-xs text-zinc-500">
+                        <span className="font-mono text-xs text-zinc-400">
                           {c.short_sha}
                         </span>
                         {c.has_diff && (
@@ -679,7 +679,7 @@ export default function RepoDetailClient({
         <div className="rounded-lg border border-zinc-800 p-6">
           <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
           {repoEvents.length === 0 ? (
-            <p className="text-zinc-500">No activity recorded yet.</p>
+            <p className="text-zinc-400">No activity recorded yet.</p>
           ) : (
             <div className="space-y-4">
               {repoEvents.map((ev) => (
@@ -753,7 +753,7 @@ export default function RepoDetailClient({
                     />
                     {searchQuery && (
                       <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }}>
-                        <X size={14} className="text-zinc-500 hover:text-zinc-300" />
+                        <X size={14} className="text-zinc-400 hover:text-zinc-300" />
                       </button>
                     )}
                   </div>
@@ -762,7 +762,7 @@ export default function RepoDetailClient({
                   {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
                     <div className="absolute z-10 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg max-h-48 overflow-y-auto">
                       {searchLoading ? (
-                        <div className="px-4 py-3 text-sm text-zinc-500">Searching…</div>
+                        <div className="px-4 py-3 text-sm text-zinc-400">Searching…</div>
                       ) : (
                         searchResults.map((u) => (
                           <div
@@ -773,7 +773,7 @@ export default function RepoDetailClient({
                               <UserAvatar src={u.avatar_url} alt={u.username} size={20} />
                               <div>
                                 <div className="text-sm font-medium text-zinc-200">{u.username}</div>
-                                <div className="text-xs text-zinc-500">{u.email}</div>
+                                <div className="text-xs text-zinc-400">{u.email}</div>
                               </div>
                             </div>
                             <button
@@ -836,9 +836,9 @@ export default function RepoDetailClient({
               <Clock size={18} /> Pending Invitations
             </h2>
             {collabLoading ? (
-              <p className="text-sm text-zinc-500">Loading…</p>
+              <p className="text-sm text-zinc-400">Loading…</p>
             ) : repoInvitations.filter((i) => i.status === "pending").length === 0 ? (
-              <p className="text-sm text-zinc-500">No pending invitations.</p>
+              <p className="text-sm text-zinc-400">No pending invitations.</p>
             ) : (
               <div className="space-y-3">
                 {repoInvitations
@@ -856,7 +856,7 @@ export default function RepoDetailClient({
                           <div className="text-sm font-medium text-zinc-200">
                             {inv.invitee_email}
                           </div>
-                          <div className="text-xs text-zinc-500">
+                          <div className="text-xs text-zinc-400">
                             Sent {timeAgo(inv.created_at)} · {inv.permission} access
                           </div>
                         </div>
@@ -880,9 +880,9 @@ export default function RepoDetailClient({
               <Users size={18} /> Active Collaborators
             </h2>
             {collabLoading ? (
-              <p className="text-sm text-zinc-500">Loading…</p>
+              <p className="text-sm text-zinc-400">Loading…</p>
             ) : collaborators.length === 0 ? (
-              <p className="text-sm text-zinc-500">No collaborators yet. Invite someone above!</p>
+              <p className="text-sm text-zinc-400">No collaborators yet. Invite someone above!</p>
             ) : (
               <div className="space-y-3">
                 {collaborators.map((c) => {
@@ -913,11 +913,11 @@ export default function RepoDetailClient({
                                 {c.permission === "admin" ? "Admin" : "Contributor"}
                               </span>
                             </div>
-                            <div className="text-sm text-zinc-500">{c.display_name || c.email || ""}</div>
+                            <div className="text-sm text-zinc-400">{c.display_name || c.email || ""}</div>
                           </div>
                           <ChevronDown
                             size={14}
-                            className={`ml-1 text-zinc-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                            className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                           />
                         </button>
                         <button
@@ -938,7 +938,7 @@ export default function RepoDetailClient({
                               <p className="text-sm text-zinc-300 leading-relaxed">{c.bio}</p>
                             </div>
                           ) : (
-                            <p className="text-xs text-zinc-600 italic">No bio provided.</p>
+                            <p className="text-xs text-zinc-400 italic">No bio provided.</p>
                           )}
                         </div>
                       )}
@@ -975,7 +975,7 @@ export default function RepoDetailClient({
                           <div className="text-sm font-medium text-zinc-200">
                             {inv.invitee_email}
                           </div>
-                          <div className="text-xs text-zinc-500">
+                          <div className="text-xs text-zinc-400">
                             {inv.status === "accepted" ? "Accepted" : "Declined"}{" "}
                             {inv.responded_at ? timeAgo(inv.responded_at) : ""}
                           </div>
@@ -1047,7 +1047,7 @@ export default function RepoDetailClient({
                 className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none resize-none"
               />
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-zinc-500">{description.length}/500</span>
+                <span className="text-xs text-zinc-400">{description.length}/500</span>
                 <button
                   type="submit"
                   disabled={isPending || description === (stats?.description ?? "")}
@@ -1109,7 +1109,7 @@ export default function RepoDetailClient({
 
             {/* 7. Quick Settings Bar */}
             <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
                 Quick Settings
               </h3>
               <div className="flex flex-wrap gap-3">
