@@ -46,7 +46,6 @@ const actionableMenuIds = [
   'import-ableton', 'import-soundhaus', 'browse-public',
   'view-home', 'view-project',
   'project-pull', 'project-commit', 'project-push', 'view-on-soundhaus',
-  'help-search', 'help-about',
 ];
 
 function updateMenuForRoute(route: string) {
