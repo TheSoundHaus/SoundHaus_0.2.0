@@ -291,7 +291,7 @@ export default function RepoDetailClient({
 
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
-    { key: "commits" as const, label: "Commits", icon: GitCommit },
+    { key: "commits" as const, label: "Snapshots", icon: GitCommit },
     { key: "events" as const, label: "Events", icon: Activity },
     { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "settings" as const, label: "Settings", icon: Settings },
@@ -521,14 +521,14 @@ export default function RepoDetailClient({
       {activeTab === "commits" && (
         <div className="rounded-lg border border-zinc-800 p-6">
           <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Commit History</h2>
+            <h2 className="text-2xl font-semibold">Snapshot History</h2>
             <span className="text-sm text-zinc-500">
-              {commitTotal} commit{commitTotal !== 1 ? "s" : ""}
+              {commitTotal} snapshot{commitTotal !== 1 ? "s" : ""}
             </span>
           </div>
 
           {commits.length === 0 ? (
-            <p className="text-zinc-500">No commits recorded yet.</p>
+            <p className="text-zinc-500">No snapshots recorded yet.</p>
           ) : (
             <div className="space-y-2">
               {commits.map((c) => {
@@ -583,7 +583,7 @@ export default function RepoDetailClient({
                             ) : (
                               <Eye size={12} />
                             )}
-                            {isExpanded ? "Hide Diff" : "View Diff"}
+                            {isExpanded ? "Hide Diff" : "View Changes"}
                           </button>
                         )}
                       </div>

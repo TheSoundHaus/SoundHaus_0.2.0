@@ -235,7 +235,7 @@ const indicatorColors = {
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
-/** Commit header bar showing SHA, message, and author. */
+/** Snapshot header bar showing SHA, message, and author. */
 function CommitHeader({ commit }: { commit?: CommitSummary | null }) {
     if (!commit) return null;
 
@@ -481,7 +481,7 @@ export default function DiffView({
                     size={24}
                     className="mx-auto mb-2 text-zinc-600"
                 />
-                No ALS diff data available for this commit.
+                No ALS diff data available for this snapshot.
             </div>
         );
     }
