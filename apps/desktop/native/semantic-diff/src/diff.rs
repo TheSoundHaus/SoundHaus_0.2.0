@@ -561,7 +561,12 @@ fn diff_routing(old: &TrackRouting, new: &TrackRouting) -> Vec<ChangeNode> {
 
 /// Convert send index to letter (0 -> A, 1 -> B, etc.)
 fn send_letter(idx: usize) -> char {
-    (b'A' + idx as u8) as char
+    // Map 0..=25 to 'A'..='Z'; clamp any higher index to 'Z' to avoid overflow.
+    if idx < 26 {
+        (b'A' + idx as u8) as char
+    } else {
+        'Z'
+    }
 }
 
 /// Compute the set of elements that belong to the Longest Common Subsequence
