@@ -1,11 +1,66 @@
+import { useEffect } from 'react'
+
 const AboutDialog = () => {
+    useEffect(() => {
+        const root = document.getElementById('root')
+
+        const previousBodyStyles = {
+            margin: document.body.style.margin,
+            minHeight: document.body.style.minHeight,
+            display: document.body.style.display,
+            placeItems: document.body.style.placeItems,
+            overflow: document.body.style.overflow,
+        }
+
+        const previousRootStyles = root
+            ? {
+                maxWidth: root.style.maxWidth,
+                margin: root.style.margin,
+                padding: root.style.padding,
+                textAlign: root.style.textAlign,
+                height: root.style.height,
+            }
+            : null
+
+        // Neutralize global starter CSS so modal content can fit exactly.
+        document.body.style.margin = '0'
+        document.body.style.minHeight = '0'
+        document.body.style.display = 'block'
+        document.body.style.placeItems = 'normal'
+        document.body.style.overflow = 'hidden'
+
+        if (root) {
+            root.style.maxWidth = 'none'
+            root.style.margin = '0'
+            root.style.padding = '0'
+            root.style.textAlign = 'left'
+            root.style.height = '100vh'
+        }
+
+        return () => {
+            document.body.style.margin = previousBodyStyles.margin
+            document.body.style.minHeight = previousBodyStyles.minHeight
+            document.body.style.display = previousBodyStyles.display
+            document.body.style.placeItems = previousBodyStyles.placeItems
+            document.body.style.overflow = previousBodyStyles.overflow
+
+            if (root && previousRootStyles) {
+                root.style.maxWidth = previousRootStyles.maxWidth
+                root.style.margin = previousRootStyles.margin
+                root.style.padding = previousRootStyles.padding
+                root.style.textAlign = previousRootStyles.textAlign
+                root.style.height = previousRootStyles.height
+            }
+        }
+    }, [])
+
     return (
         <div style={{
             padding: '28px 32px',
             fontFamily: 'system-ui, -apple-system, sans-serif',
             display: 'flex',
             flexDirection: 'column',
-            height: '100vh',
+            height: '100%',
             boxSizing: 'border-box',
         }}>
             <h1 style={{ margin: '0 0 4px', fontSize: '22px', fontWeight: 700 }}>
@@ -22,7 +77,7 @@ const AboutDialog = () => {
                 other producers are working on, all from one place.
             </p>
 
-            <div style={{ marginTop: 'auto' }}>
+            <div>
                 <p style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: 600, color: '#555' }}>
                     Made by
                 </p>

@@ -7,7 +7,7 @@ const isPreview = process.env.PREVIEW !== undefined;
 export function createAboutDialog(parentWindow: BrowserWindow): void {
   const dialog = new BrowserWindow({
     width: 480,
-    height: 380,
+    height: 320,
     parent: parentWindow,
     modal: true,
     show: false,
