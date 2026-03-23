@@ -129,14 +129,19 @@ export default function RepoDetailClient({
   const loadCollaboratorsData = useCallback(async () => {
     setCollabLoading(true);
     setCollabError(null);
-    const [collabRes, invRes] = await Promise.all([
-      listCollaborators(owner, repo),
-      getRepoInvitations(repo),
-    ]);
-    if (collabRes.success) setCollaborators(collabRes.data ?? []);
-    else setCollabError(collabRes.error);
-    if (invRes.success) setRepoInvitations(invRes.data ?? []);
-    setCollabLoading(false);
+    try {
+      const [collabRes, invRes] = await Promise.all([
+        listCollaborators(owner, repo),
+        getRepoInvitations(repo),
+      ]);
+      if (collabRes.success) setCollaborators(collabRes.data ?? []);
+      else setCollabError(collabRes.error);
+      if (invRes.success) setRepoInvitations(invRes.data ?? []);
+    } catch (e) {
+      setCollabError(e instanceof Error ? e.message : "Failed to load collaborators");
+    } finally {
+      setCollabLoading(false);
+    }
   }, [owner, repo]);
 
   useEffect(() => {
@@ -153,9 +158,14 @@ export default function RepoDetailClient({
     }
     const timer = setTimeout(async () => {
       setSearchLoading(true);
-      const res = await searchUsers(searchQuery);
-      if (res.success) setSearchResults(res.data ?? []);
-      setSearchLoading(false);
+      try {
+        const res = await searchUsers(searchQuery);
+        if (res.success) setSearchResults(res.data ?? []);
+      } catch {
+        // Silently fail — user can re-type
+      } finally {
+        setSearchLoading(false);
+      }
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -267,18 +277,23 @@ export default function RepoDetailClient({
   // Load more commits (pagination)
   const handleLoadMore = useCallback(async () => {
     setLoadingMore(true);
-    const nextPage = commitPage + 1;
-    const result = await getCommits(owner, repo, nextPage, 20);
-    if (result.success && result.data) {
-      setCommits((prev) => {
-        const seen = new Set(prev.map((c) => c.sha));
-        const fresh = result.data.commits.filter((c) => !seen.has(c.sha));
-        return [...prev, ...fresh];
-      });
-      setCommitTotal(result.data.total);
-      setCommitPage(nextPage);
+    try {
+      const nextPage = commitPage + 1;
+      const result = await getCommits(owner, repo, nextPage, 20);
+      if (result.success && result.data) {
+        setCommits((prev) => {
+          const seen = new Set(prev.map((c) => c.sha));
+          const fresh = result.data.commits.filter((c) => !seen.has(c.sha));
+          return [...prev, ...fresh];
+        });
+        setCommitTotal(result.data.total);
+        setCommitPage(nextPage);
+      }
+    } catch {
+      // Network failure — do nothing, user can retry
+    } finally {
+      setLoadingMore(false);
     }
-    setLoadingMore(false);
   }, [owner, repo, commitPage]);
 
   // Toggle diff expansion for a commit
@@ -298,16 +313,22 @@ export default function RepoDetailClient({
 
     // Fetch diff from backend
     setDiffLoading(sha);
-    const result = await getCommitDiff(owner, repo, sha);
-    if (result.success && result.data) {
-      setDiffCache((prev) => ({ ...prev, [sha]: result.data.diff }));
-    } else {
-      setDiffCache((prev) => ({ ...prev, [sha]: null }));
-      if (!result.success) {
-        setDiffError(result.error);
+    try {
+      const result = await getCommitDiff(owner, repo, sha);
+      if (result.success && result.data) {
+        setDiffCache((prev) => ({ ...prev, [sha]: result.data.diff }));
+      } else {
+        setDiffCache((prev) => ({ ...prev, [sha]: null }));
+        if (!result.success) {
+          setDiffError(result.error);
+        }
       }
+    } catch (e) {
+      setDiffCache((prev) => ({ ...prev, [sha]: null }));
+      setDiffError(e instanceof Error ? e.message : "Failed to load diff");
+    } finally {
+      setDiffLoading(null);
     }
-    setDiffLoading(null);
   }, [owner, repo, expandedSha, diffCache]);
 
   const tabs = [
@@ -472,9 +493,9 @@ export default function RepoDetailClient({
             {/* Recent Clones */}
             <div className="rounded-lg border border-zinc-800 p-6">
               <h3 className="mb-4 text-lg font-semibold">Recent Clones</h3>
-              {stats && stats.recent_clones.length > 0 ? (
+              {(stats?.recent_clones?.length ?? 0) > 0 ? (
                 <div className="space-y-3">
-                  {stats.recent_clones.map((c, i) => (
+                  {stats!.recent_clones.map((c, i) => (
                     <div key={i} className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2 text-zinc-300">
                         <User size={14} /> User
@@ -570,7 +591,7 @@ export default function RepoDetailClient({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="mb-1 font-medium text-zinc-200 truncate">
-                          {c.message.split("\n")[0]}
+                          {(c.message ?? "No message").split("\n")[0]}
                         </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
                           <span className="flex items-center gap-1">

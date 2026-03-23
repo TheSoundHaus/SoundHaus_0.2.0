@@ -285,7 +285,7 @@ export function DiffTimeline({
 
                             // Collect ghost notes from modified clips (the "before" state)
                             const ghostNotes = track.midiClips
-                                ?.flatMap((c) => c.modifiedNotes.map((m) => m.before))
+                                ?.flatMap((c) => c.modifiedNotes?.map((m) => m.before) ?? [])
                                 ?? [];
 
                             // Resolve Ableton track color for row background tint
