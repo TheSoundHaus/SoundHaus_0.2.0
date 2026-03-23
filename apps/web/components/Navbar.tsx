@@ -27,7 +27,7 @@ const Navbar = () => {
         <nav className="border-b border-zinc-800 px-6 py-4 bg-zinc-900">
             <div className="mx-auto flex max-w-7xl items-center justify-between">
                 <Link
-                    href="/dashboard"
+                    href="/"
                     className="text-2xl font-bold tracking-tight hover:text-glass-blue-400 transition-colors duration-300"
                     style={{textShadow: '0 0 20px rgba(167, 199, 231, 0.3)'}}
                 >

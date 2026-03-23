@@ -199,7 +199,7 @@ function LandingNavbar() {
                         href="/signup"
                         className="btn btn-primary btn-sm !min-h-0 !py-2 !px-5 text-sm"
                     >
-                        Sign Up Free
+                        Sign Up
                     </Link>
                 </div>
             </div>
@@ -218,9 +218,9 @@ const FEATURES = [
     },
     {
         icon: AudioLines,
-        title: "AI Stem Separation",
+        title: "Stem Separation",
         description:
-            "Upload a mix, get isolated vocals, drums, bass, and melody tracks powered by Demucs. Perfect for remixes and collabs.",
+            "Upload a mix, get isolated vocals, drums, bass, and melody tracks. Perfect for remixes, sampling, and collabs.",
     },
     {
         icon: BarChart3,
@@ -301,7 +301,7 @@ export default function LandingPage() {
                     </p>
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                         <Link href="/signup" className="btn btn-primary btn-lg text-base no-underline">
-                            Get Started Free
+                            Get Started
                         </Link>
                         <a
                             href="#how-it-works"
@@ -334,7 +334,7 @@ export default function LandingPage() {
                     <div className="grid md:grid-cols-3 gap-6">
                         {FEATURES.map((feature, i) => (
                             <FadeInSection key={feature.title} delay={i * 120}>
-                                <div className="group relative rounded-xl border border-white/10 bg-zinc-800/50 p-8 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/80">
+                                <div className="group relative h-full rounded-xl border border-white/10 bg-zinc-800/50 p-8 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/80 flex flex-col">
                                     {/* Glow on hover */}
                                     <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
                                          style={{ boxShadow: "inset 0 1px 0 rgba(167, 199, 231, 0.1), 0 0 40px rgba(167, 199, 231, 0.05)" }} />
@@ -518,7 +518,7 @@ export default function LandingPage() {
                             href="/signup"
                             className="btn btn-primary btn-lg text-base no-underline"
                         >
-                            Create Your Free Account
+                            Create Your Account
                         </Link>
                     </div>
                 </FadeInSection>
