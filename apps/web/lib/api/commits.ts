@@ -5,7 +5,8 @@
  */
 
 import type { ApiResponse } from "../types/api";
-
+import type { ProjectDiff } from "@/components/diff/types/diff";
+import { authFetch } from "./client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,8 @@ export interface AlsDiffData {
     before_sha: string | null;
     diff_type: string;
     diff_summary: string | null;
-    diff_data: Record<string, unknown>;
+    /** The ProjectDiff JSON blob stored by the backend. */
+    diff_data: ProjectDiff;
     created_at: string;
 }
 
@@ -55,7 +57,7 @@ export async function getCommits(
     _limit: number = 20,
 ): Promise<ApiResponse<CommitListResponse>> {
     const result = await authFetch<CommitListResponse>(
-        `/repos/${owner}/${repo}/commits?page=${page}&limit=${limit}`
+        `/repos/${_owner}/${_repo}/commits?page=${_page}&limit=${_limit}`
     );
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data! };
@@ -68,7 +70,7 @@ export async function getCommitDetail(
     _sha: string,
 ): Promise<ApiResponse<{ commit: CommitSummary }>> {
     const result = await authFetch<{ commit: CommitSummary }>(
-        `/repos/${owner}/${repo}/commits/${sha}`
+        `/repos/${_owner}/${_repo}/commits/${_sha}`
     );
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data! };
@@ -81,7 +83,7 @@ export async function getCommitDiff(
     _sha: string,
 ): Promise<ApiResponse<{ diff: AlsDiffData | null }>> {
     const result = await authFetch<{ diff: AlsDiffData | null }>(
-        `/repos/${owner}/${repo}/commits/${sha}/diff`
+        `/repos/${_owner}/${_repo}/commits/${_sha}/diff`
     );
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data! };

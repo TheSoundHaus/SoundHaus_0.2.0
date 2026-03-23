@@ -33,7 +33,7 @@ import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
 import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
-import DiffView from "@/components/DiffView";
+import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import UserAvatar from "@/components/UserAvatar";
 import { deleteRepoAction, renameRepoAction, updateDescriptionAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
@@ -644,12 +644,15 @@ export default function RepoDetailClient({
                           </div>
                         )}
 
-                        {/* Diff view (arrangement visualization) */}
-                        <DiffView
-                          diffData={diffCache[c.sha] ?? null}
-                          commit={c}
+                        {/* Diff viewer (piano roll / waveform / timeline) */}
+                        <DiffTimeline
+                          diffData={diffCache[c.sha]?.diff_data ?? null}
+                          commitSha={c.sha}
+                          commitMsg={c.message}
                           isLoading={diffLoading === c.sha}
                           error={diffError && expandedSha === c.sha ? diffError : null}
+                          repoOwner={owner}
+                          repoName={repo}
                         />
                       </div>
                     )}

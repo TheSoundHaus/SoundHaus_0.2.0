@@ -32,7 +32,7 @@ class AlsDiff(Base):
     before_sha = Column(String(40), nullable=True)
 
     # ── Diff metadata ──────────────────────────────────────────────────────
-    diff_type = Column(String(50), nullable=False, default="combined")
+    diff_type = Column(String(50), nullable=False, default="enriched")
     diff_summary = Column(Text, nullable=True)
     diff_data = Column(JSON, nullable=False)
     desktop_version = Column(String(20), nullable=True)
