@@ -47,6 +47,37 @@ const COLLAPSED_HEIGHT_AUDIO = 48;
 const EXPANDED_HEIGHT_MIDI = 400;
 const EXPANDED_HEIGHT_AUDIO = 80;
 
+/**
+ * Determine if a track has meaningful content to render.
+ * Empty MIDI tracks (no clips or clips with 0 notes) and
+ * empty audio tracks (no clips) only show a quiet indicator row.
+ */
+function isTrackEmpty(track: TrackDiff): boolean {
+    if (track.trackType === "midi") {
+        const clips = track.midiClips ?? [];
+        if (clips.length === 0) return true;
+        // All clips have zero notes
+        const totalNotes = clips.reduce(
+            (sum, c) => sum + (c.addedNotes?.length ?? 0) + (c.removedNotes?.length ?? 0) + (c.modifiedNotes?.length ?? 0) + (c.unchangedNotes?.length ?? 0),
+            0,
+        );
+        return totalNotes === 0;
+    }
+    // Audio
+    return (track.audioClips ?? []).length === 0;
+}
+
+/** Slim placeholder shown for empty/unchanged tracks. */
+function EmptyTrackRow({ type }: { type: "midi" | "audio" }) {
+    return (
+        <div className="flex items-center justify-center h-full text-zinc-600 text-xs select-none gap-1.5">
+            <span className="inline-block w-3 h-[1px] bg-zinc-700" />
+            {type === "midi" ? "No MIDI changes" : "No audio changes"}
+            <span className="inline-block w-3 h-[1px] bg-zinc-700" />
+        </div>
+    );
+}
+
 // ── Props ──────────────────────────────────────────────────────────────────
 
 interface DiffTimelineProps {
@@ -243,10 +274,14 @@ export function DiffTimeline({
                     <div>
                         {diffData.tracks.map((track, idx) => {
                             const isExpanded = expandedTracks.has(track.trackId);
+                            const empty = isTrackEmpty(track);
 
-                            const trackHeight = track.trackType === "midi"
-                                ? (isExpanded ? EXPANDED_HEIGHT_MIDI : COLLAPSED_HEIGHT_MIDI)
-                                : (isExpanded ? EXPANDED_HEIGHT_AUDIO : COLLAPSED_HEIGHT_AUDIO);
+                            // Empty tracks always render as a slim 32px row
+                            const trackHeight = empty
+                                ? 32
+                                : track.trackType === "midi"
+                                    ? (isExpanded ? EXPANDED_HEIGHT_MIDI : COLLAPSED_HEIGHT_MIDI)
+                                    : (isExpanded ? EXPANDED_HEIGHT_AUDIO : COLLAPSED_HEIGHT_AUDIO);
 
                             // Collect ghost notes from modified clips (the "before" state)
                             const ghostNotes = track.midiClips
@@ -287,7 +322,9 @@ export function DiffTimeline({
                                         }`}
                                         style={isExpanded ? { maxHeight: trackHeight } : { height: trackHeight }}
                                     >
-                                        {track.trackType === "midi" ? (
+                                        {empty ? (
+                                            <EmptyTrackRow type={track.trackType as "midi" | "audio"} />
+                                        ) : track.trackType === "midi" ? (
                                             <PianoRollTrack
                                                 midiClips={track.midiClips ?? []}
                                                 totalBeats={diffData.totalBeats}

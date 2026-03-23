@@ -134,6 +134,68 @@ function FadeInSection({
     );
 }
 
+// ── Studio Image Carousel for CTA section ─────────────────────────────────
+
+const STUDIO_IMAGES = [
+    "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1519508234439-4f23643a15b0?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=1920&q=80",
+];
+
+function StudioCarousel() {
+    const [current, setCurrent] = useState(0);
+    const [loaded, setLoaded] = useState<boolean[]>(new Array(STUDIO_IMAGES.length).fill(false));
+
+    // Auto-advance every 6 seconds
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrent((prev) => (prev + 1) % STUDIO_IMAGES.length);
+        }, 6000);
+        return () => clearInterval(timer);
+    }, []);
+
+    // Preload images
+    useEffect(() => {
+        STUDIO_IMAGES.forEach((src, i) => {
+            const img = new Image();
+            img.onload = () =>
+                setLoaded((prev) => {
+                    const next = [...prev];
+                    next[i] = true;
+                    return next;
+                });
+            img.src = src;
+        });
+    }, []);
+
+    return (
+        <>
+            {/* Stacked images with crossfade */}
+            {STUDIO_IMAGES.map((src, i) => (
+                <div
+                    key={src}
+                    className="absolute inset-0 bg-cover bg-center transition-opacity duration-[2000ms] ease-in-out"
+                    style={{
+                        backgroundImage: loaded[i] ? `url("${src}")` : undefined,
+                        filter: "blur(2px) brightness(0.3)",
+                        opacity: i === current ? 1 : 0,
+                    }}
+                    aria-hidden
+                />
+            ))}
+
+            {/* Dark gradient overlays for readability */}
+            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/70 to-zinc-950/40" />
+            <div className="absolute inset-0 bg-gradient-to-r from-zinc-950/30 via-transparent to-zinc-950/30" />
+
+            {/* Subtle glass-blue accent glow */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px]
+                          bg-glass-blue/5 rounded-full blur-[100px] pointer-events-none" />
+        </>
+    );
+}
+
 // ── Navbar ─────────────────────────────────────────────────────────────────
 
 function LandingNavbar() {
@@ -376,14 +438,10 @@ export default function LandingPage() {
                             {STEPS.map((step, i) => (
                                 <FadeInSection key={step.title} delay={i * 150}>
                                     <div className="relative text-center">
-                                        {/* Step number */}
                                         <div className="relative z-10 mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-glass-blue-400/30 bg-zinc-900"
                                              style={{ boxShadow: "0 0 20px rgba(167, 199, 231, 0.1)" }}>
                                             <step.icon className="w-7 h-7 text-glass-blue-400" />
                                         </div>
-                                        <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 text-[10px] font-bold text-glass-blue-400/60 uppercase tracking-widest">
-                                            Step {i + 1}
-                                        </span>
                                         <h3 className="text-lg font-semibold text-white mb-2">
                                             {step.title}
                                         </h3>
@@ -503,23 +561,34 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── CTA Banner ─────────────────────────────── */}
-            <section className="py-20 px-6 border-t border-white/5">
+            {/* ── CTA Banner with Studio Image Carousel ── */}
+            <section className="py-20 px-6 border-t border-white/5 overflow-hidden">
                 <FadeInSection>
-                    <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="text-3xl md:text-4xl font-bold mb-4">
-                            Ready to level up your workflow?
-                        </h2>
-                        <p className="text-zinc-400 text-lg mb-8">
-                            Join producers already using SoundHaus to version, share, and
-                            collaborate on their music.
-                        </p>
-                        <Link
-                            href="/signup"
-                            className="btn btn-primary btn-lg text-base no-underline"
-                        >
-                            Create Your Account
-                        </Link>
+                    <div className="mx-auto max-w-6xl">
+                        <div className="relative rounded-2xl overflow-hidden border border-white/10"
+                             style={{ boxShadow: "0 0 80px rgba(167, 199, 231, 0.06)" }}>
+                            {/* Studio image carousel background */}
+                            <StudioCarousel />
+
+                            {/* Glass overlay with CTA content */}
+                            <div className="relative z-10 flex items-center justify-center py-24 px-6">
+                                <div className="text-center max-w-2xl">
+                                    <h2 className="text-3xl md:text-4xl font-bold mb-4 text-white drop-shadow-lg">
+                                        Ready to level up your workflow?
+                                    </h2>
+                                    <p className="text-zinc-300 text-lg mb-8 drop-shadow">
+                                        Join producers already using SoundHaus to version, share, and
+                                        collaborate on their music.
+                                    </p>
+                                    <Link
+                                        href="/signup"
+                                        className="btn btn-primary btn-lg text-base no-underline"
+                                    >
+                                        Create Your Account
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </FadeInSection>
             </section>
