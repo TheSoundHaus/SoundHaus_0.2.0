@@ -33,6 +33,33 @@ interface PianoRollTrackProps {
     pixelsPerBeat?: number;
     /** Ghost notes for comparison view ("before" state of modified notes). */
     ghostNotes?: MidiNote[];
+    /** Whether the track is in collapsed (overview) mode. */
+    isCollapsed?: boolean;
+}
+
+// ── Helper: build modification detail lines for tooltip ────────────────────
+
+function getModificationDetails(
+    afterNote: MidiNote,
+    beforeNote?: MidiNote,
+): string[] {
+    if (!beforeNote) return ["modified"];
+    const details: string[] = [];
+    if (beforeNote.pitch !== afterNote.pitch) {
+        details.push(`Pitch: ${midiPitchToName(beforeNote.pitch)} → ${midiPitchToName(afterNote.pitch)}`);
+    }
+    if (beforeNote.velocity !== afterNote.velocity) {
+        const delta = afterNote.velocity - beforeNote.velocity;
+        const sign = delta > 0 ? "+" : "";
+        details.push(`Velocity: ${beforeNote.velocity} → ${afterNote.velocity} (${sign}${delta})`);
+    }
+    if (Math.abs(beforeNote.durationBeats - afterNote.durationBeats) > 0.001) {
+        details.push(`Duration: ${beforeNote.durationBeats.toFixed(2)} → ${afterNote.durationBeats.toFixed(2)} beats`);
+    }
+    if (Math.abs(beforeNote.startBeat - afterNote.startBeat) > 0.001) {
+        details.push(`Position: beat ${beforeNote.startBeat.toFixed(2)} → ${afterNote.startBeat.toFixed(2)}`);
+    }
+    return details.length > 0 ? details : ["modified"];
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -44,6 +71,7 @@ export function PianoRollTrack({
     height = 400,
     pixelsPerBeat = 20,
     ghostNotes,
+    isCollapsed = false,
 }: PianoRollTrackProps) {
     const { canvasRef, hoveredNote, handleMouseMove, handleMouseLeave } =
         usePianoRollRenderer({
@@ -53,6 +81,7 @@ export function PianoRollTrack({
             height,
             changeType,
             ghostNotes,
+            isCollapsed,
         });
 
     return (
@@ -68,7 +97,7 @@ export function PianoRollTrack({
             {/* Tooltip overlay — follows cursor when a note is hovered */}
             {hoveredNote && (
                 <div
-                    className="pointer-events-none absolute z-50 rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-200 shadow-lg border border-zinc-700"
+                    className="pointer-events-none absolute z-50 rounded bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-200 shadow-lg border border-zinc-700"
                     style={{
                         left: hoveredNote.x + 12,
                         top: hoveredNote.y - 8,
@@ -94,7 +123,18 @@ export function PianoRollTrack({
                                     : "text-zinc-500"
                         }
                     >
-                        {hoveredNote.changeType}
+                        {hoveredNote.changeType === "modified" ? (
+                            <div className="space-y-0.5 mt-0.5 border-t border-zinc-700 pt-1">
+                                {getModificationDetails(
+                                    hoveredNote.note,
+                                    hoveredNote.beforeNote,
+                                ).map((line, i) => (
+                                    <div key={i}>{line}</div>
+                                ))}
+                            </div>
+                        ) : (
+                            hoveredNote.changeType
+                        )}
                     </div>
                 </div>
             )}

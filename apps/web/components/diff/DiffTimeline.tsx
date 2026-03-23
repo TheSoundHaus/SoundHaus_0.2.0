@@ -209,9 +209,19 @@ export function DiffTimeline({
                     {commitMsg && (
                         <span className="text-sm text-zinc-300 truncate">{commitMsg}</span>
                     )}
+                    {/* Tempo display — highlight if changed between versions */}
                     {displayTempo && (
-                        <span className="text-xs text-zinc-500 ml-auto">
-                            ♩ = {Math.round(displayTempo)} BPM
+                        <span className={`text-xs ml-auto flex items-center gap-1.5 ${
+                            diffData?.tempo?.before != null && diffData?.tempo?.after != null
+                            && diffData.tempo.before !== diffData.tempo.after
+                                ? "text-amber-400"
+                                : "text-zinc-500"
+                        }`}>
+                            ♩ = {diffData?.tempo?.before != null && diffData?.tempo?.after != null
+                                && diffData.tempo.before !== diffData.tempo.after
+                                ? <>{Math.round(diffData.tempo.before)} → {Math.round(diffData.tempo.after)} BPM</>
+                                : <>{Math.round(displayTempo)} BPM</>
+                            }
                         </span>
                     )}
                 </div>
@@ -284,8 +294,7 @@ export function DiffTimeline({
                                                 changeType={track.changeType}
                                                 height={trackHeight}
                                                 pixelsPerBeat={pixelsPerBeat}
-                                                ghostNotes={ghostNotes}
-                                            />
+                                                ghostNotes={ghostNotes}                                                isCollapsed={!isExpanded}                                            />
                                         ) : (
                                             <AudioTrackRow
                                                 track={track}

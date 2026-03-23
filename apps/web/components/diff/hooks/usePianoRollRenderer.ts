@@ -54,6 +54,8 @@ interface TaggedNote {
     absoluteStart: number;
     absoluteEnd: number;
     changeType: "added" | "removed" | "modified" | "unchanged";
+    /** For modified notes, the "before" state — used to show what changed in tooltips. */
+    beforeNote?: MidiNote;
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -65,13 +67,17 @@ interface UsePianoRollRendererArgs {
     height: number;
     changeType: "added" | "removed" | "modified" | "unchanged";
     ghostNotes?: MidiNote[];
+    /** When true, notes are rendered in a condensed overview — pitch labels hidden. */
+    isCollapsed?: boolean;
 }
 
-interface HoveredNoteInfo {
+export interface HoveredNoteInfo {
     note: MidiNote;
     changeType: "added" | "removed" | "modified" | "unchanged";
     x: number;
     y: number;
+    /** For modified notes, the "before" state — enables rich tooltip showing what changed. */
+    beforeNote?: MidiNote;
 }
 
 interface UsePianoRollRendererResult {
@@ -129,6 +135,7 @@ function flattenClips(
                 absoluteStart: offset + mod.after.startBeat,
                 absoluteEnd: offset + mod.after.startBeat + mod.after.durationBeats,
                 changeType: "modified",
+                beforeNote: mod.before,
             });
         }
     }
@@ -182,6 +189,7 @@ export function usePianoRollRenderer({
     height,
     changeType,
     ghostNotes,
+    isCollapsed = false,
 }: UsePianoRollRendererArgs): UsePianoRollRendererResult {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [hoveredNote, setHoveredNote] = useState<HoveredNoteInfo | null>(null);
@@ -273,7 +281,10 @@ export function usePianoRollRenderer({
             const w = Math.max((absEnd - absStart) * pixelsPerBeat, 3);
             const y = (pitchMax - pitch - 1) * pitchRowHeight;
             // Note fills entire row minus 1px gap for lane visibility
-            const h = Math.max(pitchRowHeight - 1, 6);
+            // In collapsed view, enforce minimum note height for visibility
+            const h = isCollapsed
+                ? Math.max(pitchRowHeight - 0.5, 2)
+                : Math.max(pitchRowHeight - 1, 6);
 
             const colorSpec = NOTE_COLORS[ct] ?? NOTE_COLORS.unchanged;
             const cr = colorSpec.base[0]!;
@@ -346,7 +357,7 @@ export function usePianoRollRenderer({
 
             ctx.globalAlpha = 1;
         },
-        [pixelsPerBeat, pitchRowHeight, pitchMin, pitchMax],
+        [pixelsPerBeat, pitchRowHeight, pitchMin, pitchMax, isCollapsed],
     );
 
     const drawGhostNotes = useCallback(
@@ -369,6 +380,9 @@ export function usePianoRollRenderer({
 
     const drawPitchLabels = useCallback(
         (ctx: CanvasRenderingContext2D) => {
+            // Skip labels in collapsed view — too cluttered at small heights
+            if (isCollapsed) return;
+
             ctx.font = "bold 9px -apple-system, system-ui, sans-serif";
             ctx.textBaseline = "middle";
             for (let i = 0; i < pitchRange; i++) {
@@ -380,7 +394,7 @@ export function usePianoRollRenderer({
                 }
             }
         },
-        [pitchRowHeight, pitchRange, pitchMax],
+        [pitchRowHeight, pitchRange, pitchMax, isCollapsed],
     );
 
     // ── Main paint ─────────────────────────────────────────────────────
@@ -446,7 +460,13 @@ export function usePianoRollRenderer({
                     beat >= tn.absoluteStart &&
                     beat <= tn.absoluteEnd
                 ) {
-                    return { note: tn.note, changeType: tn.changeType, x: mouseX, y: mouseY };
+                    return {
+                        note: tn.note,
+                        changeType: tn.changeType,
+                        x: mouseX,
+                        y: mouseY,
+                        beforeNote: tn.beforeNote,
+                    };
                 }
             }
             return null;
