@@ -101,6 +101,7 @@ export interface RepoStats {
   success: boolean;
   gitea_id: string;              // "owner/repo-name"
   description: string;           // Gitea repo description
+  private: boolean;              // Gitea repo visibility
   clone_count: number;
   audio_snippet: string | null;
   genres: GenreRef[];

@@ -7,6 +7,7 @@ import {
   User,
   Users,
   Lock,
+  Globe,
   GitCommit,
   Download,
   Music,
@@ -35,7 +36,7 @@ import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import UserAvatar from "@/components/UserAvatar";
-import { deleteRepoAction, renameRepoAction, updateDescriptionAction } from "@/actions/repos";
+import { deleteRepoAction, renameRepoAction, updateDescriptionAction, updateVisibilityAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
@@ -90,6 +91,10 @@ export default function RepoDetailClient({
   const [newName, setNewName] = useState(repo);
   const [description, setDescription] = useState(stats?.description ?? "");
   const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  // Privacy state
+  const [isPrivate, setIsPrivate] = useState(stats?.private ?? true);
+  const [privacyUpdating, setPrivacyUpdating] = useState(false);
 
   // Commits state — deduplicate by SHA on init to guard against backend duplicates
   const [commits, setCommits] = useState<CommitSummary[]>(() => {
@@ -254,6 +259,32 @@ export default function RepoDetailClient({
     });
   }
 
+  async function handleTogglePrivacy() {
+    const newValue = !isPrivate;
+    // Confirm before making public
+    if (!newValue) {
+      const ok = window.confirm(
+        "Make this project public? Anyone will be able to see and clone it."
+      );
+      if (!ok) return;
+    }
+    setPrivacyUpdating(true);
+    setSettingsError(null);
+    try {
+      const result = await updateVisibilityAction(owner, repo, newValue);
+      if (result.success) {
+        setIsPrivate(newValue);
+        router.refresh();
+      } else {
+        setSettingsError(result.error);
+      }
+    } catch (e) {
+      setSettingsError(e instanceof Error ? e.message : "Failed to update visibility");
+    } finally {
+      setPrivacyUpdating(false);
+    }
+  }
+
   // Format relative time
   function timeAgo(iso: string | null | undefined): string {
     if (!iso) return "—";
@@ -364,7 +395,7 @@ export default function RepoDetailClient({
           )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
-              <Lock size={14} /> Private
+              {isPrivate ? <><Lock size={14} /> Private</> : <><Globe size={14} /> Public</>}
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
@@ -1139,13 +1170,29 @@ export default function RepoDetailClient({
               </h3>
               <div className="flex flex-wrap gap-3">
                 {/* Privacy toggle */}
-                <div className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5">
-                  <Lock size={14} className="text-zinc-400" />
-                  <span className="text-sm text-zinc-300">Private Project</span>
-                  <span className="ml-1 rounded bg-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
-                    Always
+                <button
+                  onClick={handleTogglePrivacy}
+                  disabled={privacyUpdating || isPending}
+                  className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5 transition-colors hover:bg-zinc-700/60 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isPrivate ? (
+                    <Lock size={14} className="text-zinc-400" />
+                  ) : (
+                    <Globe size={14} className="text-emerald-400" />
+                  )}
+                  <span className="text-sm text-zinc-300">
+                    {isPrivate ? "Private Project" : "Public Project"}
                   </span>
-                </div>
+                  <span
+                    className={`ml-1 rounded px-2 py-0.5 text-xs ${
+                      isPrivate
+                        ? "bg-zinc-700 text-zinc-400"
+                        : "bg-emerald-900/40 text-emerald-400"
+                    }`}
+                  >
+                    {privacyUpdating ? "Updating…" : isPrivate ? "Click to make public" : "Click to make private"}
+                  </span>
+                </button>
               </div>
             </div>
           </div>
