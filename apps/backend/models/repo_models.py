@@ -1,7 +1,7 @@
 """
 Repository data models — stores aggregate/summary data about each repository.
 """
-from sqlalchemy import Column, String, Integer, Float, Boolean, Table, DateTime
+from sqlalchemy import Column, String, Integer, Float, Boolean, Table, DateTime, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -49,6 +49,9 @@ class RepoData(Base):
 
     # HEAD SHA after most recent push (for UpdateBanner display).
     last_push_commit_sha = Column(String(40), nullable=True)
+
+    # Markdown README content for the repo "About" tab
+    readme_content = Column(Text, nullable=True, default=None)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too

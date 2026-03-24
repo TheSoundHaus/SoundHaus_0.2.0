@@ -599,3 +599,76 @@ async def get_enriched_repos(
         })
 
     return {"success": True, "repos": enriched}
+
+
+# ── README ───────────────────────────────────────────────────────────────────
+
+@router.get("/repos/{owner}/{repo}/readme")
+@limiter.limit("60/minute")
+async def get_readme(
+    request: Request,
+    owner: str,
+    repo: str,
+    db: Session = Depends(get_db),
+):
+    """Get the markdown README content for a repository."""
+    repo_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    return {
+        "success": True,
+        "readme_content": repo_data.readme_content or "",
+    }
+
+
+@router.put("/repos/{owner}/{repo}/readme")
+@limiter.limit("20/minute")
+async def update_readme(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Update the markdown README content. Only the repo owner or collaborators can edit."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user_id = user_res["user"]["id"]
+
+    repo_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    # Authorization: owner or accepted collaborator
+    is_owner = repo_data.owner_id == user_id
+    is_collab = False
+    if not is_owner:
+        collab = (
+            db.query(CollaboratorInvitation)
+            .filter(
+                CollaboratorInvitation.repo_id == repo_id,
+                CollaboratorInvitation.invitee_id == user_id,
+                CollaboratorInvitation.status == "accepted",
+            )
+            .first()
+        )
+        is_collab = collab is not None
+
+    if not is_owner and not is_collab:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this repo's README")
+
+    body = await request.json()
+    content = body.get("readme_content", "")
+    if len(content) > 50000:
+        raise HTTPException(status_code=400, detail="README content too large (max 50,000 chars)")
+
+    repo_data.readme_content = content
+    db.commit()
+
+    logger.info("update_readme", repo_id=repo_id, user_id=user_id, length=len(content))
+
+    return {"success": True, "readme_content": repo_data.readme_content}
