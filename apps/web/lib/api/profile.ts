@@ -92,3 +92,19 @@ export async function getPublicProfile(username: string): Promise<ApiResponse<Pu
         return { success: false, error: e instanceof Error ? e.message : "Network error" };
     }
 }
+
+// ─── GET /api/auth/profile/stats ────────────────────────────────────────────
+
+export interface UserStats {
+    total_repos: number;
+    total_commits: number;
+    total_clones_received: number;
+    collaborations: number;
+    total_size_kb: number;
+}
+
+export async function getUserStats(): Promise<ApiResponse<UserStats>> {
+    const result = await authFetch<{ stats: UserStats }>("/api/auth/profile/stats");
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data!.stats };
+}

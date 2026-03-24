@@ -77,7 +77,8 @@ function StemTrack({
       container: containerRef.current,
       waveColor: meta.waveColor,
       progressColor: meta.progressColor,
-      cursorColor: "#ffffff",
+      cursorColor: "rgba(255,255,255,0.6)",
+      cursorWidth: 1,
       height: 48,
       barWidth: 2,
       barGap: 2,
@@ -133,7 +134,7 @@ function StemTrack({
       </button>
 
       {/* Waveform */}
-      <div ref={containerRef} className="flex-1" />
+      <div ref={containerRef} className="flex-1 min-h-[48px]" />
     </div>
   );
 }
@@ -174,10 +175,36 @@ export default function StemPlayer({
   const wsMapRef = useRef<Record<string, WaveSurfer>>({});
   const readyCount = useRef(0);
   const totalStems = stems?.stem_files.length ?? 0;
+  const [stemsReady, setStemsReady] = useState(false);
+
+  // Reset readyCount and wsMap when stems change (e.g., regeneration)
+  useEffect(() => {
+    readyCount.current = 0;
+    wsMapRef.current = {};
+    setStemsReady(false);
+  }, [stems]);
 
   const anySolo = Object.values(soloMap).some(Boolean);
 
   // ── Sync playback across all stems ────────────────────────────────
+
+  // Synchronise all WaveSurfer instances to the position of the first one
+  const syncPositions = useCallback(() => {
+    const allWs = Object.values(wsMapRef.current);
+    if (allWs.length < 2) return;
+    const ref = allWs[0];
+    const pos = ref.getCurrentTime() / ref.getDuration();
+    for (let i = 1; i < allWs.length; i++) {
+      allWs[i].seekTo(pos);
+    }
+  }, []);
+
+  // Re-sync when solo/mute state changes during playback
+  useEffect(() => {
+    if (playing && stemsReady) {
+      syncPositions();
+    }
+  }, [soloMap, muteMap, playing, stemsReady, syncPositions]);
 
   const handleReady = useCallback(
     (stemType: string, ws: WaveSurfer) => {
@@ -188,6 +215,7 @@ export default function StemPlayer({
       if (readyCount.current === totalStems) {
         const first = Object.values(wsMapRef.current)[0];
         if (first) setDuration(first.getDuration());
+        setStemsReady(true);
       }
     },
     [totalStems],
@@ -195,20 +223,26 @@ export default function StemPlayer({
 
   // Forward time updates from the first stem (they all advance together)
   useEffect(() => {
+    if (!stemsReady) return;
     const first = Object.values(wsMapRef.current)[0];
     if (!first) return;
 
-    const onProcess = () => setCurrentTime(first.getCurrentTime());
-    const onFinish = () => { setPlaying(false); setCurrentTime(0); };
+    const onTimeUpdate = () => setCurrentTime(first.getCurrentTime());
+    const onFinish = () => {
+      setPlaying(false);
+      setCurrentTime(0);
+      // Reset all waveform cursors to start
+      Object.values(wsMapRef.current).forEach((ws) => ws.seekTo(0));
+    };
 
-    first.on("audioprocess", onProcess);
+    first.on("timeupdate", onTimeUpdate);
     first.on("finish", onFinish);
 
     return () => {
-      first.un("audioprocess", onProcess);
+      first.un("timeupdate", onTimeUpdate);
       first.un("finish", onFinish);
     };
-  }, [stems]);
+  }, [stemsReady]);
 
   const togglePlay = useCallback(() => {
     const allWs = Object.values(wsMapRef.current);
@@ -216,10 +250,12 @@ export default function StemPlayer({
     if (playing) {
       allWs.forEach((ws) => ws.pause());
     } else {
+      // Sync all positions to the first stem before resuming
+      syncPositions();
       allWs.forEach((ws) => ws.play());
     }
     setPlaying(!playing);
-  }, [playing]);
+  }, [playing, syncPositions]);
 
   const seekAll = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,7 +354,7 @@ export default function StemPlayer({
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
         <h3 className="mb-2 text-lg font-semibold">Stem Separation</h3>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-zinc-400">
           Upload an audio snippet first to generate stems.
         </p>
       </div>
@@ -417,29 +453,41 @@ export default function StemPlayer({
         <p className="mb-3 text-sm text-red-400">{actionError}</p>
       )}
 
-      {/* Transport bar */}
-      <div className="mb-4 flex items-center gap-3">
-        <button
-          onClick={togglePlay}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition hover:bg-zinc-200"
-        >
-          {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
-        </button>
+      {/* Transport bar — only show when waveforms are loaded */}
+      {stemsReady ? (
+        <div className="relative z-10 mb-4 flex items-center gap-3">
+          <button
+            onClick={togglePlay}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 transition hover:bg-zinc-200"
+          >
+            {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
+          </button>
 
-        <input
-          type="range"
-          min={0}
-          max={duration || 1}
-          step={0.01}
-          value={currentTime}
-          onChange={seekAll}
-          className="audio-range flex-1"
-        />
+          <input
+            type="range"
+            min={0}
+            max={duration || 1}
+            step={0.01}
+            value={currentTime}
+            onChange={seekAll}
+            className="audio-range flex-1"
+            style={{
+              background: duration
+                ? `linear-gradient(to right, var(--brand-primary) ${(currentTime / duration) * 100}%, var(--background-depth, #27272a) ${(currentTime / duration) * 100}%)`
+                : 'var(--background-depth, #27272a)',
+            }}
+          />
 
-        <span className="shrink-0 font-mono text-sm text-zinc-400">
-          {fmt(currentTime)} / {fmt(duration)}
-        </span>
-      </div>
+          <span className="shrink-0 font-mono text-sm text-zinc-400">
+            {fmt(currentTime)} / {fmt(duration)}
+          </span>
+        </div>
+      ) : (
+        <div className="mb-4 flex items-center gap-2 text-sm text-zinc-500">
+          <Loader2 size={14} className="animate-spin" />
+          <span>Loading waveforms…</span>
+        </div>
+      )}
 
       {/* Individual stem tracks */}
       <div className="space-y-2">

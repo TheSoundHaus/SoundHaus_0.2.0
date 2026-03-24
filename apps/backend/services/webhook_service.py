@@ -13,6 +13,7 @@ from logging_config import get_logger
 from config import settings
 from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig
 from models.repo_models import RepoData
+from models.commit_models import CommitDetail
 
 logger = get_logger(__name__)
 
@@ -204,16 +205,35 @@ class WebhookService:
                 commit_count=len(commits)
             )
             db.add(push_event)
-            # IMPORTANT: db.flush() here to get push_event.id for CommitDetail FK
-            # db.flush()
+            # Flush to get push_event.id for CommitDetail FK
+            db.flush()
 
-            # TODO: Create CommitDetail rows and set needs_update flag
+            # Create CommitDetail rows from push payload
+            for commit in commits:
+                cd = CommitDetail(
+                    push_event_id=push_event.id,
+                    repo_id=repo_full_name,
+                    sha=commit["id"],
+                    short_sha=commit["id"][:8],
+                    message=commit.get("message", ""),
+                    author_name=commit.get("author", {}).get("name", "unknown"),
+                    author_email=commit.get("author", {}).get("email"),
+                    timestamp=commit.get("timestamp"),
+                    files_added=commit.get("added", []),
+                    files_modified=commit.get("modified", []),
+                    files_removed=commit.get("removed", []),
+                )
+                db.add(cd)
 
             # Update RepoData activity
             now = datetime.now(timezone.utc)
             repo_data.last_push_at = now
             repo_data.total_commits = (repo_data.total_commits or 0) + len(commits)
             repo_data.last_activity_at = now
+
+            # Flag repo as having new commits for the web UI
+            repo_data.needs_update = True
+            repo_data.last_push_commit_sha = after_sha
             logger.debug("repo_activity_updated",
                          repo=repo_full_name,
                          total_commits=repo_data.total_commits)

@@ -55,5 +55,13 @@ class CommitDetail(Base):
     push_event = relationship("PushEvent", back_populates="commit_details")
     repo = relationship("RepoData", back_populates="commit_details")
 
+    als_diff = relationship(
+        "AlsDiff",
+        primaryjoin="CommitDetail.sha == AlsDiff.commit_sha",
+        foreign_keys="[AlsDiff.commit_sha]",
+        back_populates="commit",
+        uselist=False,
+        viewonly=True,
+    )
     def __repr__(self) -> str:
         return f"<CommitDetail(sha='{self.short_sha}', msg='{self.message[:30]}')>"

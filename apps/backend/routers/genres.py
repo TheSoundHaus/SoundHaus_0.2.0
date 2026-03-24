@@ -51,7 +51,8 @@ async def create_genre(
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Must be logged in")
 
-    if not user_res.get("is_admin"):
+    user_role = user_res.get("user", {}).get("role", "")
+    if user_role != "service_role" and user_role != "supabase_admin":
         raise HTTPException(status_code=403, detail="User does not have Admin privileges")
 
     genre_name = req.get("genre_name")
@@ -86,8 +87,9 @@ async def get_genre_details(
     db: Session = Depends(get_db),
 ):
     """Get genre details – description, song count, top repos, etc."""
-    query = db.query(GenreList).filter(GenreList.genre_id == genre_id)
-    genre = query.one()
+    genre = db.query(GenreList).filter(GenreList.genre_id == genre_id).first()
+    if not genre:
+        raise HTTPException(status_code=404, detail="Genre not found")
 
     return {
         "success": True,
@@ -109,12 +111,21 @@ async def patch_genre_data(
     genre_icon: Optional[str] = None,
     genre_color: Optional[str] = None,
     display_order: Optional[int] = None,
-    song_count: Optional[int] = None,
+    token: str = Depends(verify_token),
     db: Session = Depends(get_db),
 ):
-    """Update genre fields (admin only – TODO: enforce admin check)."""
-    query = db.query(GenreList).filter(GenreList.genre_id == genre_id)
-    genre = query.one()
+    """Update genre fields (admin only)."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in")
+
+    user_role = user_res.get("user", {}).get("role", "")
+    if user_role != "service_role" and user_role != "supabase_admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    genre = db.query(GenreList).filter(GenreList.genre_id == genre_id).first()
+    if not genre:
+        raise HTTPException(status_code=404, detail="Genre not found")
 
     if genre_name is not None:
         genre.genre_name = genre_name
@@ -126,12 +137,10 @@ async def patch_genre_data(
         genre.genre_color = genre_color
     if display_order is not None:
         genre.display_order = display_order
-    if song_count is not None:
-        genre.song_count = song_count
 
     db.commit()
 
-    return {"status": "success", "description": "changed "}
+    return {"success": True, "message": "Genre updated"}
 
 
 # ── Repo ↔ Genre Assignment ─────────────────────────────────────────────────

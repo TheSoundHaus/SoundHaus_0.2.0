@@ -4,7 +4,6 @@
  * Commit and diff API calls for the Repository Detail page.
  */
 
-import { authFetch } from "./client";
 import type { ApiResponse } from "../types/api";
 
 
@@ -50,31 +49,40 @@ export interface AlsDiffData {
 
 /** Fetches paginated commit history for a repository. */
 export async function getCommits(
-    owner: string,
-    repo: string,
-    page: number = 1,
-    limit: number = 20,
+    _owner: string,
+    _repo: string,
+    _page: number = 1,
+    _limit: number = 20,
 ): Promise<ApiResponse<CommitListResponse>> {
-    // TODO: implement
-    throw new Error("getCommits not yet implemented");
+    const result = await authFetch<CommitListResponse>(
+        `/repos/${owner}/${repo}/commits?page=${page}&limit=${limit}`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
 }
 
 /** Fetches full metadata for a single commit by SHA. */
 export async function getCommitDetail(
-    owner: string,
-    repo: string,
-    sha: string,
+    _owner: string,
+    _repo: string,
+    _sha: string,
 ): Promise<ApiResponse<{ commit: CommitSummary }>> {
-    // TODO: implement
-    throw new Error("getCommitDetail not yet implemented");
+    const result = await authFetch<{ commit: CommitSummary }>(
+        `/repos/${owner}/${repo}/commits/${sha}`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
 }
 
 /** Fetches the ALS semantic diff for a specific commit SHA. */
 export async function getCommitDiff(
-    owner: string,
-    repo: string,
-    sha: string,
+    _owner: string,
+    _repo: string,
+    _sha: string,
 ): Promise<ApiResponse<{ diff: AlsDiffData | null }>> {
-    // TODO: implement
-    throw new Error("getCommitDiff not yet implemented");
+    const result = await authFetch<{ diff: AlsDiffData | null }>(
+        `/repos/${owner}/${repo}/commits/${sha}/diff`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
 }

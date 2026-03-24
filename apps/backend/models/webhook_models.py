@@ -109,6 +109,13 @@ class PushEvent(Base):
     
     # Relationship back to repository
     repo = relationship("RepoData", back_populates="push_events")
+
+    # Back-reference to individual commit detail rows created from this push
+    commit_details = relationship(
+        "CommitDetail",
+        back_populates="push_event",
+        cascade="all, delete-orphan",
+    )
     
     def __repr__(self):
         return f"<PushEvent(id={self.id}, repo='{self.repo_id}', commits={self.commit_count})>"

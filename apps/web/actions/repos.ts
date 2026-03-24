@@ -1,6 +1,6 @@
 "use server";
 
-import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo } from "@/lib/api/repos";
+import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo, updateRepoDescription } from "@/lib/api/repos";
 
 // Thin server action wrapper for createRepo
 // Returns a simple serializable object (no complex GiteaRepo nesting)
@@ -14,7 +14,7 @@ export async function createRepoAction(
     if (!result.success) return { success: false, error: result.error };
     return { success: true };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to create repository" };
+    return { success: false, error: e instanceof Error ? e.message : "Failed to create project" };
   }
 }
 
@@ -27,7 +27,7 @@ export async function starRepoAction(
     if (!result.success) return { success: false, error: result.error };
     return { success: true };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to star repository" };
+    return { success: false, error: e instanceof Error ? e.message : "Failed to star project" };
   }
 }
 
@@ -40,7 +40,7 @@ export async function unstarRepoAction(
     if (!result.success) return { success: false, error: result.error };
     return { success: true };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to unstar repository" };
+    return { success: false, error: e instanceof Error ? e.message : "Failed to unstar project" };
   }
 }
 
@@ -53,7 +53,7 @@ export async function deleteRepoAction(
     if (!result.success) return { success: false, error: result.error };
     return { success: true };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to delete repository" };
+    return { success: false, error: e instanceof Error ? e.message : "Failed to delete project" };
   }
 }
 
@@ -67,6 +67,20 @@ export async function renameRepoAction(
     if (!result.success) return { success: false, error: result.error };
     return { success: true };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to rename repository" };
+    return { success: false, error: e instanceof Error ? e.message : "Failed to rename project" };
+  }
+}
+
+export async function updateDescriptionAction(
+  owner: string,
+  repo: string,
+  description: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const result = await updateRepoDescription(owner, repo, description);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to update description" };
   }
 }

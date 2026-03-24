@@ -4,9 +4,11 @@ Snippet Service - Audio snippet management with Supabase Storage.
 Each repository can have ONE audio snippet as a preview.
 This service handles:
 - Validating uploaded files are actually audio
+- Trimming audio files that exceed the maximum allowed duration
 - Extracting metadata (duration, sample rate, etc.) from uploaded audio files
 - Cloud storage via Supabase Storage bucket 'snippets'
 """
+import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 import mimetypes
@@ -31,6 +33,29 @@ ALLOWED_AUDIO_TYPES = {
 }
 
 ALLOWED_EXTENSIONS = {".mp3", ".wav", ".flac", ".aiff", ".aif", ".ogg", ".m4a"}
+
+# Map non-standard MIME types to Supabase-compatible equivalents.
+# Python's mimetypes module returns e.g. 'audio/x-wav' for .wav files,
+# but Supabase Storage rejects anything it doesn't recognise.
+MIME_NORMALIZE = {
+    "audio/x-wav": "audio/wav",
+    "audio/x-aiff": "audio/aiff",
+    "audio/mp3": "audio/mpeg",
+}
+
+# Maximum snippet duration in seconds (configurable via env var)
+# Audio longer than this will be silently trimmed on upload.
+# Default 30s keeps AI stem-separation (Demucs) fast and responsive.
+MAX_SNIPPET_DURATION_SECONDS = float(os.getenv("MAX_SNIPPET_DURATION", "30.0"))
+
+# Try to import pydub for audio trimming
+try:
+    from pydub import AudioSegment
+    HAS_PYDUB = True
+except ImportError:
+    HAS_PYDUB = False
+    logger.warning("pydub_not_available",
+                   message="Install pydub for audio duration trimming")
 
 # Try to import mutagen for metadata extraction
 try:
@@ -62,6 +87,56 @@ class SnippetService:
         self.bucket_name = "snippets"
         logger.debug("snippet_service_init", bucket=self.bucket_name,
                      using_service_key=bool(settings.supabase_service_key))
+
+    def _trim_audio_if_needed(self, content: bytes, filename: str) -> bytes:
+        """
+        Trim audio to MAX_SNIPPET_DURATION_SECONDS if it exceeds the limit.
+
+        Uses pydub (requires ffmpeg) to re-encode the trimmed segment.
+        If pydub is unavailable or trimming fails, returns the original bytes.
+
+        Args:
+            content: Audio file bytes
+            filename: Original filename (used to detect audio format)
+
+        Returns:
+            Trimmed audio bytes, or original bytes if no trimming needed/possible
+        """
+        if not HAS_PYDUB:
+            logger.warning("audio_trim_skipped", reason="pydub_not_installed")
+            return content
+
+        ext = Path(filename).suffix.lstrip(".").lower() or "mp3"
+        max_ms = int(MAX_SNIPPET_DURATION_SECONDS * 1000)
+
+        try:
+            audio = AudioSegment.from_file(io.BytesIO(content), format=ext)
+            if len(audio) <= max_ms:
+                return content  # Already within limit
+
+            original_duration = len(audio) / 1000.0
+            trimmed = audio[:max_ms]
+
+            output = io.BytesIO()
+            trimmed.export(output, format=ext)
+            trimmed_bytes = output.getvalue()
+
+            logger.info(
+                "audio_trimmed",
+                original_duration=round(original_duration, 2),
+                trimmed_to=MAX_SNIPPET_DURATION_SECONDS,
+                original_size=len(content),
+                trimmed_size=len(trimmed_bytes),
+            )
+            return trimmed_bytes
+
+        except Exception as e:
+            logger.warning(
+                "audio_trim_failed",
+                filename=filename,
+                error=str(e),
+            )
+            return content  # Return original if trim fails
 
     def _validate_audio_file(self, filename: str, content: bytes, content_type: Optional[str] = None) -> str:
         """
@@ -148,34 +223,40 @@ class SnippetService:
         # Step 1: Validate the file is actually audio
         mime_type = self._validate_audio_file(filename, content, content_type)
 
-        # Step 2: Determine storage path
+        # Step 2: Trim audio if it exceeds the maximum allowed duration
+        content = self._trim_audio_if_needed(content, filename)
+
+        # Step 3: Determine storage path
         ext = Path(filename).suffix.lower() or ".mp3"
         format_name = ext.lstrip(".")
         storage_path = f"{owner}/{repo}/snippet{ext}"
+
+        # Normalise MIME type so Supabase doesn't reject non-standard variants
+        upload_mime = MIME_NORMALIZE.get(mime_type, mime_type)
 
         logger.info("snippet_upload_start",
                      owner=owner,
                      repo=repo,
                      file_size=len(content),
-                     mime_type=mime_type,
+                     mime_type=upload_mime,
                      storage_path=storage_path)
 
-        # Step 3: Upload to Supabase Storage (upsert replaces existing)
+        # Step 4: Upload to Supabase Storage (upsert replaces existing)
         result = self.supabase.storage.from_(self.bucket_name).upload(
             path=storage_path,
             file=content,
             file_options={
-                "content-type": mime_type,
+                "content-type": upload_mime,
                 "upsert": "true"
             }
         )
 
         logger.debug("supabase_upload_response", result=str(result))
 
-        # Step 4: Get public CDN URL
+        # Step 5: Get public CDN URL
         public_url = self.supabase.storage.from_(self.bucket_name).get_public_url(storage_path)
 
-        # Step 5: Extract audio metadata
+        # Step 6: Extract audio metadata from trimmed content
         metadata = self._extract_metadata(content)
 
         logger.info("snippet_upload_success",
@@ -194,35 +275,6 @@ class SnippetService:
             "channels": metadata.get("channels"),
         }
 
-    async def _get_next_version_number(
-        self,
-        repo_id: str,
-        db
-    ) -> int:
-        """
-        Returns the next version number for a repository's snippet history.
-        Queries MAX(version_number) for this repo and returns MAX + 1 (or 1 if none exist).
-        """
-        # TODO: implement
-        raise NotImplementedError("_get_next_version_number not yet implemented")
-
-    async def _snapshot_existing_snippet(
-        self,
-        owner: str,
-        repo: str,
-        current_url: str,
-        current_metadata: dict,
-        version_number: int,
-        db,
-        uploader_user_id: Optional[str] = None,
-        commit_sha: Optional[str] = None,
-    ) -> None:
-        """
-        Saves the current live snippet as a versioned history entry before overwrite.
-        Copies the storage file to a versioned path and creates a SnippetHistory row.
-        """
-        # TODO: implement
-        raise NotImplementedError("_snapshot_existing_snippet not yet implemented")
 
     async def delete_snippet(self, owner: str, repo: str) -> bool:
         """

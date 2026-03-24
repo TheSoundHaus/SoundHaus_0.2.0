@@ -8,7 +8,7 @@ import { setAuthCookies, getAccessToken, clearAuthCookies } from "@/lib/utils/au
 const API_BASE_URL = process.env.API_URL || "http://localhost:8000";
 
 export async function signup(
-  state: FormState,
+  _state: FormState,
   formData: FormData,
 ): Promise<FormState> {
   // Validate form fields
@@ -81,7 +81,7 @@ export async function signup(
 }
 
 export async function login(
-  state: LoginFormState,
+  _state: LoginFormState,
   formData: FormData,
 ): Promise<LoginFormState> {
   // Validate form fields
@@ -169,4 +169,28 @@ export async function logout(): Promise<{ error?: string }> {
   }
 
   redirect("/login");
+}
+
+/**
+ * Request a password reset email via Supabase.
+ */
+export async function requestPasswordResetAction(
+  email: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.detail || data.message || "Failed to send reset email." };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error("Password reset error:", error);
+    return { success: false, error: "An error occurred. Please try again." };
+  }
 }
