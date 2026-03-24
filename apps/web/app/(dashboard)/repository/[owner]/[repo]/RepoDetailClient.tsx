@@ -31,10 +31,11 @@ import {
 } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
+import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
-import DiffView from "@/components/DiffView";
+import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import UserAvatar from "@/components/UserAvatar";
-import { deleteRepoAction, renameRepoAction } from "@/actions/repos";
+import { deleteRepoAction, renameRepoAction, updateDescriptionAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
@@ -49,6 +50,7 @@ import type {
   SentInvitation,
   Collaborator,
   UserSearchResult,
+  SnippetVersion,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
 
@@ -61,6 +63,7 @@ interface RepoDetailClientProps {
   snippet: Snippet | null;
   allGenres: Genre[];
   initialCommits: CommitListResponse | null;
+  initialStems: SnippetVersion | null;
 }
 
 export default function RepoDetailClient({
@@ -72,6 +75,7 @@ export default function RepoDetailClient({
   snippet,
   allGenres,
   initialCommits,
+  initialStems,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
     "overview" | "commits" | "events" | "collaborators" | "settings"
@@ -79,8 +83,12 @@ export default function RepoDetailClient({
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  // Track current snippet URL (updates after upload without full page reload)
+  const [currentSnippetUrl, setCurrentSnippetUrl] = useState(snippet?.url ?? null);
+
   // Settings form state
   const [newName, setNewName] = useState(repo);
+  const [description, setDescription] = useState(stats?.description ?? "");
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Commits state — deduplicate by SHA on init to guard against backend duplicates
@@ -111,24 +119,25 @@ export default function RepoDetailClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [collabError, setCollabError] = useState<string | null>(null);
+  const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
+  const [invitePermission, setInvitePermission] = useState<"write" | "admin">("write");
 
   // Fetch collaborators & invitations when tab is active
   const loadCollaboratorsData = useCallback(async () => {
     setCollabLoading(true);
     setCollabError(null);
     const [collabRes, invRes] = await Promise.all([
-      listCollaborators(repo),
+      listCollaborators(owner, repo),
       getRepoInvitations(repo),
     ]);
     if (collabRes.success) setCollaborators(collabRes.data ?? []);
     else setCollabError(collabRes.error);
     if (invRes.success) setRepoInvitations(invRes.data ?? []);
     setCollabLoading(false);
-  }, [repo]);
+  }, [owner, repo]);
 
   useEffect(() => {
     if (activeTab === "collaborators") {
@@ -156,10 +165,9 @@ export default function RepoDetailClient({
     setInviteError(null);
     setInviteSuccess(null);
     startTransition(async () => {
-      const result = await inviteCollaboratorAction(repo, email);
+      const result = await inviteCollaboratorAction(repo, email, invitePermission);
       if (result.success) {
-        setInviteSuccess(`Invitation sent to ${email}`);
-        setInviteEmail("");
+        setInviteSuccess(`Invitation sent to ${email} as ${invitePermission === "admin" ? "Admin" : "Contributor"}`);
         setSearchQuery("");
         setSearchResults([]);
         loadCollaboratorsData();
@@ -167,7 +175,7 @@ export default function RepoDetailClient({
         setInviteError(result.error);
       }
     });
-  }, [repo, loadCollaboratorsData]);
+  }, [repo, invitePermission, loadCollaboratorsData]);
 
   // Cancel invite handler
   const handleCancelInvite = useCallback(async (invitationId: string) => {
@@ -216,6 +224,19 @@ export default function RepoDetailClient({
       const result = await renameRepoAction(owner, repo, newName.trim());
       if (result.success) {
         router.push(`/repository/${owner}/${newName.trim()}`);
+        router.refresh();
+      } else {
+        setSettingsError(result.error);
+      }
+    });
+  }
+
+  function handleSaveDescription(e: React.FormEvent) {
+    e.preventDefault();
+    setSettingsError(null);
+    startTransition(async () => {
+      const result = await updateDescriptionAction(owner, repo, description);
+      if (result.success) {
         router.refresh();
       } else {
         setSettingsError(result.error);
@@ -292,7 +313,7 @@ export default function RepoDetailClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
-    { key: "events" as const, label: "Events", icon: Activity },
+    { key: "events" as const, label: "Timeline", icon: Activity },
     { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "settings" as const, label: "Settings", icon: Settings },
   ];
@@ -312,16 +333,15 @@ export default function RepoDetailClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
-          {stats && (
+          {stats?.description && (
+            <p className="mb-3 text-base text-zinc-400">{stats.description}</p>
+          )}
+          {stats && !stats.description && (
             <p className="mb-3 text-lg text-zinc-400">
               {stats.audio_snippet ? "Audio snippet available" : "No audio snippet"}
             </p>
           )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
-            <span className="flex items-center gap-1">
-              <User size={14} /> {owner}
-            </span>
-            <span>•</span>
             <span className="flex items-center gap-1">
               <Lock size={14} /> Private
             </span>
@@ -342,9 +362,9 @@ export default function RepoDetailClient({
       </div>
 
       {/* Audio Player */}
-      {snippet?.url && (
+      {currentSnippetUrl && (
         <div className="mb-8">
-          <AudioPlayer src={snippet.url} />
+          <AudioPlayer src={currentSnippetUrl} />
         </div>
       )}
 
@@ -415,7 +435,7 @@ export default function RepoDetailClient({
             <div className="rounded-lg border border-zinc-800 p-6">
               <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
               {pushes.length === 0 ? (
-                <p className="text-sm text-zinc-500">No push activity recorded yet.</p>
+                <p className="text-sm text-zinc-400">No push activity recorded yet.</p>
               ) : (
                 <div className="space-y-4">
                   {pushes.slice(0, 5).map((p) => (
@@ -437,7 +457,7 @@ export default function RepoDetailClient({
                           {p.pusher} pushed {timeAgo(p.pushed_at)}
                         </div>
                       </div>
-                      <div className="font-mono text-sm text-zinc-500">
+                      <div className="font-mono text-sm text-zinc-400">
                         {p.after_sha ?? "—"}
                       </div>
                     </div>
@@ -457,14 +477,14 @@ export default function RepoDetailClient({
                   {stats.recent_clones.map((c, i) => (
                     <div key={i} className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2 text-zinc-300">
-                        <User size={14} /> {c.user_id.slice(0, 8)}…
+                        <User size={14} /> User
                       </span>
-                      <span className="text-zinc-500">{timeAgo(c.cloned_at)}</span>
+                      <span className="text-zinc-400">{timeAgo(c.cloned_at)}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-zinc-500">No clones yet.</p>
+                <p className="text-sm text-zinc-400">No clones yet.</p>
               )}
             </div>
 
@@ -507,9 +527,9 @@ export default function RepoDetailClient({
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1 text-zinc-400">
-                    <Calendar size={12} /> ID
+                    <Calendar size={12} /> Project
                   </span>
-                  <span className="font-mono text-xs">{owner}/{repo}</span>
+                  <span className="font-mono text-xs">{repo}</span>
                 </div>
               </div>
             </div>
@@ -522,13 +542,13 @@ export default function RepoDetailClient({
         <div className="rounded-lg border border-zinc-800 p-6">
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-2xl font-semibold">Snapshot History</h2>
-            <span className="text-sm text-zinc-500">
+            <span className="text-sm text-zinc-400">
               {commitTotal} snapshot{commitTotal !== 1 ? "s" : ""}
             </span>
           </div>
 
           {commits.length === 0 ? (
-            <p className="text-zinc-500">No snapshots recorded yet.</p>
+            <p className="text-zinc-400">No snapshots recorded yet.</p>
           ) : (
             <div className="space-y-2">
               {commits.map((c) => {
@@ -552,7 +572,7 @@ export default function RepoDetailClient({
                         <div className="mb-1 font-medium text-zinc-200 truncate">
                           {c.message.split("\n")[0]}
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
                           <span className="flex items-center gap-1">
                             <User size={11} /> {c.author_name}
                           </span>
@@ -567,7 +587,7 @@ export default function RepoDetailClient({
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="font-mono text-xs text-zinc-500">
+                        <span className="font-mono text-xs text-zinc-400">
                           {c.short_sha}
                         </span>
                         {c.has_diff && (
@@ -624,12 +644,15 @@ export default function RepoDetailClient({
                           </div>
                         )}
 
-                        {/* Diff view (arrangement visualization) */}
-                        <DiffView
-                          diffData={diffCache[c.sha] ?? null}
-                          commit={c}
+                        {/* Diff viewer (piano roll / waveform / timeline) */}
+                        <DiffTimeline
+                          diffData={diffCache[c.sha]?.diff_data ?? null}
+                          commitSha={c.sha}
+                          commitMsg={c.message}
                           isLoading={diffLoading === c.sha}
                           error={diffError && expandedSha === c.sha ? diffError : null}
+                          repoOwner={owner}
+                          repoName={repo}
                         />
                       </div>
                     )}
@@ -657,9 +680,9 @@ export default function RepoDetailClient({
       {/* ── Events Tab ─────────────────────────────────────────────── */}
       {activeTab === "events" && (
         <div className="rounded-lg border border-zinc-800 p-6">
-          <h2 className="mb-6 text-2xl font-semibold">Project Events</h2>
+          <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
           {repoEvents.length === 0 ? (
-            <p className="text-zinc-500">No events recorded yet.</p>
+            <p className="text-zinc-400">No activity recorded yet.</p>
           ) : (
             <div className="space-y-4">
               {repoEvents.map((ev) => (
@@ -711,79 +734,103 @@ export default function RepoDetailClient({
               <UserPlus size={18} /> Invite Collaborators
             </h2>
 
-            {/* Search users */}
-            <div className="relative mb-4">
-              <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
-                <Search size={16} className="text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="Search users by email or username…"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none text-sm"
-                />
-                {searchQuery && (
-                  <button onClick={() => { setSearchQuery(""); setSearchResults([]); }}>
-                    <X size={14} className="text-zinc-500 hover:text-zinc-300" />
-                  </button>
-                )}
-              </div>
+            {/* Single search bar with inline send button */}
+            <div className="relative">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const value = searchQuery.trim();
+                  if (value) handleInvite(value);
+                }}
+                className="flex gap-3"
+              >
+                <div className="relative flex-1">
+                  <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
+                    <Search size={16} className="text-zinc-400 shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Search by email or username…"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none text-sm"
+                    />
+                    {searchQuery && (
+                      <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }}>
+                        <X size={14} className="text-zinc-400 hover:text-zinc-300" />
+                      </button>
+                    )}
+                  </div>
 
-              {/* Search results dropdown */}
-              {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
-                <div className="absolute z-10 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg max-h-48 overflow-y-auto">
-                  {searchLoading ? (
-                    <div className="px-4 py-3 text-sm text-zinc-500">Searching…</div>
-                  ) : (
-                    searchResults.map((u) => (
-                      <div
-                        key={u.username}
-                        className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <UserAvatar src={u.avatar_url} alt={u.username} size={32} />
-                          <div>
-                            <div className="text-sm font-medium text-zinc-200">{u.username}</div>
-                            <div className="text-xs text-zinc-500">{u.email}</div>
+                  {/* Search results dropdown */}
+                  {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
+                    <div className="absolute z-10 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg max-h-48 overflow-y-auto">
+                      {searchLoading ? (
+                        <div className="px-4 py-3 text-sm text-zinc-400">Searching…</div>
+                      ) : (
+                        searchResults.map((u) => (
+                          <div
+                            key={u.username}
+                            className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <UserAvatar src={u.avatar_url} alt={u.username} size={20} />
+                              <div>
+                                <div className="text-sm font-medium text-zinc-200">{u.username}</div>
+                                <div className="text-xs text-zinc-400">{u.email}</div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleInvite(u.email)}
+                              disabled={isPending}
+                              className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
+                            >
+                              <Send size={11} /> Invite
+                            </button>
                           </div>
-                        </div>
-                        <button
-                          onClick={() => handleInvite(u.email)}
-                          disabled={isPending}
-                          className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
-                        >
-                          <Send size={11} /> Invite
-                        </button>
-                      </div>
-                    ))
+                        ))
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
+                <button
+                  type="submit"
+                  disabled={isPending || !searchQuery.trim()}
+                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 shrink-0"
+                >
+                  <Send size={14} /> Send Invite
+                </button>
+              </form>
 
-            {/* Manual email invite */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (inviteEmail.trim()) handleInvite(inviteEmail.trim());
-              }}
-              className="flex gap-3"
-            >
-              <input
-                type="email"
-                placeholder="Or invite by email address…"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={isPending || !inviteEmail.trim()}
-                className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Send size={14} /> Send Invite
-              </button>
-            </form>
+              {/* Role selector */}
+              <div className="mt-3 flex items-center gap-3">
+                <span className="text-xs text-zinc-400">Invite as:</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("write")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "write"
+                        ? "border-glass-cyan-500 bg-glass-cyan-500/10 text-glass-cyan-500"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Contributor
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("admin")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "admin"
+                        ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Admin
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Pending Invitations */}
@@ -792,9 +839,9 @@ export default function RepoDetailClient({
               <Clock size={18} /> Pending Invitations
             </h2>
             {collabLoading ? (
-              <p className="text-sm text-zinc-500">Loading…</p>
+              <p className="text-sm text-zinc-400">Loading…</p>
             ) : repoInvitations.filter((i) => i.status === "pending").length === 0 ? (
-              <p className="text-sm text-zinc-500">No pending invitations.</p>
+              <p className="text-sm text-zinc-400">No pending invitations.</p>
             ) : (
               <div className="space-y-3">
                 {repoInvitations
@@ -812,7 +859,7 @@ export default function RepoDetailClient({
                           <div className="text-sm font-medium text-zinc-200">
                             {inv.invitee_email}
                           </div>
-                          <div className="text-xs text-zinc-500">
+                          <div className="text-xs text-zinc-400">
                             Sent {timeAgo(inv.created_at)} · {inv.permission} access
                           </div>
                         </div>
@@ -836,32 +883,71 @@ export default function RepoDetailClient({
               <Users size={18} /> Active Collaborators
             </h2>
             {collabLoading ? (
-              <p className="text-sm text-zinc-500">Loading…</p>
+              <p className="text-sm text-zinc-400">Loading…</p>
             ) : collaborators.length === 0 ? (
-              <p className="text-sm text-zinc-500">No collaborators yet. Invite someone above!</p>
+              <p className="text-sm text-zinc-400">No collaborators yet. Invite someone above!</p>
             ) : (
               <div className="space-y-3">
-                {collaborators.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <UserAvatar src={c.avatar_url} alt={c.login} size={40} />
-                      <div>
-                        <div className="text-sm font-medium text-zinc-200">{c.login}</div>
-                        <div className="text-xs text-zinc-500">{c.email || "No email"}</div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveCollaborator(c.login)}
-                      disabled={isPending}
-                      className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                {collaborators.map((c) => {
+                  const isExpanded = expandedCollab === c.login;
+                  return (
+                    <div
+                      key={c.login}
+                      className="rounded-md border border-zinc-700/50 bg-zinc-800/30 overflow-hidden"
                     >
-                      <UserMinus size={11} /> Remove
-                    </button>
-                  </div>
-                ))}
+                      {/* Main row */}
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCollab(isExpanded ? null : c.login)}
+                          className="flex items-center gap-3 text-left group"
+                        >
+                          <UserAvatar src={c.avatar_url} alt={c.username} size={40} />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-bold text-white">{c.username}</span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  c.permission === "admin"
+                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                                    : "bg-glass-cyan-500/10 text-glass-cyan-500 border border-glass-cyan-500/30"
+                                }`}
+                              >
+                                {c.permission === "admin" ? "Admin" : "Contributor"}
+                              </span>
+                            </div>
+                            <div className="text-sm text-zinc-400">{c.display_name || c.email || ""}</div>
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        <button
+                          onClick={() => handleRemoveCollaborator(c.login)}
+                          disabled={isPending}
+                          className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          <UserMinus size={11} /> Remove
+                        </button>
+                      </div>
+
+                      {/* Expanded dropdown */}
+                      {isExpanded && (
+                        <div className="border-t border-zinc-700/50 bg-zinc-900/40 px-5 py-4 space-y-3">
+                          {c.bio ? (
+                            <div>
+                              <div className="text-xs font-medium text-zinc-400 mb-1">Bio</div>
+                              <p className="text-sm text-zinc-300 leading-relaxed">{c.bio}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-zinc-400 italic">No bio provided.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -892,7 +978,7 @@ export default function RepoDetailClient({
                           <div className="text-sm font-medium text-zinc-200">
                             {inv.invitee_email}
                           </div>
-                          <div className="text-xs text-zinc-500">
+                          <div className="text-xs text-zinc-400">
                             {inv.status === "accepted" ? "Accepted" : "Declined"}{" "}
                             {inv.responded_at ? timeAgo(inv.responded_at) : ""}
                           </div>
@@ -928,7 +1014,7 @@ export default function RepoDetailClient({
           )}
 
           <div className="space-y-6">
-            {/* Rename */}
+            {/* 1. Project Name */}
             <form onSubmit={handleRename}>
               <label className="mb-2 block text-sm font-medium">
                 Project Name
@@ -950,7 +1036,33 @@ export default function RepoDetailClient({
               </div>
             </form>
 
-            {/* Genre Editor */}
+
+            {/* 2. Description */}
+            <form onSubmit={handleSaveDescription}>
+              <label className="mb-2 block text-sm font-medium">
+                Description
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe your project…"
+                rows={3}
+                maxLength={500}
+                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none resize-none"
+              />
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-zinc-400">{description.length}/500</span>
+                <button
+                  type="submit"
+                  disabled={isPending || description === (stats?.description ?? "")}
+                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Save size={14} /> Save Description
+                </button>
+              </div>
+            </form>
+
+            {/* 2. Genre Selector */}
             <GenreEditor
               owner={owner}
               repo={repo}
@@ -958,7 +1070,7 @@ export default function RepoDetailClient({
               currentGenres={stats?.genres ?? []}
             />
 
-            {/* Audio Snippet Upload */}
+            {/* 3. Snippet History → 4. Stem Separation (middleContent) → 5. Replace Snippet drop zone */}
             <SnippetUploader
               owner={owner}
               repo={repo}
@@ -974,16 +1086,47 @@ export default function RepoDetailClient({
                     }
                   : null
               }
+              onUpdate={(newUrl) => {
+                setCurrentSnippetUrl(newUrl);
+                router.refresh();
+              }}
+              middleContent={
+                <StemPlayer
+                  owner={owner}
+                  repo={repo}
+                  snippetUrl={currentSnippetUrl}
+                  initialStems={initialStems}
+                />
+              }
             />
 
-            {/* Delete project */}
-            <button
-              onClick={handleDelete}
-              disabled={isPending}
-              className="flex items-center gap-2 rounded-md border border-red-500/30 px-6 py-3 font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:opacity-50"
-            >
-              <Trash2 size={16} /> Delete Project
-            </button>
+            {/* 6. Delete project — bottom right */}
+            <div className="flex justify-end pt-4 border-t border-zinc-800">
+              <button
+                onClick={handleDelete}
+                disabled={isPending}
+                className="flex items-center gap-2 rounded-md bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 size={14} /> Delete Project
+              </button>
+            </div>
+
+            {/* 7. Quick Settings Bar */}
+            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                Quick Settings
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {/* Privacy toggle */}
+                <div className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5">
+                  <Lock size={14} className="text-zinc-400" />
+                  <span className="text-sm text-zinc-300">Private Project</span>
+                  <span className="ml-1 rounded bg-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
+                    Always
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

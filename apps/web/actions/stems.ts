@@ -5,6 +5,7 @@ import {
   getStemJobStatus,
   confirmStemJob,
 } from "@/lib/api/stems";
+import type { StemJobStatus } from "@/lib/types/api";
 
 /**
  * Start stem generation for the repo's current snippet.
@@ -14,7 +15,7 @@ export async function generateStemsAction(
   repo: string,
   snippetUrl: string,
 ): Promise<
-  | { success: true; jobId: number; status: string }
+  | { success: true; jobId: number; status: StemJobStatus }
   | { success: false; error: string }
 > {
   try {
@@ -34,7 +35,7 @@ export async function pollStemJobAction(
   repo: string,
   jobId: number,
 ): Promise<
-  | { success: true; status: string; errorMessage: string | null }
+  | { success: true; status: StemJobStatus; errorMessage: string | null }
   | { success: false; error: string }
 > {
   try {

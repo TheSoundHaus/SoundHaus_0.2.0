@@ -268,7 +268,7 @@ export default function SnippetUploader({
                             type="button"
                             onClick={handleDelete}
                             disabled={isPending}
-                            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                            className="flex items-center gap-1 rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
                         >
                             <Trash2 size={12} /> Remove
                         </button>
@@ -307,11 +307,11 @@ export default function SnippetUploader({
                     </>
                 ) : (
                     <>
-                        <Upload size={32} className="mb-3 text-zinc-500" />
+                        <Upload size={32} className="mb-3 text-zinc-400" />
                         <p className="text-sm font-medium text-zinc-300">
                             {snippetUrl ? "Replace snippet" : "Drop audio file here"}
                         </p>
-                        <p className="mt-1 text-xs text-zinc-500">
+                        <p className="mt-1 text-xs text-zinc-400">
                             or click to browse — {ALLOWED_EXTENSIONS.join(", ")}
                         </p>
                     </>

@@ -30,6 +30,7 @@ from routers import (
     stems,
     webhooks,
     commits,
+    audio,
 )
 
 # ── App creation ─────────────────────────────────────────────────────────────
@@ -111,3 +112,4 @@ app.include_router(snippets.router)     # /repos/*/snippet*
 app.include_router(stems.router)        # /repos/*/stems/*
 app.include_router(webhooks.router)     # /api/webhooks/*
 app.include_router(commits.router)      # /repos/*/commits/*  ,  /repos/*/diff
+app.include_router(audio.router)        # /repos/*/audio/waveform

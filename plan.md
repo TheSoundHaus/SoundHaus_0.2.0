@@ -1,834 +1,793 @@
-# SoundHaus Implementation Plan
-> **Replaces:** `plan-soundHausMvp30Day.prompt.md` (that file can be deleted — it's the old 30-day overview)
-> **Last updated:** March 2026
-> This plan covers the feature build-out across backend models, webhooks, diff upload, snippet versioning, and the web repo page.
-> Scaffolded files have been created — your job is to fill in the `TODO: implement` stubs.
+# SoundHaus — 2-Week Finalization Sprint
+
+**Sprint Dates**: March 24 – April 4, 2026  
+**Daily Commitment**: 6–8 hours  
+**Owner**: Nathan (web + backend) — Desktop team handles Electron/Rust parser independently  
+**Excluded**: Explore page (teammate-owned)
 
 ---
 
-## Quick Reference — Scaffolded Files
+## Git Setup — Do This First
 
-| File | Status | Your task |
-|------|--------|-----------|
-| `apps/backend/models/commit_models.py` | ✅ Created | No changes needed — it's complete |
-| `apps/backend/models/diff_models.py` | ✅ Created | Decide Design Decision C (commit FK vs SHA) |
-| `apps/backend/models/snippet_models.py` | ✅ Created | Decide Design Decision A (retention policy) |
-| `apps/backend/models/repo_models.py` | ✅ Edited | New columns + relationships added |
-| `apps/backend/routers/commits.py` | ✅ Created | Fill in all 4 `raise NotImplementedError` stubs |
-| `apps/backend/services/webhook_service.py` | ✅ Edited | Fill in two `# TODO` blocks |
-| `apps/backend/services/snippet_service.py` | ✅ Edited | Fill in `_get_next_version_number` + `_snapshot_existing_snippet` |
-| `apps/web/lib/api/commits.ts` | ✅ Created | Uncomment the `authFetch` calls in each function |
-| `apps/desktop/src/services/gitService.ts` | ✅ Edited | Fill in `pushAndDiff` IPC calls (Step 2 & 3 TODOs) |
-| `apps/web/app/(dashboard)/repository/[id]/page.tsx` | ✅ Rewritten | Wire up API calls, replace TODO comments |
-
----
-
-## Phase 0 — Decisions to Make Before Writing Code
-
-Go through each scaffolded file's "DESIGN DECISION" sections and pick an option.
-Do this first — the implementation depends on these choices.
-
-- [ ] `commit_models.py` — **Decision A**: JSON columns (simple) vs normalized `commit_file_changes` table? **Recommendation:** JSON for MVP.
-- [ ] `commit_models.py` — **Decision B**: `push_event_id` nullable or not? **Recommendation:** `nullable=False` for MVP.
-- [ ] `diff_models.py` — **Decision A**: One table with `diff_type` discriminator vs two separate tables? **Recommendation:** One table.
-- [ ] `diff_models.py` — **Decision B**: Two rows per push (one per system) vs single combined row? **Recommendation:** Single combined row for MVP.
-- [ ] `diff_models.py` — **Decision C**: `commit_sha` String vs FK to `commit_details.id`? **Recommendation:** String (loose coupling) for now.
-- [ ] `snippet_models.py` — **Decision A**: Keep versioned files forever vs delete after N versions? **Recommendation:** Keep forever (1 GB Supabase free tier).
-- [ ] `snippet_models.py` — **Decision B**: Per-repo version numbering (1, 2, 3 per repo) vs global? **Recommendation:** Per-repo.
-- [ ] `commits.py` router — **Pagination decision**: Offset-based (`page=1&limit=20`) vs cursor-based? **Recommendation:** Offset for MVP.
-- [ ] `commits.py` router — **Short SHA decision**: Accept short (8 char) SHAs? If so, how to handle ambiguity? **Recommendation:** Accept short, reject 400 if multiple matches.
-- [ ] `page.tsx` — **URL encoding decision**: How is `id` encoded in `/repository/[id]`? Matches `${owner}__${repoSlug}` or is it a separate numeric ID? Must align with how explore/list pages build the link.
-
----
-
-## Phase 1 — Database Migrations
-
-The new models need to be registered with SQLAlchemy's `Base.metadata` and migrated to Postgres.
-
-### Step 1.1 — Import new models in `main.py`
-
-**File:** `apps/backend/main.py`
-
-Add imports after the existing router imports. SQLAlchemy's `create_all` only creates tables for models that have been imported somewhere in the process.
-
-```python
-# Add after existing model imports (or after router imports — anywhere before init_db)
-from models.commit_models import CommitDetail      # noqa: F401
-from models.diff_models import AlsDiff             # noqa: F401
-from models.snippet_models import SnippetHistory   # noqa: F401
-```
-
-- [ ] Add the three import lines to `apps/backend/main.py` (after the router imports block, before `init_db` is called)
-
-### Step 1.2 — Also import in the webhook_service (for runtime use)
-
-**File:** `apps/backend/services/webhook_service.py`
-
-Add to the imports at the top of the file (around line 97, after the existing model imports):
-
-```python
-from models.commit_models import CommitDetail  # for _handle_push Phase 2
-```
-
-- [ ] Add `CommitDetail` import to `apps/backend/services/webhook_service.py`
-
-### Step 1.3 — Add `Boolean` to repo_models imports
-
-**File:** `apps/backend/models/repo_models.py`
-
-`Boolean` was added to the Column import line already via the scaffold edit.
-
-- [x] Already done by scaffold — verify `Boolean` is in the import at line 1
-
-### Step 1.4 — Run migration
-
-The backend uses a `Base.metadata.create_all` approach (not Alembic migrations).
-
-**If using `create_all` (auto-creates missing tables):**
 ```bash
-# In Docker, the init happens in main.py via init_db()
-# Just restart the backend container:
-docker compose restart backend
+cd /Users/nathanhall/Desktop/Senior_Design/SoundHaus_0.2.0
+
+# Fetch all remote updates
+git fetch origin --prune
+
+# You're currently on feature/pull-requests (tip of all 7 stacked branches)
+# Create a fresh sprint branch off this tip:
+git checkout feature/pull-requests
+git checkout -b sprint/finalization
+
+# If PRs get merged into integration first, do this instead:
+# git checkout integration && git pull origin integration && git checkout -b sprint/finalization
 ```
 
-**If adding Alembic (recommended for production):**
+---
+
+## Architecture Overview
+
+### New Diff Engine Component Tree
+```
+apps/web/components/diff/
+  index.ts                    — barrel export
+  DiffTimeline.tsx            — master layout: ruler + scrollable track list + summary panel
+  PianoRollTrack.tsx          — canvas-based MIDI note renderer (pitch × time grid)
+  WaveformTrack.tsx           — canvas-based waveform peak renderer
+  ChangeOverlay.tsx           — transparent overlay for highlighted diff regions
+  TrackLabel.tsx              — track name, type badge, instrument, change indicator
+  TimeRuler.tsx               — beat/bar ruler with zoom
+  DiffSummaryPanel.tsx        — collapsible sidebar listing all changes
+  ABComparisonView.tsx        — side-by-side or inline HEAD vs new comparison
+  hooks/
+    usePianoRollRenderer.ts   — canvas drawing logic for MIDI notes
+    useWaveformPeaks.ts       — fetch + cache waveform peak JSON from backend
+    useTimelineZoom.ts        — zoom/pan state shared across all tracks
+    useSyncedPlayback.ts      — synchronized audio playback across tracks
+  types/
+    diff.ts                   — TypeScript interfaces (THE contract for desktop team)
+```
+
+### Deployment Topology (Production)
+```
+soundhaus.app (or chosen domain)
+  ├── nginx reverse proxy (SSL via Let's Encrypt)
+  │   ├── /              → Next.js (port 3001)
+  │   ├── /api/          → FastAPI (port 8000)
+  │   └── /git/          → Gitea (port 3000)
+  ├── Docker Compose (all services)
+  └── Supabase (external, managed)
+```
+
+---
+
+## Week 1 — Infrastructure + Landing Page + Diff Contracts
+
+### Day 1 (Mon Mar 24) — Deployment Foundation
+
+> **Goal**: Get the backend accessible over HTTPS with a real domain.
+
+#### 1.1 Purchase Domain (~15 min)
+- [ ] Go to [Namecheap](https://namecheap.com) or [Cloudflare Registrar](https://dash.cloudflare.com)
+- [ ] Search for `soundhaus.app`, `soundhaus.io`, `soundhaus.dev`, or `thesoundhaus.com`
+- [ ] Purchase (`.app` is recommended — enforces HTTPS by default, ~$14/year)
+- [ ] Note your domain name: `____________`
+
+#### 1.2 Configure DNS (~10 min)
+- [ ] In your domain registrar's DNS panel, add an **A record**:
+  - **Host**: `@` (root domain)
+  - **Value**: Your Digital Ocean droplet IP: `____________`
+  - **TTL**: 300 (5 minutes for fast propagation)
+- [ ] Add a second A record for `www`:
+  - **Host**: `www`
+  - **Value**: Same droplet IP
+- [ ] Add a third A record for staging:
+  - **Host**: `staging`
+  - **Value**: Same droplet IP
+- [ ] Wait 5-15 minutes for DNS propagation
+- [ ] Verify: `dig +short yourdomain.app` should return your droplet IP
+
+#### 1.3 SSH into Droplet & Install Nginx (~20 min)
 ```bash
-cd apps/backend
-alembic revision --autogenerate -m "add_commit_diff_snippet_history_tables"
-alembic upgrade head
+# SSH in
+ssh root@YOUR_DROPLET_IP
+
+# Update packages
+apt update && apt upgrade -y
+
+# Install nginx
+apt install nginx -y
+
+# Verify nginx is running
+systemctl status nginx
+# Visit http://YOUR_DROPLET_IP in browser — should see nginx welcome page
 ```
 
-- [ ] Restart the backend and verify the three new tables appear in your database (Supabase Table Editor or `psql`)
-- [ ] Check that `repo_data` now has `needs_update` (boolean) and `last_push_commit_sha` (varchar) columns
+#### 1.4 Configure Nginx Reverse Proxy (~30 min)
+```bash
+# On the droplet, create nginx config
+cat > /etc/nginx/sites-available/soundhaus << 'EOF'
+server {
+    listen 80;
+    server_name yourdomain.app www.yourdomain.app;
 
-### Step 1.5 — Register `commits` router in `main.py`
-
-**File:** `apps/backend/main.py`
-
-```python
-# Add to the routers import block at the top
-from routers import (
-    health,
-    auth,
-    repos,
-    collaborators,
-    desktop,
-    genres,
-    snippets,
-    webhooks,
-    commits,  # ← ADD THIS
-)
-```
-
-Then add the include call in the router mounting section:
-```python
-app.include_router(commits.router, prefix="/api")
-```
-
-- [ ] Add `commits` to the router import block
-- [ ] Add `app.include_router(commits.router, prefix="/api")` line
-- [ ] Test: `GET http://localhost:8000/api/repos/test/test/commits` should return a 500 (NotImplementedError) not 404 — confirms the route registered
-
----
-
-## Phase 2 — Webhook Enhancement (`_handle_push`)
-
-**File:** `apps/backend/services/webhook_service.py`
-
-Find the two `# TODO` comment blocks that were added by the scaffold (search for `# ── TODO: Create CommitDetail rows` and `# ── TODO: Set needs_update flag`).
-
-### Step 2.1 — Add `CommitDetail` creation loop
-
-After `db.add(push_event)`, add `db.flush()` and the commit detail loop.
-
-The exact location is the `# ── TODO: Create CommitDetail rows (Phase 2 implementation)` block.
-
-```python
-# Replace the TODO comment block with:
-db.flush()  # populate push_event.id before FK reference
-
-for commit in commits:
-    cd = CommitDetail(
-        push_event_id=push_event.id,
-        repo_id=repo_full_name,
-        sha=commit["id"],
-        short_sha=commit["id"][:8],
-        message=commit.get("message", ""),
-        author_name=commit.get("author", {}).get("name", "unknown"),
-        author_email=commit.get("author", {}).get("email"),
-        timestamp=commit.get("timestamp"),
-        files_added=commit.get("added", []),
-        files_modified=commit.get("modified", []),
-        files_removed=commit.get("removed", []),
-    )
-    db.add(cd)
-```
-
-- [ ] Replace the `# ── TODO: Create CommitDetail rows` block with the loop above
-- [ ] Confirm `CommitDetail` is imported at the top of the file (Step 1.2)
-
-### Step 2.2 — Set `needs_update` and `last_push_commit_sha`
-
-In the same `_handle_push` method, find the `# ── TODO: Set needs_update flag` block and replace with:
-
-```python
-repo_data.needs_update = True
-repo_data.last_push_commit_sha = after_sha
-```
-
-- [ ] Replace the `# ── TODO: Set needs_update flag` block with the two assignments above
-
-### Step 2.3 — Test the webhook
-
-- [ ] Trigger a test push from the Desktop (or simulate via `curl` POST to `/api/webhooks/gitea`)
-- [ ] Verify `commit_details` table has new rows after the push
-- [ ] Verify `repo_data.needs_update = true` and `repo_data.last_push_commit_sha` is set
-
----
-
-## Phase 3 — Implement Commit Router Endpoints
-
-**File:** `apps/backend/routers/commits.py`
-
-Fill in the four `raise NotImplementedError` stubs. Tackle them in this order.
-
-### Step 3.1 — `GET /repos/{owner}/{repo}/commits` (list)
-
-```python
-async def get_commit_list(request, owner, repo, page, limit, db):
-    repo_id = f"{owner}/{repo}"
-
-    # Check repo exists
-    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
-    if not repo_data:
-        raise HTTPException(status_code=404, detail="Repository not found")
-
-    # Count total
-    total = db.query(CommitDetail).filter(CommitDetail.repo_id == repo_id).count()
-
-    # Fetch page
-    offset = (page - 1) * limit
-    commits = (
-        db.query(CommitDetail)
-        .filter(CommitDetail.repo_id == repo_id)
-        .order_by(desc(CommitDetail.timestamp))
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
-
-    # Check which commits have diffs
-    diff_shas = set(
-        row.commit_sha
-        for row in db.query(AlsDiff.commit_sha).filter(AlsDiff.repo_id == repo_id).all()
-    )
-
-    return {
-        "success": True,
-        "repo": repo_id,
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "commits": [
-            {
-                "id": c.id,
-                "sha": c.sha,
-                "short_sha": c.short_sha,
-                "message": c.message,
-                "author_name": c.author_name,
-                "author_email": c.author_email,
-                "timestamp": c.timestamp.isoformat() if c.timestamp else None,
-                "files_added": c.files_added or [],
-                "files_modified": c.files_modified or [],
-                "files_removed": c.files_removed or [],
-                "has_diff": c.sha in diff_shas,
-            }
-            for c in commits
-        ],
+    # FastAPI backend
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        client_max_body_size 50M;
     }
-```
 
-- [ ] Add `from sqlalchemy import desc` to imports in commits.py
-- [ ] Implement `get_commit_list` replacing the `raise NotImplementedError`
+    # Health endpoint (no /api prefix)
+    location /health {
+        proxy_pass http://127.0.0.1:8000/health;
+        proxy_set_header Host $host;
+    }
 
-### Step 3.2 — `GET /repos/{owner}/{repo}/commits/{sha}` (single)
+    # Gitea (git web UI + API)
+    location /git/ {
+        proxy_pass http://127.0.0.1:3000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
-Similar to the list, but filter by SHA or short SHA. Return 404 if not found.
-
-```python
-# Within get_commit_detail:
-repo_id = f"{owner}/{repo}"
-query = db.query(CommitDetail).filter(CommitDetail.repo_id == repo_id)
-
-if len(sha) == 40:
-    commit = query.filter(CommitDetail.sha == sha).first()
-else:
-    matches = query.filter(CommitDetail.sha.startswith(sha)).all()
-    if len(matches) == 0:
-        raise HTTPException(status_code=404, detail="Commit not found")
-    if len(matches) > 1:
-        raise HTTPException(status_code=400, detail=f"Ambiguous short SHA: {len(matches)} matches")
-    commit = matches[0]
-
-has_diff = db.query(AlsDiff).filter(
-    AlsDiff.repo_id == repo_id, AlsDiff.commit_sha == commit.sha
-).first() is not None
-
-return {"success": True, "commit": {..., "has_diff": has_diff}}
-```
-
-- [ ] Implement `get_commit_detail`
-
-### Step 3.3 — `POST /repos/{owner}/{repo}/diff` (Desktop posts diff)
-
-```python
-# Within post_als_diff:
-if not token.startswith("soundh_"):
-    raise HTTPException(status_code=403, detail="Desktop PAT required")
-
-body = await request.json()
-repo_id = f"{owner}/{repo}"
-
-# Validate required fields
-commit_sha = body.get("commit_sha")
-diff_data = body.get("diff_data")
-if not commit_sha or diff_data is None:
-    raise HTTPException(status_code=422, detail="commit_sha and diff_data are required")
-
-# Upsert AlsDiff row (idempotent for retries)
-existing = db.query(AlsDiff).filter(
-    AlsDiff.repo_id == repo_id, AlsDiff.commit_sha == commit_sha
-).first()
-
-if existing:
-    existing.diff_data = diff_data
-    existing.diff_summary = body.get("diff_summary")
-    diff_id = existing.id
-else:
-    new_diff = AlsDiff(
-        repo_id=repo_id,
-        commit_sha=commit_sha,
-        before_sha=body.get("before_sha"),
-        diff_type=body.get("diff_type", "combined"),
-        diff_summary=body.get("diff_summary"),
-        diff_data=diff_data,
-        desktop_version=body.get("desktop_version"),
-    )
-    db.add(new_diff)
-    db.flush()
-    diff_id = new_diff.id
-
-# Clear needs_update flag
-repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
-if repo_data:
-    repo_data.needs_update = False
-
-db.commit()
-return {"success": True, "diff_id": diff_id}
-```
-
-- [ ] Implement `post_als_diff`
-
-### Step 3.4 — `GET /repos/{owner}/{repo}/commits/{sha}/diff`
-
-```python
-repo_id = f"{owner}/{repo}"
-diff = db.query(AlsDiff).filter(
-    AlsDiff.repo_id == repo_id
-).filter(
-    AlsDiff.commit_sha.startswith(sha)   # support short SHAs
-).first()
-
-if not diff:
-    return {"success": False, "error": "No ALS diff found for this commit"}
-
-return {
-    "success": True,
-    "diff": {
-        "id": diff.id,
-        "commit_sha": diff.commit_sha,
-        "before_sha": diff.before_sha,
-        "diff_type": diff.diff_type,
-        "diff_summary": diff.diff_summary,
-        "diff_data": diff.diff_data,
-        "created_at": diff.created_at.isoformat(),
+    # Next.js web app (catch-all — must be last)
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
 }
+EOF
+
+# Enable the site
+ln -sf /etc/nginx/sites-available/soundhaus /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+
+# Test config
+nginx -t
+
+# Reload
+systemctl reload nginx
 ```
 
-- [ ] Implement `get_commit_diff`
-- [ ] Test all four endpoints with `curl` or the Swagger UI at `http://localhost:8000/docs`
+#### 1.5 Install SSL with Let's Encrypt (~10 min)
+```bash
+# Install certbot
+apt install certbot python3-certbot-nginx -y
+
+# Get certificate (replace with your domain)
+certbot --nginx -d yourdomain.app -d www.yourdomain.app
+
+# Follow prompts:
+#   - Enter email
+#   - Agree to ToS
+#   - Choose to redirect HTTP → HTTPS (option 2)
+
+# Verify auto-renewal
+certbot renew --dry-run
+```
+
+#### 1.6 Create Environment Files (~30 min)
+- [ ] Create three env templates locally:
+
+```bash
+# In your project root
+cp .env .env.production
+cp .env .env.staging
+cp .env .env.development
+```
+
+Key differences between environments:
+
+| Variable | Development | Staging | Production |
+|---|---|---|---|
+| `ENVIRONMENT` | `development` | `staging` | `production` |
+| `DEBUG` | `true` | `true` | `false` |
+| `CORS_ORIGINS` | `localhost:*` | `staging.yourdomain.app` | `yourdomain.app` |
+| `WEBHOOK_BASE_URL` | `ngrok URL` | `https://staging.yourdomain.app` | `https://yourdomain.app` |
+| `LOG_LEVEL` | `DEBUG` | `INFO` | `WARNING` |
+
+- [ ] Add all three to `.gitignore` (they contain secrets)
+
+#### 1.7 Create Next.js Dockerfile (~20 min)
+- [ ] Create `apps/web/Dockerfile` (skeleton provided in sprint branch)
+- [ ] Add `next` service to `docker-compose.yml`
+
+#### 1.8 Update docker-compose.yml for Next.js (~15 min)
+Add this service block to `docker-compose.yml`:
+```yaml
+  next:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: soundhaus_next
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://yourdomain.app/api
+    restart: unless-stopped
+    networks:
+      - appnet
+```
+
+#### 1.9 Deploy & Verify (~30 min)
+```bash
+# From local machine
+./scripts/deploy-digital-ocean.sh YOUR_DROPLET_IP root
+
+# After deploy, verify:
+curl -I https://yourdomain.app/api/health     # Should return 200
+curl -I https://yourdomain.app                 # Should return Next.js page (or 502 until Day 2)
+```
 
 ---
 
-## Phase 4 — Snippet Versioning
+### Day 2 (Tue Mar 25) — CI/CD + Environment Separation
 
-### Step 4.1 — Implement `_get_next_version_number` in `snippet_service.py`
+> **Goal**: Automated deployments on push. Staging + production environments.
 
-**File:** `apps/backend/services/snippet_service.py`
+#### 2.1 Create GitHub Actions Workflow — PR Checks (~45 min)
+- [ ] Create `.github/workflows/pr-check.yml` (skeleton provided)
+- [ ] Runs on every PR: lint web, type-check web, lint backend (ruff)
 
-Replace the `raise NotImplementedError` in `_get_next_version_number`:
+#### 2.2 Create GitHub Actions Workflow — Deploy (~1 hr)
+- [ ] Create `.github/workflows/deploy.yml` (skeleton provided)
+- [ ] Triggered on push to `integration`
+- [ ] Steps: build Docker images → SSH to droplet → pull + restart
+- [ ] Production deploy requires manual approval
 
-```python
-from models.snippet_models import SnippetHistory
-from sqlalchemy import func
+#### 2.3 Set GitHub Repository Secrets (~15 min)
+Go to GitHub → Settings → Secrets and variables → Actions. Add:
+- [ ] `DO_SSH_KEY` — Your droplet SSH private key
+- [ ] `DO_HOST` — Droplet IP address
+- [ ] `DO_USERNAME` — `root` (or your SSH user)
+- [ ] `SUPABASE_URL` — From your .env
+- [ ] `SUPABASE_PUB_KEY` — From your .env
 
-result = db.query(func.max(SnippetHistory.version_number)).filter(
-    SnippetHistory.repo_id == repo_id
-).scalar()
-return (result or 0) + 1
+#### 2.4 Create Staging Environment (~45 min)
+```bash
+# SSH into droplet
+ssh root@YOUR_DROPLET_IP
+
+# Create staging directory
+mkdir -p /opt/soundhaus-staging
+
+# Copy production compose as base
+cp /opt/soundhaus/docker-compose.yml /opt/soundhaus-staging/docker-compose.yml
+
+# Edit staging compose to use different ports:
+#   FastAPI: 8001 instead of 8000
+#   Next.js: 3002 instead of 3001
+#   Gitea: 3003 instead of 3000
 ```
 
-- [ ] Implement `_get_next_version_number`
+Add staging nginx block:
+```bash
+cat >> /etc/nginx/sites-available/soundhaus << 'EOF'
 
-### Step 4.2 — Implement `_snapshot_existing_snippet` in `snippet_service.py`
+server {
+    listen 80;
+    server_name staging.yourdomain.app;
 
-This is the more complex one. See the detailed docstring in the scaffolded method — it has the complete step-by-step algorithm.
-
-Key things to figure out:
-1. Parsing the extension from `current_metadata["format"]` (e.g., "mp3" → ".mp3")
-2. Downloading the existing storage file via `self.supabase.storage.from_(self.bucket_name).download(src_path)`
-3. Uploading to versioned path (same upload call as `save_snippet` does)
-4. Creating the `SnippetHistory` row and calling `db.add()` (do NOT `db.commit()` — that's the caller's job)
-
-- [ ] Implement `_snapshot_existing_snippet`
-
-### Step 4.3 — Call snapshot functions from `save_snippet`
-
-**File:** `apps/backend/services/snippet_service.py`
-
-Modify `save_snippet` to call both new methods BEFORE the upload step.
-
-Find the current `save_snippet` → Step 2 comment ("Determine storage path") and add BEFORE it:
-
-```python
-# Step 1.5: Snapshot existing snippet if one already exists
-# (must happen before the upsert in step 3 overwrites the live file)
-existing_snippet_url = None
-existing_metadata = {}
-if repo_data and repo_data.audio_snippet:
-    # A live snippet exists — snapshot it before overwriting
-    existing_snippet_url = repo_data.audio_snippet
-    existing_metadata = {
-        "duration": repo_data.snippet_duration,
-        "file_size": repo_data.snippet_file_size,
-        "format": repo_data.snippet_format,
-        "sample_rate": repo_data.snippet_sample_rate,
-        "channels": repo_data.snippet_channels,
+    location /api/ {
+        proxy_pass http://127.0.0.1:8001/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
     }
-    next_version = await self._get_next_version_number(f"{owner}/{repo}", db)
-    await self._snapshot_existing_snippet(
-        owner=owner,
-        repo=repo,
-        current_url=existing_snippet_url,
-        current_metadata=existing_metadata,
-        version_number=next_version,
-        db=db,
-        uploader_user_id=None,  # pass user_id from router if available
-    )
-```
 
-**IMPORTANT:** `save_snippet` currently does not take a `db` parameter. You'll need to:
-- Add `db: Optional[Session] = None` parameter to `save_snippet`
-- Update the call in `snippets.py` router to pass `db`
-- Check whether the snapshot call should be in the router (where `db` is already available) or the service
-
-- [ ] Add `db` parameter to `save_snippet` signature
-- [ ] Add the snapshot call before the upload step
-- [ ] Update `snippets.py` router to pass `db` to `save_snippet`
-
-### Step 4.4 — Add snippet history endpoint
-
-**File:** `apps/backend/routers/snippets.py`
-
-Add a new route at the bottom of the file:
-
-```python
-@router.get("/repos/{owner}/{repo}/snippet/history")
-@limiter.limit("30/minute")
-async def get_snippet_history(
-    request: Request,
-    owner: str,
-    repo: str,
-    limit: int = Query(default=10, ge=1, le=50),
-    db: Session = Depends(get_db),
-):
-    """Returns version history of the audio snippet for a repo."""
-    from models.snippet_models import SnippetHistory
-    repo_id = f"{owner}/{repo}"
-    history = (
-        db.query(SnippetHistory)
-        .filter(SnippetHistory.repo_id == repo_id)
-        .order_by(SnippetHistory.version_number.desc())
-        .limit(limit)
-        .all()
-    )
-    return {
-        "success": True,
-        "repo": repo_id,
-        "history": [
-            {
-                "id": h.id,
-                "version_number": h.version_number,
-                "snippet_url": h.snippet_url,
-                "duration": h.duration,
-                "file_size": h.file_size,
-                "format": h.format,
-                "replaced_at": h.replaced_at.isoformat() if h.replaced_at else None,
-            }
-            for h in history
-        ],
+    location / {
+        proxy_pass http://127.0.0.1:3002;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
     }
+}
+EOF
+
+# Get SSL for staging too
+certbot --nginx -d staging.yourdomain.app
+systemctl reload nginx
 ```
 
-- [ ] Add `get_snippet_history` endpoint to `snippets.py`
-- [ ] Add `getSnippetHistory(owner, repo)` wrapper to `apps/web/lib/api/snippets.ts`
-- [ ] Test: upload two snippets for the same repo, verify the history endpoint returns 1 row (the first snippet snapshotted)
+#### 2.5 Test Pipeline (~30 min)
+- [ ] Create a test branch, make a trivial change, push, open PR
+- [ ] Verify PR check action runs (lint + build)
+- [ ] Merge to integration
+- [ ] Verify deploy action runs and staging updates
+- [ ] Verify staging site is live: `https://staging.yourdomain.app/api/health`
 
 ---
 
-## Phase 5 — Desktop: `pushAndDiff` IPC Integration
+### Day 3 (Wed Mar 26) — Diff Engine: Interfaces + Backend Schema
 
-**File:** `apps/desktop/src/services/gitService.ts`
+> **Goal**: Define the TypeScript interface contract, update backend schemas, create waveform endpoint.
 
-The `pushAndDiff` scaffold is in place. You need to fill in Steps 2 and 3 (the IPC calls).
+#### 3.1 Create Diff Type Contracts (~1 hr)
+- [ ] Create `apps/web/components/diff/types/diff.ts` (skeleton provided)
+- [ ] This file IS the contract — share with desktop team
+- [ ] Defines: `MidiNote`, `MidiClipDiff`, `AudioClipDiff`, `TrackDiff`, `ProjectDiff`, `WaveformPeaks`, `ParameterChange`
 
-### Step 5.1 — Add a `get-file-at-revision` IPC handler
+#### 3.2 Update Backend Diff Model (~45 min)
+- [ ] Update `apps/backend/models/diff_models.py` — add Pydantic schemas matching TypeScript types
+- [ ] Add `EnrichedDiffPayload` schema for validating incoming POSTs from desktop
 
-This is needed to get the `.als` file content from `HEAD~1` (before the push).
+#### 3.3 Update Commits Router (~30 min)
+- [ ] Update `POST /repos/{owner}/{repo}/diff` to accept enriched schema
+- [ ] Backward compatible — old payloads still accepted
 
-**File:** `apps/desktop/src/electron/project.ts` (or wherever other IPC handlers live)
+#### 3.4 Create Waveform Endpoint (~1 hr)
+- [ ] Create `apps/backend/routers/audio.py` (skeleton provided)
+- [ ] `GET /repos/{owner}/{repo}/audio/{file_path}/waveform` — generates peak data from audio files
+- [ ] Register router in `main.py`
 
-```typescript
-// Add new IPC handler:
-ipcMain.handle('get-file-at-revision', async (_event, { repoPath, filePath, revision }) => {
-    // Uses: git show <revision>:<filePath>
-    // Returns the file contents as a Buffer, written to a temp file
-    const { execFileSync } = require('child_process');
-    const os = require('os');
-    const path = require('path');
-    const fs = require('fs');
+#### 3.5 Create Web Dockerfile (~30 min)
+- [ ] Create `apps/web/Dockerfile` (skeleton provided)
+- [ ] Multi-stage build: install deps → build → minimal runtime
 
-    const content = execFileSync('git', ['show', `${revision}:${filePath}`], {
-        cwd: repoPath,
-        maxBuffer: 50 * 1024 * 1024, // 50MB
-    });
+#### 3.6 Create Diff Component Skeletons (~1 hr)
+- [ ] Create all files under `apps/web/components/diff/` with function signatures + JSDoc descriptions
+- [ ] Wire barrel export via `index.ts`
 
-    const tmpPath = path.join(os.tmpdir(), `soundhaus_diff_prev_${Date.now()}.als`);
-    fs.writeFileSync(tmpPath, content);
-    return tmpPath; // Caller is responsible for deleting the temp file
-});
-```
-
-- [ ] Find where IPC handlers are registered in `project.ts` (or `main.ts`)
-- [ ] Add the `get-file-at-revision` handler
-- [ ] Add `window.electronAPI.invoke('get-file-at-revision', {...})` to the preload type definitions in `types/electron.d.ts`
-
-### Step 5.2 — Fill in `pushAndDiff` Steps 2 & 3
-
-Back in `gitService.ts`, find the `// TODO: Replace placeholder below` block and implement:
-
-```typescript
-// Step 2a: Get before .als path (previous revision)
-const beforeAlsPath = await window.electronAPI.invoke('get-file-at-revision', {
-    repoPath,
-    filePath: alsFilePath,
-    revision: 'HEAD~1',
-});
-
-// Step 2b: Current .als path
-const currentAlsPath = `${repoPath}/${alsFilePath}`;
-
-// Step 3a: System A — xml diff
-const xmlDiff = await window.electronAPI.invoke('diff-xml', {
-    current: currentAlsPath,
-    previous: beforeAlsPath,
-});
-
-// Step 3b: System B — structural compare
-const structuralResult = await window.electronAPI.invoke('find-instrument-changes', {
-    current: currentAlsPath,
-    previous: beforeAlsPath,
-});
-
-// Clean up temp file
-const fs = await window.electronAPI.invoke('delete-temp-file', beforeAlsPath);
-// (or just leave it — OS will clean on restart if temp cleanup is too complex)
-```
-
-- [ ] Replace the two `null` placeholder assignments with the IPC calls above
-- [ ] Update `diff_summary` construction: `diff_summary: xmlDiff?.summary ?? ''`
-- [ ] Test: push from Desktop, verify an `als_diffs` row appears in Supabase
-
-### Step 5.3 — Wire `pushAndDiff` into the push button handler
-
-**File:** wherever the "Push" button's click handler lives (likely a React component in `src/`)
-
-```typescript
-// Replace:
-await gitService.pushRepo(repoPath);
-// With:
-const { pushResult, diffPosted } = await gitService.pushAndDiff(
-    repoPath,
-    ownerUuid,
-    repoSlug,
-    'MyProject.als',  // TODO: get from project metadata (which .als file is this repo?)
-    backendToken,     // TODO: get from patService or storage
-    commitSha,        // TODO: get from git log -1 --format=%H after push completes
-    beforeSha,        // TODO: get from git rev-parse HEAD~1 before push
-);
-if (!diffPosted) {
-    console.warn('Push succeeded but diff upload failed');
-}
-```
-
-- [ ] Find the push button handler component
-- [ ] Replace `pushRepo` call with `pushAndDiff` call
-- [ ] Locate how to get `backendToken` from existing auth state (check `patService.ts`)
+#### 3.7 Share Interface Contract with Desktop Team
+- [ ] Send desktop team the `diff.ts` types file
+- [ ] Explain: "POST this JSON shape to `POST /repos/{owner}/{repo}/diff` after each push"
+- [ ] Include example payload
 
 ---
 
-## Phase 6 — Web Repo Detail Page
+## Week 2 — Visualization + Landing Page + QOL Features
 
-**File:** `apps/web/app/(dashboard)/repository/[id]/page.tsx`
+### Day 4 (Thu Mar 27) — PianoRollTrack + TimeRuler Implementation
 
-The file has been rewritten as a scaffold. Work through each `// TODO` comment in the file.
+> **Goal**: Functional piano roll rendering with zoom/pan.
 
-### Step 6.1 — Resolve URL encoding (Decision from Phase 0)
+#### 4.1 Implement TimeRuler.tsx (~1.5 hr)
+- [ ] SVG-based horizontal ruler
+- [ ] Accept `totalBeats`, `tempo`, `timeSignature`, `zoom` props
+- [ ] Render bar numbers, beat divisions, minor gridlines
+- [ ] Respond to zoom changes from context
 
-In the page component, find:
-```typescript
-const [owner, repoSlug] = rawId?.split("__") ?? ["", ""];
-```
+#### 4.2 Implement useTimelineZoom.ts (~1 hr)
+- [ ] React context provider for shared zoom/pan state
+- [ ] Mouse wheel to zoom (ctrl+scroll for horizontal zoom)
+- [ ] Click-drag to pan
+- [ ] Min/max zoom bounds
+- [ ] `beatsToPixels(beat)` and `pixelsToBeat(px)` helper functions
 
-- [ ] Confirm or change the `__` split delimiter to match how explore/list pages build their links
-- [ ] Test that navigating to a repo from the explore page lands on this page with correct `owner` and `repoSlug`
+#### 4.3 Implement usePianoRollRenderer.ts (~2 hr)
+- [ ] Canvas 2D rendering logic
+- [ ] Draw pitch grid (C, C#, D... rows, highlight C octaves)
+- [ ] Draw notes as rounded rectangles
+- [ ] Color by changeType: green=added, red=removed, blue=modified, gray=unchanged
+- [ ] Velocity mapped to opacity (0.3 min, 1.0 max)
+- [ ] Hover detection: find note at mouse position → show tooltip
 
-### Step 6.2 — Wire up `getRepoStats` on mount
+#### 4.4 Implement PianoRollTrack.tsx (~1.5 hr)
+- [ ] Wrapper component with canvas ref
+- [ ] Calls usePianoRollRenderer on mount and data change
+- [ ] Handles mouse events (hover tooltip, click to select)
+- [ ] Renders pitch labels on left edge (C2, C3, C4...)
 
-In the `useEffect` (currently has `setIsLoadingStats(false)` placeholder):
-
-```typescript
-useEffect(() => {
-    if (!owner || !repoSlug) return;
-    setIsLoadingStats(true);
-    getRepoStats(owner, repoSlug).then((result) => {
-        if (result.success) setRepoStats(result.data ?? null);
-        else setStatsError(result.error ?? "Failed to load repo");
-        setIsLoadingStats(false);
-    });
-}, [owner, repoSlug]);
-```
-
-- [ ] Import `getRepoStats` from `@/lib/api/repos`
-- [ ] Replace the placeholder `setIsLoadingStats(false)` with the real fetch
-
-### Step 6.3 — Wire up Commits tab
-
-In `handleTabChange`:
-```typescript
-if (tab === "commits" && commits.length === 0) {
-    setIsLoadingCommits(true);
-    getCommits(owner, repoSlug, 1, 20).then((result) => {
-        if (result.success) {
-            setCommits(result.data?.commits ?? []);
-            setCommitsTotal(result.data?.total ?? 0);
-        }
-        setIsLoadingCommits(false);
-    });
-}
-```
-
-- [ ] Uncomment the commit useState declarations at the top
-- [ ] Import `getCommits` from `@/lib/api/commits`
-- [ ] Replace the "Commit history will appear here" placeholder with a `CommitList` component (or inline map)
-
-### Step 6.4 — CommitList + CommitCard components
-
-**Files to create:**
-- `apps/web/components/CommitCard.tsx`
-- `apps/web/components/CommitList.tsx`
-
-`CommitCard` should render:
-```tsx
-<div className="card-interactive p-4 flex items-start gap-4">
-    <div className="flex-1">
-        <p className="text-white font-medium">{commit.message.split('\n')[0]}</p>
-        <p className="text-muted text-sm mt-1">{commit.author_name} · {formatRelativeTime(commit.timestamp)}</p>
-        <div className="flex gap-2 mt-2">
-            {commit.files_added.length > 0 && <FileChangeBadge type="added" count={commit.files_added.length} />}
-            {commit.files_modified.length > 0 && <FileChangeBadge type="modified" count={commit.files_modified.length} />}
-            {commit.files_removed.length > 0 && <FileChangeBadge type="removed" count={commit.files_removed.length} />}
-        </div>
-    </div>
-    <span className="commit-hash">{commit.short_sha}</span>
-    {commit.has_diff && (
-        <button className="btn-secondary text-xs" onClick={() => onViewDiff(commit.sha)}>
-            View Diff
-        </button>
-    )}
-</div>
-```
-
-- [ ] Create `CommitCard.tsx`
-- [ ] Create `CommitList.tsx` (wraps `CommitCard` in a list, handles "Load More")
-- [ ] Create `FileChangeBadge.tsx` (small colored tag: `+3 added`, `~1 modified`, `-2 removed`)
-
-### Step 6.5 — AlsDiffView component
-
-**File to create:** `apps/web/components/AlsDiffView.tsx`
-
-This component receives an `AlsDiffData` object and renders it based on `diff_type`.
-
-```tsx
-// Rough structure:
-export default function AlsDiffView({ diff }: { diff: AlsDiffData }) {
-    if (diff.diff_type === 'combined') {
-        return (
-            <div>
-                <XmlDiffSection data={diff.diff_data.xml} />
-                <StructuralDiffSection data={diff.diff_data.structural} />
-            </div>
-        );
-    }
-    // handle "xml" and "structural" types separately
-}
-```
-
-For `StructuralDiffSection`, iterate over `changes: AlsChange[]` and for each:
-- Show track name (before/after if renamed)
-- Show instrument device before → after (from `before.name` → `after.name`)
-
-For `XmlDiffSection`, show the `summary` string and optionally a collapsible raw view of the track list changes.
-
-- [ ] Create `AlsDiffView.tsx` with `XmlDiffSection` and `StructuralDiffSection`
-- [ ] Wire up the Diffs tab in `page.tsx` to call `getCommitDiff` and render `<AlsDiffView />`
-
-### Step 6.6 — SnippetTimeline component
-
-**File to create:** `apps/web/components/SnippetTimeline.tsx`
-
-```tsx
-// Fetches snippet history and renders a list of past versions with playback
-export default function SnippetTimeline({ owner, repo }: { owner: string; repo: string }) {
-    const [history, setHistory] = useState([]);
-    useEffect(() => {
-        getSnippetHistory(owner, repo).then(result => {
-            if (result.success) setHistory(result.data?.history ?? []);
-        });
-    }, [owner, repo]);
-
-    return (
-        <div className="card p-4">
-            <h3 className="text-white font-semibold mb-3">Previous Versions</h3>
-            {history.map(item => (
-                <div key={item.id} className="flex items-center gap-4 py-2 border-b border-white/10">
-                    <span className="text-muted text-sm">v{item.version_number}</span>
-                    <audio controls src={item.snippet_url} className="flex-1 h-8" />
-                    <span className="text-muted text-xs">{formatRelativeTime(item.replaced_at)}</span>
-                </div>
-            ))}
-        </div>
-    );
-}
-```
-
-- [ ] Implement `getSnippetHistory` in `apps/web/lib/api/snippets.ts`
-- [ ] Create `SnippetTimeline.tsx`
-- [ ] Place `<SnippetTimeline owner={owner} repo={repoSlug} />` in the Overview tab (below the audio player)
-
-### Step 6.7 — UpdateBanner component
-
-**File to create:** `apps/web/components/UpdateBanner.tsx`
-
-Already rendered conditionally in `page.tsx` when `repoStats?.needs_update === true`. Upgrade it:
-
-```tsx
-export default function UpdateBanner({ commitSha }: { commitSha?: string | null }) {
-    return (
-        <div className="card border border-glass-blue-500/30 bg-glass-blue-500/10 p-4 flex items-center justify-between">
-            <p className="text-sm text-glass-blue-500">
-                New push: commit{" "}
-                <span className="commit-hash">{commitSha?.slice(0, 8) ?? "unknown"}</span>
-                {" "}— pull in Desktop to sync
-            </p>
-        </div>
-    );
-}
-```
-
-- [ ] Create `UpdateBanner.tsx`
-- [ ] Replace the inline `<div>` in `page.tsx` with `<UpdateBanner commitSha={...} />`
+#### 4.5 Test with Mock Data (~1 hr)
+- [ ] Create a mock `ProjectDiff` with MIDI tracks + notes
+- [ ] Render PianoRollTrack standalone to verify canvas drawing
+- [ ] Verify zoom/pan with TimeRuler
 
 ---
 
-## Phase 7 — Cleanup & Testing
+### Day 5 (Fri Mar 28) — WaveformTrack + ChangeOverlay
 
-### Step 7.1 — Replace shared Navbar
+> **Goal**: Waveform rendering and change highlight overlays.
 
-The scaffolded `page.tsx` has an inline nav with a `{/* IMPLEMENTATION: Replace with <Navbar /> */}` comment.
+#### 5.1 Implement useWaveformPeaks.ts (~45 min)
+- [ ] Fetch from `GET /repos/{owner}/{repo}/audio/{path}/waveform`
+- [ ] Cache in state by `(repo, path, sha)` key
+- [ ] Return `{ peaks, isLoading, error }`
+- [ ] Handle fallback: if no audio file, return empty peaks
 
-- [ ] Find the existing `Navbar` component path (check other dashboard pages for their import)
-- [ ] Replace the inline nav in `page.tsx` with `<Navbar />`
+#### 5.2 Implement WaveformTrack.tsx (~2 hr)
+- [ ] Canvas renderer: draw mirrored waveform from peak data
+- [ ] Colors: zinc-400 unchanged, green-tinted added, red-tinted removed
+- [ ] X-axis synced with TimeRuler zoom via shared context
+- [ ] Smooth rendering with requestAnimationFrame
 
-### Step 7.2 — Add `commits` relationship to `PushEvent` model
+#### 5.3 Implement ChangeOverlay.tsx (~1.5 hr)
+- [ ] Absolutely positioned transparent layer over any track
+- [ ] Draws semi-transparent colored rectangles at change regions
+- [ ] Hover shows popover: change title, time range, description
+- [ ] Click scrolls/zooms to that region
 
-**File:** `apps/backend/models/webhook_models.py`
+#### 5.4 Implement DiffSummaryPanel.tsx (~1 hr)
+- [ ] Right sidebar listing all changes as cards
+- [ ] Each card: track name, change type badge, description snippet
+- [ ] Click card → scroll to that track + region
+- [ ] Collapsible with toggle button
 
-The `CommitDetail.push_event` back-reference points to `PushEvent`, but `PushEvent` doesn't have the forward relationship yet:
-
-```python
-# Add to PushEvent class in webhook_models.py:
-commit_details = relationship(
-    "CommitDetail",
-    back_populates="push_event",
-    cascade="all, delete-orphan"
-)
-```
-
-- [ ] Add `commit_details` relationship to the `PushEvent` class
-
-### Step 7.3 — End-to-end test sequence
-
-- [ ] Push from Desktop → verify `commit_details` rows appear in DB
-- [ ] Open repo detail page in web → verify commits tab loads with real data
-- [ ] Click "View Diff" → verify diff renders in AlsDiffView
-- [ ] Upload a second snippet → verify `snippet_history` table has a row for the first snippet
-- [ ] Verify snippet history appears in SnippetTimeline on the Overview tab
-- [ ] Verify `UpdateBanner` appears when `needs_update = true`
-- [ ] Verify banner disappears after Desktop pushes a diff (sets `needs_update = false`)
+#### 5.5 Assemble DiffTimeline.tsx (~1.5 hr)
+- [ ] Master layout: TimeRuler on top, track list in middle, summary panel on right
+- [ ] Each track row: TrackLabel + (PianoRollTrack | WaveformTrack) + ChangeOverlay
+- [ ] Wrap in TimelineZoomProvider
+- [ ] Accept `ProjectDiff` data as prop
+- [ ] Loading and empty states
 
 ---
 
-## Appendix A — New Files Created This Session
+### Day 6 (Mon Mar 31) — Landing Page Full Redesign
+
+> **Goal**: High-conversion landing page following Brand Bible.
+
+#### 6.1 Build Navbar Component (~45 min)
+- [ ] Logo on left
+- [ ] Anchor links: Features, How It Works, About
+- [ ] Login / Sign Up CTAs on right
+- [ ] Transparent over hero, solid on scroll (intersection observer)
+
+#### 6.2 Build Hero Section (~1.5 hr)
+- [ ] Large headline: "Version Control for Music Producers"
+- [ ] Animated waveform SVG background (CSS keyframe, glass-blue-400 at low opacity)
+- [ ] Subtitle text
+- [ ] Two CTAs: "Get Started Free" → /signup, "See How It Works" → smooth scroll
+- [ ] Subtle grain texture overlay
+
+#### 6.3 Build Features Grid (~1 hr)
+- [ ] 3 columns: "Git-Powered Versioning", "Stem Separation", "Visual Diff Engine"
+- [ ] Each: icon (lucide-react), headline, 2-line description
+- [ ] Hover: icon scales up, card border glows glass-blue-500/40
+- [ ] Use intersection observer for fade-in animation
+
+#### 6.4 Build "How It Works" Section (~1 hr)
+- [ ] 3-step numbered flow with connecting lines
+- [ ] Step 1: "Push your project" (Upload icon)
+- [ ] Step 2: "See every change" (BarChart icon)
+- [ ] Step 3: "Collaborate async" (Users icon)
+- [ ] Each step has a brief description
+
+#### 6.5 Build Screenshot/Demo Section (~1 hr)
+- [ ] Section heading: "See SoundHaus in Action"
+- [ ] Static screenshot of DiffTimeline (create with mock data)
+- [ ] Or: live embedded DiffTimeline with hardcoded mock data
+- [ ] Dark card container with subtle border
+
+#### 6.6 Build Footer (~30 min)
+- [ ] Logo, column of nav links, GitHub link
+- [ ] Copyright notice
+- [ ] Same zinc-900/zinc-800 palette
+
+#### 6.7 Responsive Pass (~1 hr)
+- [ ] Test all sections at 375px, 768px, 1024px, 1440px
+- [ ] Adjust grid columns, font sizes, spacing
+- [ ] Ensure hero text doesn't overflow on mobile
+
+---
+
+### Day 7 (Tue Apr 1) — Dashboard Wire-up + Audio Preview on Hover
+
+> **Goal**: Real data on dashboard. Delightful hover previews on repo cards.
+
+#### 7.1 Wire Dashboard to Real Data (~2 hr)
+- [ ] Create `apps/web/lib/api/dashboard.ts` with:
+  - `getDashboardStats()` — aggregates repo count, commit count, collaborator count
+  - `getRecentActivity()` — fetches recent push events across user's repos
+  - `getRecentRepos()` — fetches user's 5 most recently updated repos
+- [ ] Rewrite `dashboard/page.tsx` to call these APIs on mount
+- [ ] Replace all hardcoded data with real API responses
+- [ ] Add loading skeletons while data fetches
+
+#### 7.2 Audio Preview on Hover (~2 hr)
+- [ ] Modify `RepositoryCard.tsx`:
+  - On mouse enter: if repo has `audio_snippet`, start loading audio
+  - Show mini waveform + play indicator
+  - On mouse leave: fade out and stop
+- [ ] Create `apps/web/components/MiniAudioPreview.tsx`:
+  - Tiny wavesurfer instance (height: 24px)
+  - Auto-plays on mount (muted initially, unmute on click)
+  - Fades in/out with CSS transition
+- [ ] Debounce hover (300ms) to avoid rapid load/unload
+
+#### 7.3 Landing Page Polish (~2 hr)
+- [ ] Add smooth scroll behavior to anchor links
+- [ ] Intersection observer fade-in animations on all sections
+- [ ] Final responsive adjustments
+- [ ] Test in Chrome, Firefox, Safari
+
+---
+
+### Day 8 (Wed Apr 2) — A/B Comparison + DiffView Integration
+
+> **Goal**: Side-by-side comparison and swap the old DiffView for the new engine.
+
+#### 8.1 Implement ABComparisonView.tsx (~3 hr)
+- [ ] Two modes: "Side by Side" and "Inline" (toggle button)
+- [ ] Side by Side: two DiffTimeline panels with synced scroll/zoom
+- [ ] Inline: single panel with toggle between HEAD and new versions
+- [ ] For MIDI: HEAD piano roll on left, new on right, changed notes highlighted
+- [ ] For Audio: HEAD waveform on top, new on bottom
+
+#### 8.2 Integrate New DiffTimeline into RepoDetailClient (~1.5 hr)
+- [ ] Rename old `DiffView.tsx` → `DiffViewLegacy.tsx`
+- [ ] In `RepoDetailClient.tsx`, render `DiffTimeline` when enriched diff data present
+- [ ] Fallback to `DiffViewLegacy` for old-format data
+- [ ] Detection: check if `diff_data` has `tracks[0].midiClips` or `tracks[0].audioClips`
+
+#### 8.3 Test End-to-End Diff Flow (~1.5 hr)
+- [ ] Create test page with mock enriched diff data
+- [ ] Verify: PianoRoll renders MIDI notes
+- [ ] Verify: Waveform renders audio peaks
+- [ ] Verify: ChangeOverlay highlights regions
+- [ ] Verify: ABComparison syncs scroll between panels
+- [ ] Verify: Legacy fallback works for old data
+
+---
+
+### Day 9 (Thu Apr 3) — QOL Features
+
+> **Goal**: Snippet comments, repo README, keyboard shortcuts.
+
+#### 9.1 Time-Stamped Snippet Comments (~3 hr)
+
+**Backend:**
+- [ ] New Supabase table: `snippet_comments`
+  ```sql
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  repo_id INTEGER REFERENCES repo_data(gitea_id),
+  user_id UUID NOT NULL,
+  timestamp_seconds FLOAT NOT NULL,
+  comment_text TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+  ```
+- [ ] New model: `apps/backend/models/comment_models.py`
+- [ ] New endpoints in `apps/backend/routers/snippets.py`:
+  - `POST /repos/{owner}/{repo}/snippet/comments` — add comment at timestamp
+  - `GET /repos/{owner}/{repo}/snippet/comments` — list all comments
+  - `DELETE /repos/{owner}/{repo}/snippet/comments/{id}` — delete own comment
+
+**Frontend:**
+- [ ] Extend `AudioPlayer.tsx`:
+  - Click on waveform → opens comment input at that timestamp
+  - Render vertical marker lines at each comment's timestamp
+  - Hover marker → show comment tooltip
+- [ ] Add comment list below player (sorted by timestamp)
+- [ ] Add `apps/web/lib/api/comments.ts` with server actions
+
+#### 9.2 Repo README/Description (~1.5 hr)
+
+**Backend:**
+- [ ] Add `description TEXT` and `readme_content TEXT` columns to `repo_data` table
+- [ ] New endpoints in `apps/backend/routers/repos.py`:
+  - `PUT /repos/{owner}/{repo}/readme` — update readme (owner-only)
+  - `GET /repos/{owner}/{repo}/readme` — get readme content
+
+**Frontend:**
+- [ ] Install `react-markdown` (or use simple markdown renderer)
+- [ ] Add "About" tab to `RepoDetailClient.tsx` with:
+  - Rendered markdown README
+  - Edit button for owner → textarea with live preview
+- [ ] Show description on `RepositoryCard.tsx`
+
+#### 9.3 Keyboard Shortcuts (~1 hr)
+- [ ] Create `apps/web/hooks/useKeyboardShortcuts.ts` — global keyboard handler
+- [ ] Shortcuts:
+  - `Space` — play/pause audio
+  - `←` / `→` — navigate between commits (Snapshots tab)
+  - `J` / `K` — scroll through tracks in diff view
+  - `+` / `-` — zoom in/out on timeline
+  - `?` — show shortcuts modal
+- [ ] Create `apps/web/components/KeyboardShortcutsModal.tsx` — displays all shortcuts
+- [ ] Integrate into dashboard layout
+
+---
+
+### Day 10 (Fri Apr 4) — Integration Testing + Polish + Ship
+
+> **Goal**: Everything works end-to-end. Push to production.
+
+#### 10.1 Full Integration Test (~2 hr)
+- [ ] Test auth flow: signup → login → dashboard shows real data
+- [ ] Test repo flow: create repo → upload snippet → trigger stems → view in player
+- [ ] Test diff flow: view snapshots tab → click commit → DiffTimeline renders
+- [ ] Test landing page: all sections, CTAs, responsiveness
+- [ ] Test snippet comments: add comment → refresh → comment persists
+- [ ] Test keyboard shortcuts: space, arrows, j/k, +/-
+
+#### 10.2 TypeScript Build Verification (~30 min)
+```bash
+cd apps/web && npm run build
+# Must pass with zero errors
+```
+
+#### 10.3 Fix Issues Found (~2 hr)
+- [ ] Address any TypeScript errors
+- [ ] Fix responsive layout issues
+- [ ] Fix API edge cases (empty states, error handling)
+- [ ] Fix any CORS or cookie issues on staging
+
+#### 10.4 Deploy to Production (~1 hr)
+- [ ] Push to `integration` branch
+- [ ] GitHub Actions runs PR check → deploy to staging
+- [ ] Verify staging: `https://staging.yourdomain.app`
+- [ ] Trigger production deploy (manual approval in GitHub Actions)
+- [ ] Verify production: `https://yourdomain.app`
+
+#### 10.5 Create Desktop Team Handoff (~30 min)
+- [ ] Write `HANDOFF.md` documenting:
+  - The diff TypeScript interfaces
+  - Example JSON payload for `POST /repos/{owner}/{repo}/diff`
+  - Waveform endpoint usage
+  - How to test locally vs staging
+
+---
+
+## QOL Features — Detailed Implementation Guide
+
+### Feature 1: Time-Stamped Snippet Comments (SoundCloud-style)
+
+**Why**: Core collaboration UX — producers can leave feedback at exact moments in the audio.
+
+**Step-by-step**:
+1. Create Supabase migration for `snippet_comments` table (schema above in Day 9.1)
+2. Create `apps/backend/models/comment_models.py` with SQLAlchemy model + Pydantic schemas
+3. Add CRUD endpoints to `apps/backend/routers/snippets.py` (or new `comments.py` router)
+4. Create `apps/web/lib/api/comments.ts` server actions
+5. Extend `AudioPlayer.tsx`:
+   - Add click handler on wavesurfer instance: `wavesurfer.on('click', (relativeX) => { ... })`
+   - Calculate timestamp from click position: `relativeX * duration`
+   - Show floating input positioned at click point
+   - On submit, call `addComment(repoOwner, repoName, timestamp, text)`
+6. Fetch comments on mount and render as vertical lines on waveform
+7. Render comment list below player, sorted chronologically
+8. Add delete button on own comments
+
+**Libraries**: None extra (wavesurfer already handles click events)
+
+### Feature 2: Repo README/Description
+
+**Why**: Gives repos personality, context, and documentation.
+
+**Step-by-step**:
+1. Add columns to `repo_data` table: `description TEXT`, `readme_content TEXT`
+2. Add Pydantic schemas for update request
+3. Add `PUT /repos/{owner}/{repo}/readme` endpoint (owner-only, max 10KB)
+4. Add `GET /repos/{owner}/{repo}/readme` endpoint (public)
+5. Install `react-markdown` in web app: `npm install react-markdown`
+6. Add "About" tab to `RepoDetailClient.tsx`
+7. Render markdown in a styled container
+8. Add edit mode with textarea + "Preview" / "Edit" toggle
+9. Show truncated description on RepositoryCard.tsx
+
+### Feature 3: Audio Preview on Hover
+
+**Why**: Delightful UX moment — users can preview a project's audio without navigating.
+
+**Step-by-step**:
+1. Create `apps/web/components/MiniAudioPreview.tsx`
+   - Takes `snippetUrl: string` prop
+   - Creates a tiny wavesurfer instance (height: 24px, no controls)
+   - Auto-plays on mount with a fade in
+   - Stops and fades out on unmount
+2. Modify `RepositoryCard.tsx`:
+   - Add `onMouseEnter` / `onMouseLeave` handlers with 300ms debounce
+   - On hover: render `MiniAudioPreview` in an absolute-positioned overlay
+   - Pass `repo.audio_snippet` URL
+3. Style: small waveform bar at bottom of card with glass-blue-400 color
+
+**Libraries**: wavesurfer.js (already installed)
+
+### Feature 4: Keyboard Shortcuts
+
+**Why**: Power user appeal — producers expect DAW-like keyboard control.
+
+**Step-by-step**:
+1. Create `apps/web/hooks/useKeyboardShortcuts.ts`
+   - Uses `useEffect` with `keydown` listener on `document`
+   - Ignores shortcuts when user is typing in input/textarea
+   - Maps keys to actions via a configurable shortcuts map
+2. Define shortcut map:
+   - `Space` → dispatch `PLAY_PAUSE` action
+   - `ArrowLeft` → dispatch `PREV_COMMIT`
+   - `ArrowRight` → dispatch `NEXT_COMMIT`
+   - `j` → dispatch `SCROLL_DOWN`
+   - `k` → dispatch `SCROLL_UP`
+   - `+` / `=` → dispatch `ZOOM_IN`
+   - `-` → dispatch `ZOOM_OUT`
+   - `?` → dispatch `SHOW_HELP`
+3. Create `apps/web/components/KeyboardShortcutsModal.tsx`
+   - Headless UI Dialog with shortcuts table
+   - Triggered by `?` key or help button
+4. Integrate hook into `(dashboard)/layout.tsx`
+5. Each page subscribes to relevant actions via context or callback refs
+
+### Feature 5: Fork & Remix (Stretch Goal)
+
+**Why**: One-click project fork — Gitea already has a fork API.
+
+**Step-by-step**:
+1. Add `POST /repos/{owner}/{repo}/fork` endpoint to `repos.py`
+   - Calls Gitea API: `POST /api/v1/repos/{owner}/{repo}/forks`
+   - Creates corresponding `repo_data` entry in Supabase
+2. Add "Fork" button to repo detail page header
+3. Add fork count to repo stats
+4. Show "Forked from {owner}/{repo}" badge on forked repos
+
+### Feature 6: Project Activity Heatmap (Stretch Goal)
+
+**Why**: Visual flair — GitHub-style contribution graph for a single project.
+
+**Step-by-step**:
+1. Create `apps/web/components/ActivityHeatmap.tsx`
+   - Takes array of `{ date: string, count: number }` from commit history
+   - Renders 52-week × 7-day grid of colored squares
+   - Colors: zinc-800 (no activity) → glass-blue-400 (high activity)
+2. Add `GET /repos/{owner}/{repo}/activity` endpoint to aggregate commit counts by day
+3. Display on repo detail page's overview section
+
+### Feature 7: Real-time Notifications (Stretch Goal)
+
+**Why**: Keeps users engaged — bell icon shows invites, pushes, comments.
+
+**Step-by-step**:
+1. Create `notifications` table in Supabase: `id, user_id, type, title, body, read, created_at`
+2. Create CRUD endpoints for notifications
+3. Create `apps/web/components/NotificationBell.tsx`
+   - Polls `/api/notifications/unread-count` every 30 seconds
+   - Dropdown with notification list
+   - Mark as read on click
+4. Integrate into Navbar
+5. Create notifications on events: invite received, push to collaborated repo, comment on snippet
+
+---
+
+## Risk Register
+
+| Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|
+| Canvas rendering takes longer than expected | Medium | High — blocks Days 4-5 | Start with simplest implementation, add detail iteratively |
+| Desktop team diff format doesn't match contract | Low | Medium | Share types file ASAP (Day 3), iterate on contract |
+| SSL/domain propagation delays | Low | Low | Use IP fallback until DNS resolves |
+| Next.js Docker build issues | Medium | Medium | Test locally before deploying, Dockerfile is straightforward |
+| wavesurfer.js SSR issues in Next.js | Medium | Medium | Dynamic import with `ssr: false`, already done in existing code |
+
+---
+
+## Daily Standup Template
 
 ```
-apps/backend/models/commit_models.py     ← CommitDetail SQLAlchemy model
-apps/backend/models/diff_models.py       ← AlsDiff SQLAlchemy model
-apps/backend/models/snippet_models.py    ← SnippetHistory SQLAlchemy model
-apps/backend/routers/commits.py          ← 4 commit/diff endpoints (stubs)
-apps/web/lib/api/commits.ts              ← getCommits / getCommitDetail / getCommitDiff
+## Date: ____
+
+### Yesterday
+-
+
+### Today
+-
+
+### Blockers
+-
+
+### Notes
+-
 ```
 
-## Appendix B — Modified Files This Session
+---
 
-```
-apps/backend/models/repo_models.py       ← Added needs_update, last_push_commit_sha,
-                                           commit_details, als_diffs, snippet_history
-apps/backend/services/webhook_service.py ← Added TODO stubs in _handle_push
-apps/backend/services/snippet_service.py ← Added _get_next_version_number +
-                                           _snapshot_existing_snippet stubs
-apps/desktop/src/services/gitService.ts  ← Added pushAndDiff stub
-apps/web/app/(dashboard)/repository/[id]/page.tsx ← Full scaffold rewrite
-```
+## Definition of Done
 
-## Appendix C — Still Using Placeholder Data
-
-These are the places that will visually break until you wire up the API:
-
-| Component/Page | Placeholder | Replace With |
-|----------------|-------------|--------------|
-| `page.tsx` stats row | `repoStats?.total_commits ?? "—"` | `getRepoStats()` result |
-| `page.tsx` audio player | `repoStats?.audio_snippet` | same — already reading from state, just needs `getRepoStats` wired |
-| `page.tsx` commits tab | "Commit history will appear here" text | `<CommitList>` component |
-| `page.tsx` diffs tab | "ALS diff viewer will appear here" text | `<AlsDiffView>` component |
+- [ ] `npm run build` passes with zero errors
+- [ ] All new components have TypeScript types (no `any` unless absolutely necessary)
+- [ ] Responsive at 375px, 768px, 1024px, 1440px breakpoints
+- [ ] Loading and error states handled for all API calls
+- [ ] Backend endpoints have error handling with proper HTTP status codes
+- [ ] Brand Bible color palette followed (no off-palette colors)
+- [ ] Production deploy is accessible over HTTPS
+- [ ] Desktop team has received the diff interface contract

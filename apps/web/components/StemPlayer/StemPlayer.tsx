@@ -354,7 +354,7 @@ export default function StemPlayer({
     return (
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-6">
         <h3 className="mb-2 text-lg font-semibold">Stem Separation</h3>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-zinc-400">
           Upload an audio snippet first to generate stems.
         </p>
       </div>
