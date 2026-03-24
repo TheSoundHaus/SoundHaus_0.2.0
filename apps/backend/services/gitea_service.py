@@ -222,6 +222,41 @@ class GiteaAdminService:
 			logger.error("network_error", username=username, error=str(e))
 			return {"exists": False}
 
+	def search_users(self, query: str, limit: int = 10) -> Dict[str, Any]:
+		"""Search Gitea users by email or username substring.
+		
+		Uses the admin search endpoint.  Returns a simplified list
+		containing only id, username, and email for each match.
+		"""
+		try:
+			resp = requests.get(
+				self._url("/api/v1/admin/users"),
+				headers=self.headers,
+				params={"limit": 50},
+				timeout=10,
+			)
+			if resp.status_code != 200:
+				return {"success": False, "message": f"HTTP {resp.status_code}"}
+
+			q = query.lower()
+			matches = []
+			for u in resp.json():
+				login = (u.get("login") or "").lower()
+				email = (u.get("email") or "").lower()
+				# Skip the system admin account
+				if login == "soundhaus_admin":
+					continue
+				if q in login or q in email:
+					matches.append({
+						"username": u.get("login"),
+						"email": u.get("email"),
+						"avatar_url": u.get("avatar_url", ""),
+					})
+			return {"success": True, "users": matches[:limit]}
+		except requests.RequestException as e:
+			logger.error("search_users_error", error=str(e))
+			return {"success": False, "message": str(e)}
+
 	def verify_gitea_token(self, token: str) -> Dict[str, Any]:
 		"""Verify that a Gitea token is valid.
 		
@@ -395,7 +430,7 @@ class GiteaAdminService:
 		
 		# Try multiple methods to execute the Gitea CLI command
 		gitea_container = settings.gitea_container_name
-		gitea_ssh_host = settings.gitea_ssh_host  # e.g., "git@localhost" or "user@129.212.182.247"
+		gitea_ssh_host = settings.gitea_ssh_host  # e.g., "git@localhost" or "user@localhost"
 		gitea_ssh_port = settings.gitea_ssh_port  # Default to 22, use 2222 for local Docker
 		
 		try:	
@@ -951,6 +986,92 @@ class GiteaAdminService:
 				return {"success": True, "message": "Test webhook delivered"}
 			elif resp.status_code == 404:
 				return {"success": False, "message": "Webhook not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+
+	# ── Star / Favorite ──────────────────────────────────────────────────────
+
+	def star_repo(self, user_id: str, owner: str, repo: str) -> Dict[str, Any]:
+		"""
+		Star a repository on behalf of a user (via Sudo).
+
+		Uses Gitea API: PUT /api/v1/user/starred/{owner}/{repo}
+		"""
+		url = self._url(f"/api/v1/user/starred/{owner}/{repo}")
+		headers = {**self.headers, "Sudo": user_id}
+		logger.debug("star_repo_request", user_id=user_id, owner=owner, repo=repo)
+
+		try:
+			resp = requests.put(url, headers=headers, timeout=10)
+
+			if resp.status_code == 204:
+				return {"success": True}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Repository not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+	def unstar_repo(self, user_id: str, owner: str, repo: str) -> Dict[str, Any]:
+		"""
+		Unstar a repository on behalf of a user (via Sudo).
+
+		Uses Gitea API: DELETE /api/v1/user/starred/{owner}/{repo}
+		"""
+		url = self._url(f"/api/v1/user/starred/{owner}/{repo}")
+		headers = {**self.headers, "Sudo": user_id}
+		logger.debug("unstar_repo_request", user_id=user_id, owner=owner, repo=repo)
+
+		try:
+			resp = requests.delete(url, headers=headers, timeout=10)
+
+			if resp.status_code == 204:
+				return {"success": True}
+			elif resp.status_code == 404:
+				return {"success": False, "message": "Repository not found"}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"Error: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+
+	def list_user_starred(self, user_id: str) -> Dict[str, Any]:
+		"""
+		List all repositories starred by a user (via Sudo).
+
+		Uses Gitea API: GET /api/v1/user/starred
+		"""
+		url = self._url("/api/v1/user/starred?limit=50")
+		headers = {**self.headers, "Sudo": user_id}
+		logger.debug("list_user_starred_request", user_id=user_id)
+
+		try:
+			resp = requests.get(url, headers=headers, timeout=10)
+
+			if resp.status_code == 200:
+				repos = resp.json()
+				return {"success": True, "repos": repos}
 			elif resp.status_code in (401, 403):
 				return {"success": False, "message": "Authentication failed"}
 			else:

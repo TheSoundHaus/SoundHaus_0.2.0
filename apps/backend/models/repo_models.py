@@ -1,12 +1,7 @@
 """
-Repository data models.
-Stores aggregate/summary data about each repository.
-
-TODO: Add the following imports for webhook integration:
-    from sqlalchemy import DateTime
-    from sqlalchemy.sql import func
+Repository data models — stores aggregate/summary data about each repository.
 """
-from sqlalchemy import Column, String, Integer, Float, Table, DateTime
+from sqlalchemy import Column, String, Integer, Float, Boolean, Table, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -47,6 +42,13 @@ class RepoData(Base):
     last_push_at = Column(DateTime(timezone=True), nullable=True)
     total_commits = Column(Integer, default=0, nullable=False)
     last_activity_at = Column(DateTime(timezone=True), nullable=True)
+
+    # ── Push-tracking columns ────────────────────────────────────────────
+    # True when new commits arrive; cleared when Desktop posts diff.
+    needs_update = Column(Boolean, default=False, nullable=False)
+
+    # HEAD SHA after most recent push (for UpdateBanner display).
+    last_push_commit_sha = Column(String(40), nullable=True)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too
@@ -83,6 +85,34 @@ class RepoData(Base):
         back_populates="repo",
         uselist=False  # One-to-one relationship
     )
-    
+
+    commit_details = relationship(
+        "CommitDetail",
+        back_populates="repo",
+        cascade="all, delete-orphan"
+    )
+
+    als_diffs = relationship(
+        "AlsDiff",
+        back_populates="repo",
+        cascade="all, delete-orphan"
+    )
+
+    # Order queries in the router/service instead of here.
+    snippet_history = relationship(
+        "SnippetHistory",
+        back_populates="repo",
+        cascade="all, delete-orphan",
+    )
+
+    # Populated by: models/stem_models.py — SnippetVersion table
+    # Each stem separation job creates a SnippetVersion row.
+    # Back-reference: SnippetVersion.repo
+    snippet_versions = relationship(
+        "SnippetVersion",
+        back_populates="repo",
+        cascade="all, delete-orphan",
+    )
+
     def __repr__(self):
         return f"<RepoData(gitea_id='{self.gitea_id}', clones={self.clone_count})>"
