@@ -4,132 +4,154 @@ A collaborative music project management platform with version control powered b
 
 ## 🏗️ Architecture
 
-- **Frontend**: React + Vite
-- **Backend**: FastAPI (Python)
-- **Git Server**: Gitea (self-hosted)
-- **Database**: PostgreSQL
+- **Frontend**: Next.js (`apps/web`), Electron desktop (`apps/desktop`)
+- **Backend**: FastAPI (Python) in `apps/backend`
+- **Git Server**: Gitea (self-hosted, Docker)
+- **Database**: PostgreSQL (Gitea’s `gitea_db`); app data via Supabase
 - **Authentication**: Supabase
 - **File Storage**: Git LFS (Large File Storage for audio files)
 
 ## 📁 Project Structure
 
 ```
-SoundHausRND/
+SoundHaus_0.2.0/
 ├── apps/
-│   └── backend/           # FastAPI application
-│       ├── api/           # API routes and dependencies
-│       ├── core/          # Core services (auth, repo, gitea)
-│       ├── schemas/       # Pydantic models
-│       └── main.py        # Application entry point
-├── react/                 # React frontend application
-├── workers/              # File watcher worker scripts
-├── gitea/                # Gitea data volume
-└── docker-compose.yml    # Container orchestration
+│   ├── backend/           # FastAPI API (main.py, routers, services, tests/)
+│   ├── web/               # Next.js web app
+│   └── desktop/           # Electron + Vite desktop app
+├── scripts/               # compose wrappers, deploy, backup, helpers
+├── workers/               # File watcher worker scripts
+├── gitea/                 # Gitea bind-mount data (local dev)
+├── docker-compose.yml     # Stack: gitea_db, gitea, fastapi, token-broker
+└── .env.compose.local     # Compose profile files (see below)
 ```
+
+## 🔧 Configuration: local vs remote
+
+SoundHaus uses **two layers** of environment files:
+
+| Layer | Purpose |
+|--------|---------|
+| **`.env.compose.local`** / **`.env.compose.remote`** | Compose variable substitution (`GITEA_DB_PASSWORD`, `GITEA_SECRET_KEY`, `GITEA_INTERNAL_TOKEN`, `HOME` for SSH mount, etc.) and **`BACKEND_ENV_FILE`** |
+| **`apps/backend/.env.local`** / **`apps/backend/.env.remote`** | FastAPI settings (Supabase, Gitea URLs/tokens, `API_BASE_URL`, rate limits, test users) loaded into the **`fastapi`** container via `env_file` |
+
+Copy from the `*.example` files at the repo root and under `apps/backend/`.
+
+- **Local development (your machine):** use **`local`** profile → typically `BACKEND_ENV_FILE=./apps/backend/.env.local` with `GITEA_URL=http://gitea:3000` and `API_BASE_URL=http://localhost:8000`.
+- **DigitalOcean droplet (or any remote host):** use **`remote`** profile on that host → `apps/backend/.env.remote` with public hostnames, webhook URLs Gitea can reach, etc.
+
+**Important:** `GITEA_DB_PASSWORD`, `GITEA_SECRET_KEY`, and `GITEA_INTERNAL_TOKEN` are tied to the **Gitea Postgres volume** on that machine. Use **different** values on a droplet than on your laptop; do not change `GITEA_DB_PASSWORD` on an existing volume without updating Postgres or recreating the volume.
+
+The compose wrappers write **`.soundhaus-compose-profile`** (`local` or `remote`) so the backend integration test runner (`apps/backend/tests/run_all.py`) picks the matching `apps/backend/.env.local` or `.env.remote`.
+
+## 📜 Scripts (`scripts/`)
+
+| Script | Role |
+|--------|------|
+| **`compose.sh`** / **`compose.ps1`** | `compose.sh local up -d` or `compose.ps1 remote up -d` — runs `docker compose --env-file .env.compose.<profile> …` from the repo root and updates `.soundhaus-compose-profile`. |
+| **`deploy-digital-ocean.sh`** | Rsync `docker-compose.yml`, root **`.env`**, and `apps/backend/` to `/opt/soundhaus` on a droplet, open firewall ports, `docker compose up -d`. See **`scripts/DEPLOYMENT.md`**. |
+| **`backup.sh`** | Backup helper (Gitea / DB-related; review script for flags). |
+| **`run_desktop.sh`** | Local desktop app helper. |
+| **`bootstrap_local_gitea_admin.py`** | Optional Gitea admin bootstrap (see script docstring). |
+
+**PowerShell (Windows):** from repo root, `.\scripts\compose.ps1 local up -d`
+
+**Legacy:** plain `docker compose up` without `--env-file .env.compose.local` uses default `BACKEND_ENV_FILE=./apps/backend/.env` if set nowhere else—prefer the **local** profile.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Docker & Docker Compose
-- Node.js 18+ (for React frontend)
-- Python 3.11+ (if running backend locally)
+- Node.js 18+ (for `apps/web` / `apps/desktop`)
+- Python 3.11+ (for backend tests or non-Docker backend runs)
 
-### 1. Clone and Setup
+### 1. Clone and env templates
 
 ```bash
-# Clone the repository
 git clone <your-repo-url>
-cd SoundHausRND
+cd SoundHaus_0.2.0
 
-# Create environment file (if not exists)
-cp apps/backend/.env.example apps/backend/.env
+cp .env.compose.local.example .env.compose.local
+cp apps/backend/.env.local.example apps/backend/.env.local
+# For remote host: also .env.compose.remote.example → .env.compose.remote, .env.remote.example → .env.remote
 ```
 
-### 2. Configure Environment Variables
+Fill in **`.env.compose.local`** (Gitea DB password, secrets, `HOME`) and **`apps/backend/.env.local`** (Supabase, Gitea admin token, `API_BASE_URL`, etc.).
 
-Edit `apps/backend/.env` with your credentials:
+### 2. Backend credentials (in `apps/backend/.env.local`)
 
 ```env
-# Gitea Configuration
+# Gitea (Docker internal URL for the API container)
 GITEA_URL=http://gitea:3000
-GITEA_ADMIN_TOKEN=your-gitea-admin-token-here
+GITEA_PUBLIC_URL=http://localhost:3000
+GITEA_ADMIN_TOKEN=your-gitea-admin-token
 
-# Supabase Configuration
+# Supabase
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_PUB_KEY=your-publishable-key
 SUPABASE_SERVICE_KEY=your-service-role-key
-SUPABASE_JWT_SECRET=your-jwt-secret
 
-# API Configuration
-API_URL=http://localhost:8000
+# Clients / tests on the host
+API_BASE_URL=http://localhost:8000
 ```
 
 #### Getting Gitea Admin Token
 
-1. Start containers: `docker-compose up -d`
-2. Access Gitea: http://localhost:3000
-3. Login with admin account
-4. Go to: **Settings → Applications → Manage Access Tokens**
-5. Generate new token with **ALL scopes** (especially `write:admin`)
-6. Copy token to `.env` file
+1. Start the stack: `./scripts/compose.sh local up -d` (or `.\scripts\compose.ps1 local up -d` on Windows).
+2. Open Gitea: http://localhost:3000
+3. Log in as admin → **Settings → Applications → Manage Access Tokens**
+4. Generate a token with **ALL** scopes (including **`write:admin`**).
+5. Put the token in **`apps/backend/.env.local`** as `GITEA_ADMIN_TOKEN`, then restart FastAPI:  
+   `./scripts/compose.sh local restart fastapi`
 
 #### Getting Supabase Credentials
 
-1. Go to your [Supabase Dashboard](https://supabase.com/dashboard)
-2. Select your project
-3. Navigate to: **Settings → API**
-4. Copy:
-   - Project URL → `SUPABASE_URL`
-   - `anon public` key → `SUPABASE_PUB_KEY`
-   - `service_role` key → `SUPABASE_SERVICE_KEY`
-   - JWT Secret → `SUPABASE_JWT_SECRET`
+1. [Supabase Dashboard](https://supabase.com/dashboard) → your project → **Settings → API**
+2. Map **Project URL**, **anon public**, **service_role**, and **JWT Secret** into `apps/backend/.env.local` as documented in `apps/backend/.env.local.example`.
 
-### 3. Start Services
+### 3. Start services (recommended: local profile)
 
 ```bash
-# Start all containers (Gitea, FastAPI, PostgreSQL)
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# View specific service logs
-docker-compose logs -f fastapi
-docker-compose logs -f gitea
+./scripts/compose.sh local up -d --build
+# Logs (optional): docker compose --env-file .env.compose.local logs -f
 ```
 
-### 4. Verify Services
+### 4. Verify services
 
 ```bash
-# Check all containers are running
-docker-compose ps
-
-# Test API health
+docker compose --env-file .env.compose.local ps
 curl http://localhost:8000/health
-
-# Access services
-# - API: http://localhost:8000
-# - API Docs: http://localhost:8000/docs
-# - Gitea: http://localhost:3000
 ```
 
-### 5. Setup React Frontend
+- API: http://localhost:8000 — Docs: http://localhost:8000/docs  
+- Gitea: http://localhost:3000  
+
+### 5. Web frontend (`apps/web`)
 
 ```bash
-# Navigate to React app
-cd react
-
-# Install dependencies
+cd apps/web
 npm install
-
-# Start development server
 npm run dev
-
-# Frontend will be available at http://localhost:5173
 ```
+
+Default Next.js dev URL is shown in the terminal (often http://localhost:3000—change one of Gitea or Next port if they conflict, or run web on another port per Next docs).
 
 ## 🧪 Testing the Application
+
+### Backend integration test suite
+
+Automated HTTP tests live under **`apps/backend/tests/`** (auth, Gitea, Supabase features). The runner is **`python tests/run_all.py`** from `apps/backend` (after `pip install -r tests/requirements.txt`).
+
+Full detail: **[apps/backend/tests/README.md](apps/backend/tests/README.md)**.
+
+Summary:
+
+- Start the stack with the same profile you use for dev (`local` recommended).
+- Set **`TEST_USER_EMAIL`** and **`TEST_USER_PASSWORD`** in `apps/backend/.env.local` for authenticated scenarios.
+- **`POST /api/auth/login`** is rate-limited separately from `RATE_LIMIT_DEFAULT`. For a full suite in one minute, set **`RATE_LIMIT_AUTH`** high or **`RATE_LIMIT_ENABLED=false`** in the backend env file and **restart** the `fastapi` container so the process picks up changes.
+
+Manual smoke checks and curl examples below.
 
 ### Test API Endpoints
 
@@ -188,45 +210,28 @@ curl -X POST http://localhost:8000/repos \
 
 ### Test Full User Flow
 
-1. **Sign Up**: Create account at http://localhost:5173
-2. **Login**: Sign in with credentials
-3. **Create Repository**: Click "New Repository"
-4. **Upload Files**: Upload audio files or project files
-5. **Collaborate**: Invite other users to your project
+1. **Sign Up**: Create account in the web app (when wired to this API).
+2. **Login**: Sign in with credentials.
+3. **Create Repository**, **upload**, **collaborate** as your UI exposes.
 
-### Test with React Frontend
+### Test with web frontend
 
 ```bash
-# Make sure all services are running
-docker-compose ps
-
-# Start React app
-cd react
-npm run dev
-
-# Open browser
-open http://localhost:5173
-
-# Test the following:
-# 1. Sign up with new account
-# 2. Login with credentials
-# 3. Create a new repository
-# 4. Upload a file to the repository
-# 5. Browse repository contents
+docker compose --env-file .env.compose.local ps
+cd apps/web && npm run dev
 ```
+
+Exercise sign-up, login, repos, and uploads against your configured `API_BASE_URL`.
 
 ## 🛠️ Development
 
 ### Backend Development
 
 ```bash
-# View live logs
-docker-compose logs -f fastapi
+docker compose --env-file .env.compose.local logs -f fastapi
+# Hot reload: backend source is mounted into the container (see docker-compose.yml)
 
-# Restart backend after code changes (auto-reload enabled)
-# Changes are automatically detected via volume mount
-
-# Run backend locally (without Docker)
+# Run backend on the host (without Docker)—use a local .env with GITEA_URL=http://localhost:3000
 cd apps/backend
 pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -235,23 +240,21 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ### Frontend Development
 
 ```bash
-cd react
-npm run dev         # Start dev server
-npm run build       # Build for production
-npm run preview     # Preview production build
+cd apps/web
+npm run dev
+npm run build
+npm run start
 ```
 
 ### Database Access
 
-```bash
-# Access PostgreSQL
-docker exec -it postgres psql -U soundhaus -d soundhaus_db
+Gitea’s database is the **`gitea_db`** Postgres service (not a container named `postgres`):
 
-# Common commands:
-\dt                 # List tables
-\d table_name       # Describe table
-SELECT * FROM ...   # Query data
+```bash
+docker exec -it gitea_db psql -U gitea -d gitea
 ```
+
+App-related data uses **Supabase** (connection string in `apps/backend/.env.*`).
 
 ### Gitea Management
 
@@ -283,8 +286,8 @@ docker exec --user git gitea gitea admin user create \
 # 2. Go to Settings → Applications
 # 3. Delete old token
 # 4. Create new token with ALL scopes
-# 5. Update GITEA_ADMIN_TOKEN in .env
-# 6. Restart: docker-compose restart fastapi
+# 5. Update GITEA_ADMIN_TOKEN in apps/backend/.env.local (or .env.remote)
+# 6. Restart: docker compose --env-file .env.compose.local restart fastapi
 ```
 
 #### 2. "401 Unauthorized" on Login
@@ -292,9 +295,8 @@ docker exec --user git gitea gitea admin user create \
 
 **Solution**:
 ```bash
-# Verify credentials in .env match Supabase dashboard
-# Check: SUPABASE_URL, SUPABASE_PUB_KEY, SUPABASE_JWT_SECRET
-docker-compose restart fastapi
+# Verify apps/backend/.env.local (or .env.remote) matches Supabase dashboard
+docker compose --env-file .env.compose.local restart fastapi
 ```
 
 #### 3. Frontend Can't Connect to Backend
@@ -302,14 +304,10 @@ docker-compose restart fastapi
 
 **Solution**:
 ```bash
-# Check backend is running
 curl http://localhost:8000/health
+# Ensure CORS in backend config allows your web app origin
 
-# Check CORS origins in apps/backend/core/config.py
-# Should include: http://localhost:5173
-
-# Restart backend
-docker-compose restart fastapi
+docker compose --env-file .env.compose.local restart fastapi
 ```
 
 #### 4. Import Errors in Backend
@@ -317,62 +315,47 @@ docker-compose restart fastapi
 
 **Solution**:
 ```bash
-# Rebuild backend container
-docker-compose down
-docker-compose build fastapi
-docker-compose up -d
-
-# Check logs
-docker-compose logs fastapi
+docker compose --env-file .env.compose.local down
+docker compose --env-file .env.compose.local build fastapi
+docker compose --env-file .env.compose.local up -d
+docker compose --env-file .env.compose.local logs fastapi
 ```
 
-#### 5. Gitea Database Locked
+#### 5. Gitea: `password authentication failed for user "gitea"`
+**Problem**: `GITEA_DB_PASSWORD` in `.env.compose.*` does not match the password Postgres was initialized with (common after changing compose env without recreating the **`gitea_pgdata`** volume).
+
+**Solution**: Restore the original password, or reset the volume (⚠️ destroys Gitea DB):  
+`docker compose --env-file .env.compose.local down -v` then `up -d` with a single chosen password.
+
+#### 6. Gitea Database Locked
 **Problem**: Gitea container crashed or database corrupt
 
 **Solution**:
 ```bash
-# Stop all containers
-docker-compose down
-
-# Start Gitea first
-docker-compose up -d gitea
+docker compose --env-file .env.compose.local down
+docker compose --env-file .env.compose.local up -d gitea_db gitea
 sleep 10
-
-# Start remaining services
-docker-compose up -d
+docker compose --env-file .env.compose.local up -d
 ```
 
 ### View Logs
 
 ```bash
-# All services
-docker-compose logs -f
-
-# Specific service
-docker-compose logs -f fastapi
-docker-compose logs -f gitea
-docker-compose logs -f postgres
-
-# Last N lines
-docker-compose logs --tail=100 fastapi
+docker compose --env-file .env.compose.local logs -f
+docker compose --env-file .env.compose.local logs -f fastapi
+docker compose --env-file .env.compose.local logs -f gitea
+docker compose --env-file .env.compose.local logs -f gitea_db
+docker compose --env-file .env.compose.local logs --tail=100 fastapi
 ```
 
 ### Reset Everything
 
 ```bash
-# ⚠️ WARNING: This will delete all data!
+# ⚠️ WARNING: This will delete Gitea Postgres data in the named volume!
 
-# Stop and remove containers
-docker-compose down
-
-# Remove volumes (deletes database data)
-docker-compose down -v
-
-# Remove Gitea data
+docker compose --env-file .env.compose.local down -v
 rm -rf gitea/
-
-# Start fresh
-docker-compose up -d
+docker compose --env-file .env.compose.local up -d
 ```
 
 ## 📚 API Documentation
@@ -423,12 +406,16 @@ Once the backend is running, access the interactive API documentation:
 - **Keep dependencies updated** - Regular security updates
 - **Restrict Gitea admin token** - Only use for backend services
 
+## 🚢 Deploying to DigitalOcean
+
+See **[scripts/DEPLOYMENT.md](scripts/DEPLOYMENT.md)** for Spaces, Supabase, firewall, and **`scripts/deploy-digital-ocean.sh`**. On the droplet you can instead clone the repo and run **`./scripts/compose.sh remote up -d`** with **`.env.compose.remote`** and **`apps/backend/.env.remote`** if you align that workflow with your ops process.
+
 ## 🤝 Contributing
 
 1. Create a feature branch
 2. Make your changes
-3. Test thoroughly
-4. Submit a pull request
+3. Run integration tests (`apps/backend/tests/README.md`) when touching the API
+4. Open a pull request
 
 ## 📝 License
 
@@ -445,7 +432,5 @@ Once the backend is running, access the interactive API documentation:
 
 For issues or questions:
 - Check the [Troubleshooting](#-troubleshooting) section
-- View logs: `docker-compose logs -f`
+- View logs: `docker compose --env-file .env.compose.local logs -f`
 - Open an issue on GitHub
-# SoundHausRND
-The research and development repository for The Sound Haus project. 
