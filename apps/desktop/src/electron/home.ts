@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
@@ -8,6 +8,7 @@ import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
 import * as http from 'http';
+import * as https from 'https';
 
 const execAsync = promisify(exec);
 
@@ -22,13 +23,59 @@ const envGit = process.env.SOUNDHAUS_GIT_BIN;
 const giteaApiBaseUrl = desktopEnv.giteaPublicUrl;
 let gitBin: string;
 
-function getGiteaApiRequestOptions(): { protocol: string; hostname: string; port: number } {
+function getGiteaApiRequestOptions(): { protocol: string; hostname: string; port: number; basePath: string } {
     const parsed = new URL(giteaApiBaseUrl);
     return {
         protocol: parsed.protocol,
         hostname: parsed.hostname,
         port: parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80,
+        basePath: parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, ''),
     };
+}
+
+async function approveGitCredentials(
+    params: { protocol: string; host: string; username: string; password: string },
+    cwd?: string,
+): Promise<{ stdout: string; stderr: string }> {
+    return await new Promise((resolve, reject) => {
+        const child = spawn(gitBin, ['credential', 'approve'], {
+            cwd,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (chunk) => {
+            stdout += chunk.toString();
+        });
+
+        child.stderr.on('data', (chunk) => {
+            stderr += chunk.toString();
+        });
+
+        child.on('error', (err) => {
+            reject(err);
+        });
+
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve({ stdout, stderr });
+                return;
+            }
+            reject(new Error(`git credential approve exited with code ${code}: ${stderr || stdout}`));
+        });
+
+        const input =
+            `protocol=${params.protocol}\n` +
+            `host=${params.host}\n` +
+            `username=${params.username}\n` +
+            `password=${params.password}\n\n`;
+
+        child.stdin.write(input);
+        child.stdin.end();
+    });
 }
 
 // Try to use bundled git, but fall back to system git if it fails
@@ -224,10 +271,12 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         console.log('[init] Step 4: Making HTTP request to create repository...');
         const remoteURL = await new Promise<string>((resolve, reject) => {
             const giteaRequestTarget = getGiteaApiRequestOptions();
+            const requestPath = `${giteaRequestTarget.basePath}/api/v1/user/repos`;
+            const transport = giteaRequestTarget.protocol === 'https:' ? https : http;
             const reqOptions = {
-                hostname: 'localhost',
-                port: 3000,
-                path: '/api/v1/user/repos',
+                hostname: giteaRequestTarget.hostname,
+                port: giteaRequestTarget.port,
+                path: requestPath,
                 method: 'POST',
                 headers: {
                     'Authorization': `token ${token}`,
@@ -237,7 +286,9 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
                 }
             };
 
-            const req = http.request(reqOptions, (res) => {
+            console.log('[init] Gitea API target:', `${giteaRequestTarget.protocol}//${giteaRequestTarget.hostname}:${giteaRequestTarget.port}${requestPath}`);
+
+            const req = transport.request(reqOptions, (res) => {
                 let data = '';
                 console.log('[init] HTTP Response status:', res.statusCode);
                 
@@ -273,7 +324,8 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
 
             req.on('error', (error) => {
                 console.error('[init] HTTP request error:', error);
-                reject(new Error(`HTTP request error: ${error.message}`));
+                const detail = error instanceof Error ? (error.stack || error.message) : String(error);
+                reject(new Error(`HTTP request error: ${detail}`));
             });
 
             req.write(payload);
@@ -297,14 +349,13 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         console.log('[init] ✓ Credential helper configured');
 
         // Approve credentials for this repository
-        const approveCmd =
-            `printf "protocol=${repoUrl.protocol.replace(':', '')}\n` +
-            `host=${repoUrl.host}\n` +
-            `username=${repoOwner}\n` +
-            `password=${token}\n\n" | "${gitBin}" credential approve`;
-        
         console.log('[init] Approving credentials for:', `${repoUrl.protocol}//${repoUrl.host}`);
-        const { stdout: approveStdout, stderr: approveStderr } = await execAsync(approveCmd, { cwd: folderPath });
+        const { stdout: approveStdout, stderr: approveStderr } = await approveGitCredentials({
+            protocol: repoUrl.protocol.replace(':', ''),
+            host: repoUrl.host,
+            username: repoOwner,
+            password: token,
+        }, folderPath);
         if (approveStdout) console.log('[init] Credential approve stdout:', approveStdout);
         if (approveStderr) console.warn('[init] Credential approve stderr:', approveStderr);
         console.log('[init] ✓ Credentials approved');
@@ -388,14 +439,13 @@ async function cloneRepo(cloneUrl: string, destinationPath: string): Promise<str
             console.log('[clone] ✓ Credential helper configured');
 
             // Approve credentials for this host
-            const approveCmd =
-                `printf "protocol=${cloneUrlObj.protocol.replace(':', '')}\n` +
-                `host=${cloneUrlObj.host}\n` +
-                `username=${repoOwner}\n` +
-                `password=${token}\n\n" | "${gitBin}" credential approve`;
-
             console.log('[clone] Approving credentials for:', `${cloneUrlObj.protocol}//${cloneUrlObj.host}`);
-            const { stdout: approveStdout, stderr: approveStderr } = await execAsync(approveCmd);
+            const { stdout: approveStdout, stderr: approveStderr } = await approveGitCredentials({
+                protocol: cloneUrlObj.protocol.replace(':', ''),
+                host: cloneUrlObj.host,
+                username: repoOwner,
+                password: token,
+            });
             if (approveStdout) console.log('[clone] Credential approve stdout:', approveStdout);
             if (approveStderr) console.warn('[clone] Credential approve stderr:', approveStderr);
             console.log('[clone] ✓ Credentials approved');
