@@ -35,6 +35,7 @@ import SnippetUploader from "@/components/SnippetUploader";
 import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
+import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import UserAvatar from "@/components/UserAvatar";
 import { deleteRepoAction, renameRepoAction, updateDescriptionAction, updateVisibilityAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
@@ -112,6 +113,41 @@ export default function RepoDetailClient({
   const [diffCache, setDiffCache] = useState<Record<string, AlsDiffData | null>>({});
   const [diffLoading, setDiffLoading] = useState<string | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
+
+  // A/B Comparison state
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSelection, setCompareSelection] = useState<[string | null, string | null]>([null, null]);
+  const [showComparison, setShowComparison] = useState(false);
+
+  function handleCompareToggle() {
+    if (compareMode) {
+      // Exit compare mode
+      setCompareMode(false);
+      setCompareSelection([null, null]);
+      setShowComparison(false);
+    } else {
+      setCompareMode(true);
+      setExpandedSha(null); // close any expanded diff
+    }
+  }
+
+  function handleCompareSelect(sha: string) {
+    setCompareSelection((prev) => {
+      if (prev[0] === sha) return [null, prev[1]];
+      if (prev[1] === sha) return [prev[0], null];
+      if (!prev[0]) return [sha, prev[1]];
+      if (!prev[1]) return [prev[0], sha];
+      // Both filled — replace the second
+      return [prev[0], sha];
+    });
+    setShowComparison(false);
+  }
+
+  function handleRunComparison() {
+    if (compareSelection[0] && compareSelection[1]) {
+      setShowComparison(true);
+    }
+  }
 
   const pushes: PushActivity[] = activity?.activity ?? [];
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
@@ -609,11 +645,55 @@ export default function RepoDetailClient({
       {activeTab === "commits" && (
         <div className="rounded-lg border border-zinc-800 p-6">
           <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Snapshot History</h2>
-            <span className="text-sm text-zinc-400">
-              {commitTotal} snapshot{commitTotal !== 1 ? "s" : ""}
-            </span>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-semibold">Snapshot History</h2>
+              <span className="text-sm text-zinc-400">
+                {commitTotal} snapshot{commitTotal !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {compareMode && compareSelection[0] && compareSelection[1] && (
+                <button
+                  onClick={handleRunComparison}
+                  className="flex items-center gap-1 rounded-md bg-glass-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-glass-blue-500"
+                >
+                  Compare
+                </button>
+              )}
+              <button
+                onClick={handleCompareToggle}
+                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  compareMode
+                    ? "border-glass-blue-500 bg-glass-blue-500/10 text-glass-blue-400"
+                    : "border-zinc-700 text-zinc-400 hover:border-glass-blue-500 hover:text-glass-blue-400"
+                }`}
+              >
+                <GitBranch size={12} />
+                {compareMode ? "Cancel Compare" : "Compare Commits"}
+              </button>
+            </div>
           </div>
+
+          {/* Compare mode hint */}
+          {compareMode && !showComparison && (
+            <div className="mb-4 rounded-md border border-zinc-700 bg-zinc-800/50 px-4 py-2 text-xs text-zinc-400">
+              Select two snapshots to compare.
+              {compareSelection[0] && !compareSelection[1] && " Now select the second snapshot."}
+              {compareSelection[0] && compareSelection[1] && " Press Compare to view differences."}
+            </div>
+          )}
+
+          {/* AB Comparison View */}
+          {showComparison && compareSelection[0] && compareSelection[1] && (
+            <div className="mb-4">
+              <ABComparisonView
+                owner={owner}
+                repo={repo}
+                baseSha={compareSelection[0]}
+                headSha={compareSelection[1]}
+              />
+            </div>
+          )}
 
           {commits.length === 0 ? (
             <p className="text-zinc-400">No snapshots recorded yet.</p>
@@ -631,8 +711,26 @@ export default function RepoDetailClient({
                     {/* Commit row */}
                     <div
                       className="flex items-start gap-4 px-4 py-3 hover:bg-zinc-800/30 transition-colors cursor-pointer"
-                      onClick={() => c.has_diff && handleToggleDiff(c.sha)}
+                      onClick={() => compareMode ? handleCompareSelect(c.sha) : (c.has_diff && handleToggleDiff(c.sha))}
                     >
+                      {/* Compare checkbox */}
+                      {compareMode && (
+                        <div className="flex items-center pt-1">
+                          <div
+                            className={`h-4 w-4 rounded border transition-colors ${
+                              compareSelection.includes(c.sha)
+                                ? "border-glass-blue-500 bg-glass-blue-500"
+                                : "border-zinc-600 hover:border-zinc-400"
+                            }`}
+                          >
+                            {compareSelection.includes(c.sha) && (
+                              <svg viewBox="0 0 16 16" className="h-4 w-4 text-white">
+                                <path fill="currentColor" d="M6.5 11.5L3 8l1-1 2.5 2.5L11 5l1 1z" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 mt-0.5">
                         <GitCommit size={15} />
                       </div>
