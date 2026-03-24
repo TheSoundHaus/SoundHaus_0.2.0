@@ -1,13 +1,12 @@
 """
 Demucs Service – stem separation orchestration.
 
-Downloads source audio, runs Demucs, uploads stems to Supabase Storage,
-and updates the database with StemFile records.
+Downloads source audio, runs Demucs via its Python API (not the CLI),
+uploads stems to Supabase Storage, and updates the database with StemFile records.
 """
 import os
 import hashlib
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -22,12 +21,21 @@ from models.stem_models import SnippetVersion, StemFile, StemJobStatus, StemType
 
 logger = get_logger("soundhaus.demucs")
 
+# ── Module-level model cache (avoids re-loading on every job) ────────────────
+_cached_model = None
+_cached_model_name: Optional[str] = None
+
 
 class DemucsService:
-    """Handles stem separation via Demucs CLI."""
+    """Handles stem separation via the Demucs Python API."""
 
     # Supabase bucket for stems (separate from snippets)
     STEMS_BUCKET = "stems"
+
+    # Hard ceiling – reject audio longer than this at separation time
+    MAX_SEPARATION_SECONDS = 30
+    # Timeout for apply_model() to prevent infinite hangs (seconds)
+    SEPARATION_TIMEOUT = 300  # 5 minutes
 
     def __init__(self, db: Session):
         self.db = db
@@ -73,42 +81,82 @@ class DemucsService:
         logger.info("source_downloaded", url=url, size=tmp.stat().st_size)
         return tmp
 
-    # ── Demucs CLI ───────────────────────────────────────────────────────
+    # ── Demucs Python API ────────────────────────────────────────────────
+
+    def _get_model(self):
+        """Load and cache the Demucs model. First call downloads weights."""
+        global _cached_model, _cached_model_name
+        if _cached_model is not None and _cached_model_name == self.model_name:
+            return _cached_model
+
+        from demucs.pretrained import get_model
+        logger.info("loading_model", model=self.model_name)
+        _cached_model = get_model(self.model_name)
+        _cached_model_name = self.model_name
+        _cached_model.eval()  # inference mode
+        logger.info("model_loaded", model=self.model_name)
+        return _cached_model
 
     def run_demucs(self, input_file: Path, output_dir: Path) -> Path:
         """
-        Run Demucs 4-stem separation.
-        Uses --mp3 output (via lameenc) to avoid torchaudio/torchcodec issues.
-        Returns the directory containing vocals.mp3, drums.mp3, bass.mp3, other.mp3.
+        Run Demucs 4-stem separation using the Python API.
+        Outputs WAV files (faster than MP3, no lameenc needed for separation).
+        Returns the directory containing vocals.wav, drums.wav, bass.wav, other.wav.
         """
-        cmd = [
-            "python", "-m", "demucs",
-            "-n", self.model_name,
-            "--mp3",          # Use lameenc for output — avoids torchaudio torchcodec dep
-            "-o", str(output_dir),
-            str(input_file),
-        ]
+        import torch
+        import torchaudio
+        from demucs.apply import apply_model
+        from demucs.audio import save_audio
 
         logger.info("demucs_start", model=self.model_name, input=str(input_file))
 
-        try:
-            result = subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=self.max_duration * 2,
-            )
-            logger.debug("demucs_stdout", stdout=result.stdout[-500:] if result.stdout else "")
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(f"Demucs failed: {exc.stderr}") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"Demucs timeout ({self.max_duration * 2}s)") from exc
+        model = self._get_model()
+        # Load audio — torchaudio handles WAV, MP3, FLAC, etc.
+        wav, sr = torchaudio.load(str(input_file))
 
-        # Demucs outputs to: output_dir/<model>/<input_stem>/
-        stem_dir = output_dir / self.model_name / input_file.stem
-        if not stem_dir.is_dir():
-            raise RuntimeError(f"Expected stem directory not found: {stem_dir}")
+        # Resample if needed (Demucs expects model.samplerate, usually 44100)
+        if sr != model.samplerate:
+            wav = torchaudio.transforms.Resample(sr, model.samplerate)(wav)
+            sr = model.samplerate
+
+        # ── Enforce duration limit ──────────────────────────────────────
+        duration_secs = wav.shape[-1] / sr
+        if duration_secs > self.MAX_SEPARATION_SECONDS:
+            logger.warning(
+                "audio_too_long_trimming",
+                duration=duration_secs,
+                limit=self.MAX_SEPARATION_SECONDS,
+            )
+            max_samples = int(self.MAX_SEPARATION_SECONDS * sr)
+            wav = wav[..., :max_samples]
+            duration_secs = self.MAX_SEPARATION_SECONDS
+
+        logger.info("demucs_audio_info", duration=round(duration_secs, 1), sr=sr)
+
+        # Demucs expects (batch, channels, samples)
+        ref = wav.mean(0)  # mono reference for normalization
+        wav = (wav - ref.mean()) / (ref.std() + 1e-8)  # epsilon prevents div-by-zero
+        wav = wav.unsqueeze(0)  # add batch dim
+
+        # Run inference
+        with torch.no_grad():
+            sources = apply_model(model, wav, device="cpu", progress=False)
+
+        # sources shape: (batch, n_sources, channels, samples)
+        sources = sources[0]  # remove batch dim
+
+        # Save each stem as WAV
+        stem_names = model.sources  # e.g. ['drums', 'bass', 'other', 'vocals']
+        stem_dir = output_dir / "stems"
+        stem_dir.mkdir(parents=True, exist_ok=True)
+
+        for i, name in enumerate(stem_names):
+            stem_audio = sources[i]
+            # De-normalize
+            stem_audio = stem_audio * ref.std() + ref.mean()
+            out_path = stem_dir / f"{name}.wav"
+            save_audio(stem_audio, str(out_path), samplerate=sr)
+
         logger.info("demucs_done", stem_dir=str(stem_dir))
         return stem_dir
 
@@ -128,13 +176,13 @@ class DemucsService:
         results: List[Tuple[StemType, str, str, int]] = []
 
         for stem_type in StemType:
-            stem_file = stem_dir / f"{stem_type.value}.mp3"
+            stem_file = stem_dir / f"{stem_type.value}.wav"
             if not stem_file.exists():
                 logger.warning("stem_missing", stem=stem_type.value, dir=str(stem_dir))
                 continue
 
             storage_path = (
-                f"{owner}/{repo}/versions/{version_id}/stems/{stem_type.value}.mp3"
+                f"{owner}/{repo}/versions/{version_id}/stems/{stem_type.value}.wav"
             )
             content = stem_file.read_bytes()
             file_size = len(content)
@@ -142,7 +190,7 @@ class DemucsService:
             self.supabase.storage.from_(self.STEMS_BUCKET).upload(
                 path=storage_path,
                 file=content,
-                file_options={"content-type": "audio/mpeg", "upsert": "true"},
+                file_options={"content-type": "audio/wav", "upsert": "true"},
             )
             public_url = self.supabase.storage.from_(self.STEMS_BUCKET).get_public_url(
                 storage_path
@@ -164,10 +212,12 @@ class DemucsService:
         """
         End-to-end stem generation. Called by the worker loop.
         1. Download source audio
-        2. Run Demucs
+        2. Run Demucs (in a thread with timeout)
         3. Upload stems
         4. Create StemFile rows
         """
+        import asyncio
+
         version = self.db.query(SnippetVersion).get(snippet_version_id)
         if not version:
             raise ValueError(f"SnippetVersion {snippet_version_id} not found")
@@ -182,8 +232,17 @@ class DemucsService:
             # 1. Download
             source_file = await self.download_source_audio(version.source_upload_url)
 
-            # 2. Separate
-            stem_dir = self.run_demucs(source_file, tmp_dir)
+            # 2. Separate — run in thread to avoid blocking the async loop,
+            #    with a timeout to prevent infinite hangs
+            try:
+                stem_dir = await asyncio.wait_for(
+                    asyncio.to_thread(self.run_demucs, source_file, tmp_dir),
+                    timeout=self.SEPARATION_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Stem separation timed out after {self.SEPARATION_TIMEOUT}s"
+                )
 
             # 3. Upload
             uploaded = await self.upload_stems_to_storage(
@@ -198,7 +257,7 @@ class DemucsService:
                     storage_path=storage_path,
                     public_url=public_url,
                     file_size_bytes=file_size,
-                    format="mp3",
+                    format="wav",
                 )
                 self.db.add(sf)
 

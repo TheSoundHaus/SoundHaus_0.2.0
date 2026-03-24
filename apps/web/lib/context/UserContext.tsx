@@ -12,6 +12,7 @@ export interface UserProfile {
     display_name: string;
     avatar_url: string | null;
     bio: string | null;
+    is_public: boolean;
     created_at: string | null;
     updated_at: string | null;
 }

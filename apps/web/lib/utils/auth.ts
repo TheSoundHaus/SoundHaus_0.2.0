@@ -62,21 +62,86 @@ export async function clearAuthCookies() {
 }
 
 /**
- * Make authenticated API request to FastAPI backend
+ * Attempt to refresh the access token using the stored refresh token.
+ * Updates cookies on success. Returns the new access token, or null on failure.
+ */
+async function tryRefreshToken(): Promise<string | null> {
+  const refreshToken = await getRefreshToken()
+  if (!refreshToken) return null
+
+  const API_BASE_URL = process.env.API_URL || 'http://localhost:8000'
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!res.ok) return null
+
+    const data = await res.json()
+    if (!data?.session?.access_token) return null
+
+    const { access_token, refresh_token, expires_at } = data.session
+    const expiresIn = expires_at
+      ? Math.max(60, expires_at - Math.floor(Date.now() / 1000))
+      : 60 * 60
+
+    await setAuthCookies(access_token, refresh_token, expiresIn)
+    return access_token
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Make authenticated API request to FastAPI backend.
+ * Automatically refreshes the access token if it is missing or expired.
  */
 export async function authenticatedFetch(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const token = await getAccessToken()
+  let token = await getAccessToken()
   const API_BASE_URL = process.env.API_URL || 'http://localhost:8000'
 
-  return fetch(`${API_BASE_URL}${endpoint}`, {
+  // If no access token try to refresh before sending the request
+  if (!token) {
+    token = await tryRefreshToken() ?? undefined
+  }
+
+  // When sending FormData (multipart), let the browser set Content-Type
+  // automatically so the boundary is included. Only set JSON for other requests.
+  const isFormData = options.body instanceof FormData
+  const headers: Record<string, string> = {
+    ...options.headers as Record<string, string>,
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  }
+  if (!isFormData) {
+    headers['Content-Type'] = 'application/json'
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
-    headers: {
-      ...options.headers,
-      'Authorization': token ? `Bearer ${token}` : '',
-      'Content-Type': 'application/json',
-    },
+    headers,
   })
+
+  // If we get a 401 and haven't already tried refreshing, attempt once more
+  if (response.status === 401 && token) {
+    const newToken = await tryRefreshToken()
+    if (newToken) {
+      const retryHeaders: Record<string, string> = {
+        ...options.headers as Record<string, string>,
+        'Authorization': `Bearer ${newToken}`,
+      }
+      if (!isFormData) retryHeaders['Content-Type'] = 'application/json'
+
+      return fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        headers: retryHeaders,
+      })
+    }
+  }
+
+  return response
 }
+

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Text
+from sqlalchemy import Column, String, DateTime, Text, Boolean
 from sqlalchemy.sql import func
 from database import Base
 
@@ -10,6 +10,7 @@ class Profile(Base):
     - id: Supabase Auth UUID (set at signup, not auto-generated).
     - username: Human-readable, unique, immutable after creation.
     - avatar_url: Public CDN URL to the user's profile picture in Supabase Storage.
+    - is_public: Whether the profile is publicly visible (default: False).
     """
 
     __tablename__ = "profiles"
@@ -20,6 +21,7 @@ class Profile(Base):
     display_name = Column(String, nullable=True)
     avatar_url = Column(String(500), nullable=True)
     bio = Column(Text, nullable=True)
+    is_public = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     

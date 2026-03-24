@@ -91,6 +91,8 @@ class ProfileService:
             profile.display_name = updates["display_name"].strip()[:100]
         if "bio" in updates and updates["bio"] is not None:
             profile.bio = updates["bio"].strip()[:500]
+        if "is_public" in updates and updates["is_public"] is not None:
+            profile.is_public = bool(updates["is_public"])
 
         db.commit()
         db.refresh(profile)
@@ -206,6 +208,7 @@ class ProfileService:
             "display_name": profile.display_name,
             "avatar_url": profile.avatar_url,
             "bio": profile.bio,
+            "is_public": profile.is_public if profile.is_public is not None else False,
             "created_at": profile.created_at.isoformat() if profile.created_at else None,
             "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
         }

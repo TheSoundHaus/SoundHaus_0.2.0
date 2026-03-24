@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { logout } from "@/actions/auth";
+import { logout, requestPasswordResetAction } from "@/actions/auth";
 import { getSentInvitations } from "@/lib/api/invitations";
+import { getUserStats } from "@/lib/api/profile";
 import { cancelInvitationAction } from "@/actions/invitations";
 import { updateProfileAction, uploadAvatarAction, deleteAvatarAction } from "@/actions/profile";
 import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "@/components/UserAvatar";
 import type { SentInvitation } from "@/lib/types/api";
-import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2 } from "lucide-react";
+import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail } from "lucide-react";
 
 /**
  * User Profile Page - Profile settings, account, stats, and invitation management
@@ -43,6 +44,26 @@ export default function SettingsPage() {
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
+  // Visibility toggle state
+  const [visibilityDialogOpen, setVisibilityDialogOpen] = useState(false);
+  const [pendingVisibility, setPendingVisibility] = useState<boolean | null>(null);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
+
+  // Password reset state
+  const [resetSending, setResetSending] = useState(false);
+  const [resetMessage, setResetMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Statistics state
+  const [stats, setStats] = useState<{
+    total_repos: number;
+    total_commits: number;
+    total_clones_received: number;
+    collaborations: number;
+    total_size_kb: number;
+  } | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
+
   // Populate form when user data loads
   useEffect(() => {
     if (user) {
@@ -65,6 +86,49 @@ export default function SettingsPage() {
       setProfileMessage({ type: "error", text: result.error });
     }
     setProfileSaving(false);
+  };
+
+  const handleVisibilityToggle = (newValue: boolean) => {
+    setPendingVisibility(newValue);
+    setVisibilityDialogOpen(true);
+  };
+
+  const handlePasswordReset = async () => {
+    if (!user?.email) return;
+    setResetSending(true);
+    setResetMessage(null);
+    try {
+      const result = await requestPasswordResetAction(user.email);
+      if (result.success) {
+        setResetMessage({ type: "success", text: "Password reset email sent! Check your inbox." });
+      } else {
+        setResetMessage({ type: "error", text: result.error || "Failed to send reset email." });
+      }
+    } catch {
+      setResetMessage({ type: "error", text: "An error occurred. Please try again." });
+    }
+    setResetSending(false);
+  };
+
+  const confirmVisibilityChange = async () => {
+    if (pendingVisibility === null) return;
+    setVisibilitySaving(true);
+    setProfileMessage(null);
+    const result = await updateProfileAction({ is_public: pendingVisibility });
+    if (result.success) {
+      setProfileMessage({
+        type: "success",
+        text: pendingVisibility
+          ? "Your profile is now public!"
+          : "Your profile is now private.",
+      });
+      await refreshUser();
+    } else {
+      setProfileMessage({ type: "error", text: result.error });
+    }
+    setVisibilitySaving(false);
+    setVisibilityDialogOpen(false);
+    setPendingVisibility(null);
   };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -130,6 +194,22 @@ export default function SettingsPage() {
     }
   }, [activeTab, loadInvitations]);
 
+  // Load stats when tab is active
+  useEffect(() => {
+    if (activeTab === "stats" && !stats && !statsLoading) {
+      setStatsLoading(true);
+      setStatsError(null);
+      getUserStats().then((res) => {
+        if (res.success && res.data) {
+          setStats(res.data);
+        } else if (!res.success) {
+          setStatsError(res.error || "Failed to load statistics");
+        }
+        setStatsLoading(false);
+      });
+    }
+  }, [activeTab, stats, statsLoading]);
+
   const handleCancelInvite = async (id: string) => {
     setCancellingId(id);
     const result = await cancelInvitationAction(id);
@@ -140,6 +220,15 @@ export default function SettingsPage() {
     }
     setCancellingId(null);
   };
+
+  // Format storage size from KB
+  function formatStorageSize(kb: number): string {
+    if (kb < 1024) return `${kb} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(2)} GB`;
+  }
 
   // Format relative time
   function timeAgo(iso: string | null | undefined): string {
@@ -170,7 +259,7 @@ export default function SettingsPage() {
       case "declined":
         return <XCircle size={14} className="text-red-500" />;
       default:
-        return <Clock size={14} className="text-zinc-500" />;
+        return <Clock size={14} className="text-zinc-400" />;
     }
   };
 
@@ -250,7 +339,7 @@ export default function SettingsPage() {
                 <h2 className="mb-6 text-2xl font-semibold">Profile Settings</h2>
 
                 {userLoading ? (
-                  <div className="flex items-center gap-3 text-sm text-zinc-500">
+                  <div className="flex items-center gap-3 text-sm text-zinc-400">
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
                     Loading profile…
                   </div>
@@ -286,7 +375,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-zinc-200">Profile Picture</p>
-                        <p className="text-xs text-zinc-500 mb-2">JPEG, PNG, WebP, or GIF. Max 2 MB.</p>
+                        <p className="text-xs text-zinc-400 mb-2">JPEG, PNG, WebP, or GIF. Max 2 MB.</p>
                         <div className="flex gap-2">
                           <button
                             onClick={() => fileInputRef.current?.click()}
@@ -323,18 +412,6 @@ export default function SettingsPage() {
 
                     <div>
                       <label className="mb-2 block text-sm font-medium">
-                        Username
-                      </label>
-                      <input
-                        type="text"
-                        value={user?.username || ""}
-                        disabled
-                        className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-4 py-2 text-zinc-500 cursor-not-allowed"
-                      />
-                      <p className="mt-1 text-xs text-zinc-600">Username cannot be changed.</p>
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium">
                         Display Name
                       </label>
                       <input
@@ -356,10 +433,45 @@ export default function SettingsPage() {
                         maxLength={500}
                         className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 focus:border-zinc-500 focus:outline-none"
                       />
-                      <p className="mt-1 text-right text-xs text-zinc-600">
+                      <p className="mt-1 text-right text-xs text-zinc-400">
                         {bio.length}/500
                       </p>
                     </div>
+
+                    {/* Profile Visibility Toggle */}
+                    <div className="rounded-md border border-zinc-700 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {user?.is_public ? (
+                            <Globe size={18} className="text-green-400" />
+                          ) : (
+                            <Lock size={18} className="text-zinc-400" />
+                          )}
+                          <div>
+                            <p className="text-sm font-medium">
+                              Profile Visibility
+                            </p>
+                            <p className="text-xs text-zinc-500">
+                              {user?.is_public ? "Your profile is public" : "Your profile is private"}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleVisibilityToggle(!user?.is_public)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            user?.is_public ? "bg-green-500" : "bg-zinc-600"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                              user?.is_public ? "translate-x-6" : "translate-x-1"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
                     <button
                       onClick={handleProfileSave}
                       disabled={profileSaving}
@@ -387,28 +499,38 @@ export default function SettingsPage() {
                       className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-4 py-2 text-zinc-500 cursor-not-allowed"
                     />
                   </div>
+                  {/* Password Reset via Email */}
                   <div>
                     <label className="mb-2 block text-sm font-medium">
-                      Change Password
+                      Password
                     </label>
-                    <input
-                      type="password"
-                      placeholder="New password"
-                      className="mb-2 w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 focus:border-zinc-500 focus:outline-none"
-                    />
-                    <input
-                      type="password"
-                      placeholder="Confirm password"
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 focus:border-zinc-500 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex gap-4">
-                    <button className="rounded-md bg-zinc-100 px-6 py-3 font-medium text-zinc-900 transition-colors hover:bg-zinc-200">
-                      Update Account
+                    <p className="mb-3 text-sm text-zinc-400">
+                      For security, password changes are handled via email. Click below and we&apos;ll send a secure reset link to your inbox.
+                    </p>
+                    {resetMessage && (
+                      <div
+                        className={`mb-3 rounded-md border px-4 py-3 text-sm ${
+                          resetMessage.type === "success"
+                            ? "border-green-500/30 bg-green-500/10 text-green-400"
+                            : "border-red-500/30 bg-red-500/10 text-red-400"
+                        }`}
+                      >
+                        {resetMessage.text}
+                      </div>
+                    )}
+                    <button
+                      onClick={handlePasswordReset}
+                      disabled={resetSending}
+                      className="flex items-center gap-2 rounded-md border border-zinc-600 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-wait"
+                    >
+                      <Mail size={14} />
+                      {resetSending ? "Sending…" : "Send Password Reset Email"}
                     </button>
+                  </div>
+                  <div className="flex gap-4 pt-2 border-t border-zinc-800">
                     <button
                       onClick={() => logout()}
-                      className="rounded-md border border-red-500 px-6 py-3 font-medium text-red-500 transition-colors hover:bg-red-500/10">
+                      className="flex items-center gap-2 rounded-md bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700">
                       Logout
                     </button>
                   </div>
@@ -432,9 +554,9 @@ export default function SettingsPage() {
                 )}
 
                 {invitationsLoading ? (
-                  <p className="text-sm text-zinc-500">Loading invitations…</p>
+                  <p className="text-sm text-zinc-400">Loading invitations…</p>
                 ) : sentInvitations.length === 0 ? (
-                  <p className="text-sm text-zinc-500">
+                  <p className="text-sm text-zinc-400">
                     You haven&apos;t sent any invitations yet. Go to a project&apos;s Collaborators tab to invite users.
                   </p>
                 ) : (
@@ -452,7 +574,7 @@ export default function SettingsPage() {
                             <div className="text-sm font-medium text-zinc-200">
                               {inv.invitee_email}
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-zinc-500">
+                            <div className="flex items-center gap-2 text-xs text-zinc-400">
                               {inv.repo_name && (
                                 <span className="text-glass-cyan-500">{inv.repo_name}</span>
                               )}
@@ -485,39 +607,139 @@ export default function SettingsPage() {
 
             {activeTab === "stats" && (
               <div className="space-y-6">
-                {/* TODO: Fetch real user statistics from API */}
                 <div className="rounded-lg border border-zinc-800 p-8">
                   <h2 className="mb-6 text-2xl font-semibold">Your Statistics</h2>
-                  <div className="grid gap-6 md:grid-cols-2">
-                    <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
-                      <div className="text-sm text-zinc-400">
-                        Total Projects
+
+                  {statsError && (
+                    <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                      {statsError}
+                    </div>
+                  )}
+
+                  {statsLoading ? (
+                    <div className="flex items-center gap-3 text-sm text-zinc-500">
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
+                      Loading statistics…
+                    </div>
+                  ) : (
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="rounded-lg bg-zinc-800 p-6">
+                        <div className="mb-2 text-3xl font-bold">
+                          {stats?.total_repos ?? 0}
+                        </div>
+                        <div className="text-sm text-zinc-400">Total Projects</div>
+                      </div>
+                      <div className="rounded-lg bg-zinc-800 p-6">
+                        <div className="mb-2 text-3xl font-bold">
+                          {stats?.total_commits ?? 0}
+                        </div>
+                        <div className="text-sm text-zinc-400">Total Commits</div>
+                      </div>
+                      <div className="rounded-lg bg-zinc-800 p-6">
+                        <div className="mb-2 text-3xl font-bold">
+                          {stats?.collaborations ?? 0}
+                        </div>
+                        <div className="text-sm text-zinc-400">Collaborations</div>
+                      </div>
+                      <div className="rounded-lg bg-zinc-800 p-6">
+                        <div className="mb-2 text-3xl font-bold">
+                          {stats ? formatStorageSize(stats.total_size_kb) : "0 B"}
+                        </div>
+                        <div className="text-sm text-zinc-400">Storage Used</div>
                       </div>
                     </div>
-                    <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
-                      <div className="text-sm text-zinc-400">Total Commits</div>
-                    </div>
-                    <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
-                      <div className="text-sm text-zinc-400">Collaborations</div>
-                    </div>
-                    <div className="rounded-lg bg-zinc-800 p-6">
-                      <div className="mb-2 text-3xl font-bold">&mdash;</div>
-                      <div className="text-sm text-zinc-400">Storage Used</div>
-                    </div>
-                  </div>
+                  )}
                 </div>
+
                 <div className="rounded-lg border border-zinc-800 p-8">
-                  {/* TODO: Fetch real activity feed from API */}
-                  <h3 className="mb-4 text-xl font-semibold">Recent Activity</h3>
-                  <p className="text-sm text-zinc-500">No recent activity to display.</p>
+                  <h3 className="mb-4 text-xl font-semibold">Overview</h3>
+                  {stats ? (
+                    <div className="space-y-3 text-sm text-zinc-400">
+                      <div className="flex justify-between border-b border-zinc-800 pb-2">
+                        <span>Total Clones Received</span>
+                        <span className="font-medium text-zinc-200">{stats.total_clones_received}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-zinc-800 pb-2">
+                        <span>Projects Owned</span>
+                        <span className="font-medium text-zinc-200">{stats.total_repos}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-zinc-800 pb-2">
+                        <span>Projects Collaborating On</span>
+                        <span className="font-medium text-zinc-200">{stats.collaborations}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Average Commits per Project</span>
+                        <span className="font-medium text-zinc-200">
+                          {stats.total_repos > 0
+                            ? Math.round(stats.total_commits / stats.total_repos)
+                            : 0}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-zinc-500">
+                      {statsLoading ? "Loading…" : "No data available yet."}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
           </div>
         </div>
+
+      {/* Visibility Confirmation Dialog */}
+      {visibilityDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold">
+              {pendingVisibility ? "Make Profile Public?" : "Make Profile Private?"}
+            </h3>
+
+            {pendingVisibility ? (
+              <div className="mb-6 space-y-3 text-sm text-zinc-400">
+                <div className="flex items-start gap-3">
+                  <Globe size={16} className="mt-0.5 shrink-0 text-green-400" />
+                  <p>
+                    <strong className="text-zinc-200">Public</strong> — Anyone can view
+                    your profile, bio, and avatar. Your username will be discoverable
+                    by other SoundHaus users.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-6 space-y-3 text-sm text-zinc-400">
+                <div className="flex items-start gap-3">
+                  <Lock size={16} className="mt-0.5 shrink-0 text-zinc-400" />
+                  <p>
+                    <strong className="text-zinc-200">Private</strong> — Your profile
+                    page will not be visible to others. Collaborators can still see
+                    your username within shared projects.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setVisibilityDialogOpen(false);
+                  setPendingVisibility(null);
+                }}
+                className="rounded-md border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmVisibilityChange}
+                disabled={visibilitySaving}
+                className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+              >
+                {visibilitySaving ? "Saving…" : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </main>
   );
 }

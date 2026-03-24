@@ -58,12 +58,12 @@ export default function ExplorePage() {
           </div>
           <input
             type="search"
-            placeholder="Search repositories..."
+            placeholder="Search projects..."
             className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all duration-300"
           />
         </div>
 
-        {/* Repository Grid - Placeholder */}
+        {/* Project Grid - Placeholder */}
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {/* Placeholder cards - will be populated via API */}
           {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -73,7 +73,7 @@ export default function ExplorePage() {
             >
               <div className="mb-4 h-32 rounded bg-zinc-800"></div>
               <h3 className="mb-2 text-lg font-semibold group-hover:text-glass-blue-400 transition-colors duration-300">
-                Repository Title
+                Project Title
               </h3>
               <p className="mb-4 text-sm text-zinc-400">
                 By Username • Updated 2 days ago
