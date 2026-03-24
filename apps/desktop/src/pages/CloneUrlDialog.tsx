@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, FolderOpen, Download, X, AlertCircle } from 'lucide-react'
+import { Download, FolderSearch, X, AlertCircle } from 'lucide-react'
 
 function parseAllowedHostPort(remote: string): string {
     const trimmed = remote.trim()
@@ -88,6 +88,7 @@ const CloneUrlDialog = () => {
             path: clonePath.trim()
         }
 
+        // Send data back to main process
         window.electron?.submitCloneUrl(data)
     }
 
@@ -96,111 +97,112 @@ const CloneUrlDialog = () => {
     }
 
     return (
-        <div className="page-centered">
-            <div className="card w-full max-w-md animate-scale-in">
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-5">
+            <div className="w-full max-w-md animate-scale-in">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
-                        <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center"
-                            style={{ background: 'var(--accent-bg)' }}
-                        >
-                            <Download className="w-4 h-4" style={{ color: 'var(--accent)' }} />
+                <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2.5">
+                        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-accent/10">
+                            <Download className="w-4.5 h-4.5 text-accent" />
                         </div>
-                        <h2
-                            className="text-base font-semibold"
-                            style={{ color: 'var(--text-primary)' }}
-                        >
-                            Clone Repository
-                        </h2>
+                        <h2 className="text-lg font-semibold text-text-primary">Clone Repository</h2>
                     </div>
                     <button
                         onClick={handleCancel}
-                        className="icon-btn"
+                        className="flex items-center justify-center w-7 h-7 rounded-lg
+                                   text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary/60
+                                   transition-all duration-200 cursor-pointer"
                     >
-                        <X className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
+                        <X className="w-4 h-4" />
                     </button>
                 </div>
 
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                    {/* Repository URL */}
-                    <div>
-                        <label className="label">
-                            Repository URL <span className="text-brand">*</span>
-                        </label>
-                        <div className="relative">
-                            <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                                <Link className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
-                            </div>
+                {/* Form Card */}
+                <div className="glass-panel rounded-2xl p-5">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        {/* Repository URL */}
+                        <div>
+                            <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
+                                Repository URL <span className="text-accent">*</span>
+                            </label>
                             <input
                                 type="text"
                                 autoFocus
                                 value={cloneUrl}
                                 onChange={(e) => setCloneUrl(e.target.value)}
                                 placeholder="https://gitea.example.com/user/repo.git"
-                                className={`input pl-10 ${validationError ? 'input-error' : ''}`}
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-bg-primary/60 border border-border-default text-text-primary text-sm
+                                           placeholder:text-text-tertiary
+                                           focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent
+                                           transition-all duration-200"
                             />
                         </div>
+
+                        {/* Validation Error */}
                         {validationError && (
-                            <div className="flex items-center gap-1.5 mt-2">
-                                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--color-error)' }} />
-                                <span className="error-text mt-0">{validationError}</span>
+                            <div className="flex items-start gap-2 text-xs text-error bg-error-soft rounded-xl px-3 py-2 animate-slide-down">
+                                <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                {validationError}
                             </div>
                         )}
-                    </div>
 
-                    {/* Clone Path */}
-                    <div>
-                        <label className="label">
-                            Local Path <span className="text-brand">*</span>
-                        </label>
-                        <div className="flex gap-2">
-                            <div className="relative flex-1">
-                                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                                    <FolderOpen className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
-                                </div>
+                        {/* Clone Path */}
+                        <div>
+                            <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
+                                Local Path <span className="text-accent">*</span>
+                            </label>
+                            <div className="flex gap-2">
                                 <input
                                     type="text"
                                     value={clonePath}
-                                    onChange={(e) => setClonePath(e.target.value)}
-                                    placeholder="Select a folder..."
                                     readOnly
-                                    className="input pl-10 cursor-default"
+                                    placeholder="Choose a folder…"
+                                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-bg-primary/40 border border-border-default text-text-primary text-sm
+                                               placeholder:text-text-tertiary cursor-default"
                                 />
+                                <button
+                                    type="button"
+                                    onClick={handleBrowseFolder}
+                                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl
+                                               bg-bg-elevated border border-border-default
+                                               text-sm text-text-secondary hover:text-text-primary
+                                               hover:bg-bg-tertiary
+                                               active:scale-[0.97] transition-all duration-200 cursor-pointer whitespace-nowrap"
+                                >
+                                    <FolderSearch className="w-4 h-4" />
+                                    Browse
+                                </button>
                             </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 pt-2">
                             <button
                                 type="button"
-                                onClick={handleBrowseFolder}
-                                className="btn btn-ghost text-xs flex-shrink-0"
+                                onClick={handleCancel}
+                                className="flex-1 px-4 py-2.5 rounded-xl
+                                           bg-bg-primary/40 border border-border-default
+                                           text-sm font-medium text-text-secondary
+                                           hover:text-text-primary hover:bg-bg-elevated
+                                           active:scale-[0.97] transition-all duration-200 cursor-pointer"
                             >
-                                Browse
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!canSubmit}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
+                                           btn-brand
+                                           text-sm
+                                           disabled:opacity-40 disabled:cursor-not-allowed
+                                           active:scale-[0.97] transition-all duration-200 cursor-pointer"
+                            >
+                                <Download className="w-4 h-4" />
+                                Clone
                             </button>
                         </div>
-                        {clonePath && (
-                            <p className="helper-text font-mono text-xs truncate">{clonePath}</p>
-                        )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-3 justify-end mt-2">
-                        <button
-                            type="button"
-                            onClick={handleCancel}
-                            className="btn btn-ghost"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={!canSubmit}
-                            className="btn btn-primary"
-                        >
-                            <Download className="w-4 h-4" />
-                            Clone
-                        </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
         </div>
     )
