@@ -344,7 +344,7 @@ pub struct ChangeNode {
     pub confidence: Option<f64>,
 
     /// Child changes (e.g. devices within a track, parameters within a device)
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ChangeNode>,
 }
 
