@@ -29,3 +29,5 @@ out/
 package-lock.json
 
 *.pyc
+
+native/semantic-diff/target
