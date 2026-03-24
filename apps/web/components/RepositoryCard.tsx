@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
 import {
   Star,
   Music,
@@ -15,6 +16,10 @@ import {
 } from "lucide-react";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 import AudioPlayer from "@/components/AudioPlayer";
+
+const MiniAudioPreview = dynamic(() => import("@/components/MiniAudioPreview"), {
+  ssr: false,
+});
 
 /**
  * RepositoryCard Component - Displays repository overview information
@@ -80,6 +85,23 @@ export default function RepositoryCard({
   const [renameValue, setRenameValue] = useState(title);
   const [, startTransition] = useTransition();
 
+  // Audio preview on hover (debounced)
+  const [showPreview, setShowPreview] = useState(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMouseEnter = useCallback(() => {
+    if (!audioSnippet) return;
+    hoverTimerRef.current = setTimeout(() => setShowPreview(true), 300);
+  }, [audioSnippet]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setShowPreview(false);
+  }, []);
+
   function handleStar(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -141,6 +163,8 @@ export default function RepositoryCard({
   return (
     <Link
       href={`/repository/${id}`}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       className="group relative block rounded-card border border-white/10 bg-zinc-900 p-6 transition-all hover:border-white/20 hover:bg-zinc-800/60">
       {/* 3-dot context menu (owner only) — positioned beside the audio player */}
       {isOwner && (
@@ -261,6 +285,13 @@ export default function RepositoryCard({
           </span>
         )}
       </div>
+
+      {/* Mini audio preview on hover */}
+      {showPreview && audioSnippet && (
+        <div className="mt-3 rounded-lg bg-zinc-800/60 px-2 py-1">
+          <MiniAudioPreview snippetUrl={audioSnippet} />
+        </div>
+      )}
     </Link>
   );
 }
