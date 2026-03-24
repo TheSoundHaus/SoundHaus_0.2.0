@@ -19,6 +19,7 @@ from services.webhook_service import webhook_service
 from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
+from models.profile_models import Profile
 from models.schemas import (
     CreateRepoRequest,
     UploadFileRequest,
@@ -96,29 +97,13 @@ async def create_repo(
     db.commit()
     db.refresh(repo_data)
 
-    # Auto-create webhook for push/create/delete notifications
-    webhook_result = None
-    try:
-        gitea_admin = GiteaAdminService()
-        webhook_result = webhook_service.setup_webhook_for_repo(
-            owner=gitea_username,
-            repo=create_request.name,
-            gitea_admin=gitea_admin,
-            db=db,
-        )
-        db.commit()
-        if webhook_result.get("success"):
-            logger.info("webhook_auto_created", repo=gitea_id, webhook_id=webhook_result.get("webhook_id"))
-        else:
-            logger.warning("webhook_auto_create_failed", repo=gitea_id, error=webhook_result.get("message"))
-    except Exception as e:
-        logger.error("webhook_auto_create_error", repo=gitea_id, error=str(e))
+    # Note: webhook is already created inside RepoService.create_user_repo()
+    # via _create_repo_webhook(), so no duplicate setup needed here.
 
     return {
         "success": True,
         "repo": res.get("repo"),
         "repo_data": {"gitea_id": repo_data.gitea_id},
-        "webhook": webhook_result,
     }
 
 
@@ -203,8 +188,11 @@ async def patch_repo_settings(
     repo: str,
     settings: dict,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
-    """Update repository settings via Gitea (protected, owner only)."""
+    """Update repository settings via Gitea (protected, owner only).
+    If the settings include a 'name' key (rename), the RepoData.gitea_id
+    is updated to match the new owner/repo-name."""
     user_res = await get_auth().get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unable to fetch user")
@@ -217,6 +205,18 @@ async def patch_repo_settings(
     res = svc.update_repo_settings(owner, repo, settings)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to update repo settings"))
+
+    # If the repo was renamed, sync the gitea_id in RepoData
+    new_name = settings.get("name")
+    if new_name and new_name != repo:
+        old_id = f"{owner}/{repo}"
+        new_id = f"{owner}/{new_name}"
+        repo_data = db.query(RepoData).filter(RepoData.gitea_id == old_id).first()
+        if repo_data:
+            repo_data.gitea_id = new_id
+            db.commit()
+            logger.info("repo_renamed_sync", old_id=old_id, new_id=new_id)
+
     return {"success": True, "repo": res.get("repo")}
 
 
@@ -369,9 +369,20 @@ async def get_repo_stats(
         .all()
     )
 
+    # Fetch description from Gitea
+    svc = RepoService()
+    description = ""
+    try:
+        gitea_info = svc.get_repo(owner, repo)
+        if gitea_info.get("success"):
+            description = gitea_info.get("repo", {}).get("description", "")
+    except Exception:
+        pass  # Non-critical: description is cosmetic
+
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
+        "description": description,
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
@@ -380,3 +391,192 @@ async def get_repo_stats(
             for c in recent_clones
         ],
     }
+
+
+# ── Star / Favorite ─────────────────────────────────────────────────────────
+
+@router.put("/repos/{owner}/{repo}/star")
+@user_limiter.limit("30/minute")
+async def star_repo(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+):
+    """Star (favorite) a repository on behalf of the current user."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unable to fetch user")
+
+    user_id = user_res["user"]["id"]
+    gitea = GiteaAdminService()
+    result = gitea.star_repo(user_id, owner, repo)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to star repo"))
+    return {"success": True, "message": "Repository starred"}
+
+
+@router.delete("/repos/{owner}/{repo}/star")
+@user_limiter.limit("30/minute")
+async def unstar_repo(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+):
+    """Unstar (unfavorite) a repository on behalf of the current user."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unable to fetch user")
+
+    user_id = user_res["user"]["id"]
+    gitea = GiteaAdminService()
+    result = gitea.unstar_repo(user_id, owner, repo)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to unstar repo"))
+    return {"success": True, "message": "Repository unstarred"}
+
+
+@router.get("/repos/starred")
+@user_limiter.limit("60/minute")
+async def list_starred_repos(
+    request: Request,
+    token: str = Depends(verify_token),
+):
+    """List all repositories the current user has starred."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unable to fetch user")
+
+    user_id = user_res["user"]["id"]
+    gitea = GiteaAdminService()
+    result = gitea.list_user_starred(user_id)
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to list starred repos"))
+    return {"success": True, "repos": result.get("repos", [])}
+
+
+# ── Delete Repo ──────────────────────────────────────────────────────────────
+
+@router.delete("/repos/{owner}/{repo}")
+@user_limiter.limit("10/minute")
+async def delete_repo(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Delete a repository from Gitea and remove its RepoData from the database."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unable to fetch user")
+
+    user_id = user_res["user"]["id"]
+    if str(user_id) != str(owner):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this repo")
+
+    repo_id = f"{owner}/{repo}"
+
+    # Delete from Gitea
+    svc = RepoService()
+    result = svc.delete_repo(owner, repo)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message", "Failed to delete repo from Gitea"))
+
+    # Delete RepoData row (CASCADE will clean up clone_events, webhook data, genres)
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if repo_data:
+        db.delete(repo_data)
+        db.commit()
+        logger.info("repo_deleted", repo_id=repo_id)
+
+    return {"success": True, "message": f"Repository '{repo}' deleted"}
+
+
+# ── Enriched Repos ───────────────────────────────────────────────────────────
+
+@router.get("/repos/enriched")
+@user_limiter.limit("60/minute")
+async def get_enriched_repos(
+    request: Request,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """
+    Get the current user's repos enriched with SoundHaus metadata.
+    Combines Gitea repo data + RepoData (snippet, genres, clone_count) + star status.
+    Single call replaces N+1 pattern of getMyRepos + getRepoStats per repo.
+    """
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unable to fetch user")
+
+    user_id = user_res["user"]["id"]
+
+    # Fetch Gitea repos
+    svc = RepoService()
+    gitea_result = svc.list_user_repos(user_id)
+    if not gitea_result.get("success"):
+        raise HTTPException(status_code=400, detail=gitea_result.get("message", "Failed to list repos"))
+
+    gitea_repos = gitea_result.get("repos", [])
+    owned_ids = gitea_result.get("owned_ids", set())
+
+    # Fetch starred repos for this user
+    gitea_admin = GiteaAdminService()
+    starred_result = gitea_admin.list_user_starred(user_id)
+    starred_ids = set()
+    if starred_result.get("success"):
+        for sr in starred_result.get("repos", []):
+            starred_ids.add(sr.get("full_name", ""))
+
+    # Fetch all RepoData rows for this user's repos in one query
+    repo_full_names = [r.get("full_name", "") for r in gitea_repos]
+    repo_data_rows = (
+        db.query(RepoData)
+        .filter(RepoData.gitea_id.in_(repo_full_names))
+        .all()
+    )
+    repo_data_map = {rd.gitea_id: rd for rd in repo_data_rows}
+
+    # Batch-resolve owner UUIDs → SoundHaus usernames
+    owner_ids = list({r.get("owner", {}).get("login", "") for r in gitea_repos})
+    profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
+    profile_map = {p.id: p.username for p in profile_rows}
+
+    enriched = []
+    for repo in gitea_repos:
+        full_name = repo.get("full_name", "")
+        rd = repo_data_map.get(full_name)
+        owner_login = repo.get("owner", {}).get("login", "")
+
+        enriched.append({
+            "id": repo.get("id"),
+            "name": repo.get("name"),
+            "full_name": full_name,
+            "description": repo.get("description", ""),
+            "private": repo.get("private", True),
+            "owner_id": owner_login,
+            "owner_username": profile_map.get(owner_login, owner_login),
+            "created_at": repo.get("created_at", ""),
+            "updated_at": repo.get("updated_at", ""),
+            "stars_count": repo.get("stars_count", 0),
+            "clone_count": rd.clone_count if rd else 0,
+            "audio_snippet": rd.audio_snippet if rd else None,
+            "snippet_metadata": {
+                "duration": rd.snippet_duration,
+                "file_size": rd.snippet_file_size,
+                "format": rd.snippet_format,
+                "sample_rate": rd.snippet_sample_rate,
+                "channels": rd.snippet_channels,
+            } if rd and rd.audio_snippet else None,
+            "genres": [g.genre_name for g in rd.genres] if rd else [],
+            "is_starred": full_name in starred_ids,
+            "role": "owner" if repo.get("id") in owned_ids else "collaborator",
+        })
+
+    return {"success": True, "repos": enriched}

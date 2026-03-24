@@ -46,13 +46,13 @@ export default function Navigation({ showAuth = false }: NavigationProps) {
               href="/repositories"
               className="rounded-md px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800"
             >
-              My Repositories
+              My Projects
             </Link>
             <Link
               href="/settings"
               className="rounded-md px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800"
             >
-              Settings
+              Profile
             </Link>
           </div>
         )}

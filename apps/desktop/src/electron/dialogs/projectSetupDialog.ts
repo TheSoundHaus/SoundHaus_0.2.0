@@ -20,10 +20,13 @@ export function createProjectSetupDialog(parentWindow: BrowserWindow): Promise<P
       modal: true,
       show: false,
       resizable: false,
+      autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '../preload.js'),
       },
     });
+
+    dialog.setMenuBarVisibility(false);
 
     if (isDev) {
       dialog.loadURL('http://localhost:5173/#/project-setup');

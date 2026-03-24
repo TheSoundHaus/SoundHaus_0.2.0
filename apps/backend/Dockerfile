@@ -14,6 +14,7 @@ RUN apt-get update && \
         openssh-client \
         git \
         curl \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 

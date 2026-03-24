@@ -3,26 +3,23 @@ import { useLocation } from 'react-router-dom'
 import styles from './ProjectPage.module.css'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
-import gitService from '../services/gitService'
+import { useProjectGitActions } from '../hooks/useProjectGitActions'
 import electronAPI from '../services/electronAPI';
 
 const ProjectPage = () => {
     const location = useLocation();
-    const initialPath = (location.state as any)?.projectPath || null
+    const selectedProject = (location.state as any)?.projectPath || null
 
     const [alsStruct, setAlsStruct] = useState<any | null>(null)
-    const [selectedProject] = useState<string | null>(initialPath)
     // Track Information closed by default, Changes open by default
     const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
     const [showChanges, setShowChanges] = useState<boolean>(true)
 
-    const [, setPulling] = useState(false)
-    const [, setPushing] = useState(false)
-    const [, setComitting] = useState(false)
     const [refreshing, setRefreshing] = useState(false)
 
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
+    const { runPull, runCommit, runPush } = useProjectGitActions()
 
     const handleRefreshChanges = useCallback(async () => {
         if (!selectedProject) return
@@ -43,23 +40,9 @@ const ProjectPage = () => {
                 return
             }
 
-            // Get remote HEAD version and save it temporarily
-            const remoteResult = await electronAPI.getRemoteHeadAls(alsPath)
-            
-            if (!remoteResult.ok) {
-                setAlsStruct({ ok: false, reason: remoteResult.error || 'Failed to fetch remote HEAD' })
-                return
-            }
-
-            if (remoteResult.baselineStatus === 'no-commits') {
-                setAlsStruct(remoteResult)
-                return
-            }
-
-            // Compare current file with remote HEAD
-            const diffResult = await electronAPI.diffXml(alsPath, remoteResult.tmpPath)
-            const parsed = typeof diffResult === 'string' ? JSON.parse(diffResult) : diffResult
-            setAlsStruct(parsed)
+            // Single atomic call — diffs in Rust, no temp files
+            const result = await electronAPI.getChanges(alsPath)
+            setAlsStruct(result)
         } catch (e) {
             setAlsStruct({ ok: false, reason: e instanceof Error ? e.message : String(e) })
         } finally {
@@ -69,49 +52,57 @@ const ProjectPage = () => {
 
     const handleGitPull = async () => {
         if(!selectedProject) return
-        setPulling(true)
         try {
-            const result = await gitService.pullRepo(selectedProject)
+            const result = await runPull(selectedProject)
             alert(`Pull complete:\n${result}`)
             await handleRefreshChanges()
         } catch(error) {
             alert(`Pull failed:\n${error}`)
-        } finally {
-            setPulling(false)
         }
     }
 
     const handleGitCommit = async () => {
         if(!selectedProject) return
-        setComitting(true)
         try {
-            const result = await gitService.commitChange(selectedProject)
+            const result = await runCommit(selectedProject)
             alert(`Commit complete:\n${result}`)
-            await handleRefreshChanges()
+            // After a commit the working tree matches HEAD — show in-sync immediately
+            // without a round-trip diff (which would always return empty).
+            setAlsStruct((prev: any) => prev ? { ...prev, diffStatus: 'in-sync', summary: '' } : prev)
         } catch(error) {
             alert(`Commit failed:\n${error}`)
-        } finally {
-            setComitting(false)
         }
     }
 
     const handleGitPush = async () => {
         if(!selectedProject) return
-        setPushing(true)
         try {
-            const result = await gitService.pushRepo(selectedProject)
+            const result = await runPush(selectedProject)
             alert(`Push complete:\n${result}`)
             await handleRefreshChanges()
         } catch(error) {
             alert(`Push failed:\n${error}`)
-        } finally {
-            setPushing(false)
         }
     }
 
     useEffect(() => {
         handleRefreshChanges()
     }, [handleRefreshChanges])
+
+    useEffect(() => {
+        const onRefreshRequest = (event: Event) => {
+            const customEvent = event as CustomEvent<{ projectPath?: string }>
+            if (!selectedProject) return
+            if (customEvent.detail?.projectPath !== selectedProject) return
+            void handleRefreshChanges()
+        }
+
+        window.addEventListener('soundhaus:project-refresh-request', onRefreshRequest)
+
+        return () => {
+            window.removeEventListener('soundhaus:project-refresh-request', onRefreshRequest)
+        }
+    }, [handleRefreshChanges, selectedProject])
 
     return(
         <div className={styles.container}>
@@ -206,7 +197,15 @@ const ProjectPage = () => {
                                 <div className={styles.error}>
                                     <p>{alsStruct.reason ?? 'An error occurred'}</p>
                                 </div>
-                            ) : alsStruct.summary ? (
+                            ) : alsStruct.baselineStatus === 'no-commits' ? (
+                                <div>
+                                    <p style={{ color: '#888' }}>No snapshots yet — this will be the initial snapshot.</p>
+                                </div>
+                            ) : alsStruct.diffStatus === 'in-sync' ? (
+                                <div>
+                                    <p style={{ color: '#4caf50' }}>✓ In sync with last snapshot</p>
+                                </div>
+                            ) : alsStruct.diffStatus === 'has-changes' ? (
                                 <div>
                                     <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
                                         {alsStruct.summary.split('\n').map((line: string, i: number) => (
@@ -216,7 +215,7 @@ const ProjectPage = () => {
                                 </div>
                             ) : (
                                 <div>
-                                    <p>No changes detected</p>
+                                    <p style={{ color: '#888' }}>Press ↻ to compare with last snapshot</p>
                                 </div>
                             )}
                         </div>
