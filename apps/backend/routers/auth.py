@@ -5,6 +5,7 @@ Profile endpoints – get/update profile, upload/delete avatar.
 
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from typing import Dict, Any
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -12,7 +13,9 @@ from dependencies import limiter, user_limiter, verify_token, get_auth
 from logging_config import get_logger, log_external_service
 from services.auth_service import SupabaseAuthService
 from services.gitea_service import GiteaAdminService
+from services.repo_service import RepoService
 from services.profile_service import profile_service
+from models.repo_models import RepoData
 from models.schemas import (
     SignUpRequest,
     SignInRequest,
@@ -366,6 +369,70 @@ async def delete_avatar(
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result
+
+
+# ── User Statistics ──────────────────────────────────────────────────────────
+
+@router.get("/profile/stats")
+@user_limiter.limit("30/minute")
+async def get_user_stats(
+    request: Request,
+    token: str = Depends(verify_token),
+    auth_service: SupabaseAuthService = Depends(get_auth),
+    db: Session = Depends(get_db),
+):
+    """Get aggregate statistics for the currently authenticated user."""
+    user_res = await auth_service.get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user_res["user"]["id"]
+
+    # ── DB aggregations (fast single-row queries) ────────────────────────
+    total_owned = (
+        db.query(func.count(RepoData.gitea_id))
+        .filter(RepoData.owner_id == user_id)
+        .scalar() or 0
+    )
+    total_commits = (
+        db.query(func.sum(RepoData.total_commits))
+        .filter(RepoData.owner_id == user_id)
+        .scalar() or 0
+    )
+    total_clones = (
+        db.query(func.sum(RepoData.clone_count))
+        .filter(RepoData.owner_id == user_id)
+        .scalar() or 0
+    )
+
+    # ── Gitea call for collaboration count + storage size ────────────────
+    collaboration_count = 0
+    total_size_kb = 0
+    try:
+        svc = RepoService()
+        gitea_result = svc.list_user_repos(user_id)
+        if gitea_result.get("success"):
+            owned_ids = gitea_result.get("owned_ids", set())
+            all_repos = gitea_result.get("repos", [])
+            collaboration_count = sum(
+                1 for r in all_repos if r["id"] not in owned_ids
+            )
+            total_size_kb = sum(
+                r.get("size", 0) for r in all_repos if r["id"] in owned_ids
+            )
+    except Exception as e:
+        logger.warning("user_stats_gitea_error", user_id=user_id, error=str(e))
+
+    return {
+        "success": True,
+        "stats": {
+            "total_repos": total_owned,
+            "total_commits": int(total_commits),
+            "total_clones_received": int(total_clones),
+            "collaborations": collaboration_count,
+            "total_size_kb": total_size_kb,
+        },
+    }
 
 
 # ── Public Profile ───────────────────────────────────────────────────────────
