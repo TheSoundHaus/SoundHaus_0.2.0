@@ -9,6 +9,7 @@
     "build": "vite build && tsc -p tsconfig-electron.json && electron-forge make"
   },
   "dependencies": {
+    "dotenv": "^17.3.1",
     "electron-squirrel-startup": "^1.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

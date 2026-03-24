@@ -1,10 +1,13 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
+import './env';
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
 import { gitBin, pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
+import { createAboutDialog } from './dialogs/aboutDialog';
+import { buildSearchableIndex } from './menuIndexer';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -13,6 +16,58 @@ import { parseXmlFromBuffer, parseAls, diffFromSnapshot, generateCommitMessage }
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
+
+// Tracks the last project path selected by the user so View > Project View
+// can navigate back to it. Starts null (menu item disabled).
+let lastSelectedProjectPath: string | null = null;
+let isOnProjectRoute = false;
+
+function updateProjectViewMenuEnabled() {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const item = menu.getMenuItemById('view-project');
+  if (item) {
+    item.enabled = lastSelectedProjectPath !== null;
+  }
+}
+
+function updateProjectGitMenuEnabled() {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const enabled = isOnProjectRoute && lastSelectedProjectPath !== null;
+  for (const id of ['project-pull', 'project-commit', 'project-push']) {
+    const item = menu.getMenuItemById(id);
+    if (item) item.enabled = enabled;
+  }
+}
+
+// IDs of all actionable (non-role) menu items that should be disabled on login
+const actionableMenuIds = [
+  'import-ableton', 'import-soundhaus', 'browse-public',
+  'view-home', 'view-project',
+  'project-pull', 'project-commit', 'project-push', 'view-on-soundhaus',
+];
+
+function updateMenuForRoute(route: string) {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+
+  if (route === '/') {
+    // On login: disable all actionable items
+    for (const id of actionableMenuIds) {
+      const item = menu.getMenuItemById(id);
+      if (item) item.enabled = false;
+    }
+  } else {
+    // Leaving login: re-enable all actionable items, then apply specific rules
+    for (const id of actionableMenuIds) {
+      const item = menu.getMenuItemById(id);
+      if (item) item.enabled = true;
+    }
+    updateProjectViewMenuEnabled();
+    updateProjectGitMenuEnabled();
+  }
+}
 
 const execFileP = promisify(execFile);
 
@@ -273,6 +328,19 @@ ipcMain.handle('set-allowed-clone-remote', async(_event: IpcMainInvokeEvent, rem
   return await setAllowedCloneRemote(remote);
 });
 
+ipcMain.handle('set-last-project-path', async(_event: IpcMainInvokeEvent, projectPath: string | null) => {
+  if (projectPath !== null && typeof projectPath !== 'string') return;
+  lastSelectedProjectPath = projectPath;
+  updateProjectViewMenuEnabled();
+  updateProjectGitMenuEnabled();
+});
+
+ipcMain.handle('set-current-route', async(_event: IpcMainInvokeEvent, route: string) => {
+  if (typeof route !== 'string') return;
+  isOnProjectRoute = route === '/project';
+  updateMenuForRoute(route);
+});
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -285,10 +353,21 @@ app.whenReady().then(() => {
     {
       label: 'File',
       submenu: [
-        { label: 'Import Ableton Project' },
-        { label: 'Clone SoundHaus Project' },
-        { label: 'Open SoundHaus Project' },
-        { label: 'Browse Public Projects' },
+        {
+          id: 'import-ableton',
+          label: 'Import Ableton Project',
+          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-ableton')
+        },
+        {
+          id: 'import-soundhaus',
+          label: 'Import SoundHaus Project',
+          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-soundhaus')
+        },
+        {
+          id: 'browse-public',
+          label: 'Browse Public Projects',
+          click: () => shell.openExternal('http://www.rickleinecker.com/')
+        },
         { type: 'separator' },
         { label: 'Options' },
         { type: 'separator' },
@@ -305,17 +384,26 @@ app.whenReady().then(() => {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
-        { type: 'separator' },
-        { label: 'Find' }
       ]
     },
     {
       label: 'View',
       submenu: [
-        { label: 'Project List' },
-        { label: 'Branches List' },
+        {
+          id: 'view-home',
+          label: 'Home',
+          click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'view-home')
+        },
+        {
+          id: 'view-project',
+          label: 'Project View',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'view-project', { projectPath: lastSelectedProjectPath });
+          }
+        },
         { type: 'separator' },
-        { label: 'Go To Summary' },
         { role: 'togglefullscreen' },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -328,30 +416,88 @@ app.whenReady().then(() => {
     {
       label: 'Project',
       submenu: [
-        { label: 'Push' },
-        { label: 'Pull' },
+        {
+          id: 'project-pull',
+          label: 'Download Snapshots',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'project-pull', { projectPath: lastSelectedProjectPath });
+          }
+        },
+        {
+          id: 'project-commit',
+          label: 'Save Snapshot',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'project-commit', { projectPath: lastSelectedProjectPath });
+          }
+        },
+        {
+          id: 'project-push',
+          label: 'Upload Snapshots',
+          enabled: false,
+          click: () => {
+            if (!lastSelectedProjectPath) return;
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'project-push', { projectPath: lastSelectedProjectPath });
+          }
+        },
         { type: 'separator' },
-        { label: 'View On SoundHaus'},
+        { 
+          id: 'view-on-soundhaus',
+          label: 'View On SoundHaus',
+          click: () => shell.openExternal('http://www.rickleinecker.com/')
+        },
         { label: 'Project Settings' }
-      ]
-    },
-    {
-      label: 'Branch',
-      submenu: [
-        { label: 'TODO' }
       ]
     },
     {
       label: 'Help',
       submenu: [
-        { label: 'Search' },
-        { label: 'About' }
+        {
+          id: 'help-search',
+          label: 'Search',
+          accelerator: 'CmdOrCtrl+Shift+P',
+          click: () => {
+            BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'open-search-palette');
+          }
+        },
+        {
+          id: 'help-about',
+          label: 'About',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            if (win) createAboutDialog(win);
+          }
+        }
       ]
     }
   ];
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
+  updateProjectGitMenuEnabled();
+
+  // Build the searchable menu index on demand (reflects current enabled state)
+  ipcMain.handle('search-menu-get-entries', () => {
+    return buildSearchableIndex(template, (action) => {
+      if (['project-pull', 'project-commit', 'project-push', 'view-project'].includes(action) && lastSelectedProjectPath) {
+        return { projectPath: lastSelectedProjectPath };
+      }
+      if (['browse-public', 'view-on-soundhaus'].includes(action)) {
+        return { url: 'http://www.rickleinecker.com/' };
+      }
+      return undefined;
+    }).filter(e => e.action !== 'help-search'); // Exclude search itself (circular)
+  });
+
+  // Allow the renderer to open external URLs (for search palette results)
+  ipcMain.handle('open-external', (_event: IpcMainInvokeEvent, url: string) => {
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+      shell.openExternal(url);
+    }
+  });
 
   app.on("activate", () => {
     // On macOS it's common to re-create a window in the app when the

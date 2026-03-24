@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
 import { getAllowedCloneRemote, getGiteaCredentials } from './login';
+import { desktopEnv } from './env';
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
@@ -18,7 +19,7 @@ const platformMap: Partial<Record<NodeJS.Platform, string>> = {
 
 const platformDir = platformMap[process.platform] || process.platform;
 const envGit = process.env.SOUNDHAUS_GIT_BIN;
-const giteaApiBaseUrl = (process.env.SOUNDHAUS_GITEA_PUBLIC_URL || process.env.VITE_GITEA_PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, '');
+const giteaApiBaseUrl = desktopEnv.giteaPublicUrl;
 let gitBin: string;
 
 function getGiteaApiRequestOptions(): { protocol: string; hostname: string; port: number } {
