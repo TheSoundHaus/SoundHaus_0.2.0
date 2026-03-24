@@ -266,3 +266,17 @@ export interface StemsLatestResponse {
   snippet_version: SnippetVersion | null;
   has_stems: boolean;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SNIPPET COMMENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SnippetComment {
+  id: string;
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  timestamp_seconds: number;
+  comment_text: string;
+  created_at: string;
+}
