@@ -43,20 +43,12 @@ const electronAPI = {
         return window.electronAPI.getAlsContent(alsPath)
     },
 
-    diffXml: (curAlsPath: string, oldAlsPath: string): Promise<any> => {
+    getChanges: (alsPath: string): Promise<any> => {
         if(!window.electronAPI) {
             console.warn('electronAPI not available')
             return Promise.resolve(null)
         }
-        return window.electronAPI.diffXml(curAlsPath, oldAlsPath)
-    },
-
-    getRemoteHeadAls: (alsPath: string): Promise<any> => {
-        if(!window.electronAPI) {
-            console.warn('electronAPI not available')
-            return Promise.resolve(null)
-        }
-        return window.electronAPI.getRemoteHeadAls(alsPath)
+        return window.electronAPI.getChanges(alsPath)
     }
 }
 

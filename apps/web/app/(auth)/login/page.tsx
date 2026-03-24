@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import LoginForm from "@/components/LoginForm";
+
 /**
  * Login Page - Studio Grade aesthetic
  * Balanced zinc neutrals with electric cyan accents
@@ -34,6 +35,16 @@ export default function LoginPage() {
                         <p className="text-lg text-zinc-400">
                             Sign in to continue your session
                         </p>
+                    </div>
+
+                    {/* Forgot password link */}
+                    <div className="flex justify-end mb-4">
+                        <Link
+                            href="/forgot-password"
+                            className="text-sm text-glass-blue hover:text-glass-highlight transition-all duration-300 hover:underline underline-offset-4"
+                        >
+                            Forgot password?
+                        </Link>
                     </div>
 
                     <LoginForm />

@@ -42,14 +42,14 @@ async def receive_gitea_webhook(
     # Validate signature
     if not webhook_service.validate_signature(body, signature):
         logger.warning("webhook_rejected_invalid_signature", delivery_id=delivery_id, event_type=event_type)
-        return {"status": "rejected", "reason": "invalid_signature"}
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     # Parse payload
     try:
         payload = _json.loads(body)
     except Exception as e:
         logger.error("webhook_invalid_json", error=str(e))
-        return {"status": "rejected", "reason": "invalid_json"}
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
     # Process event
     result = webhook_service.process_event(event_type, delivery_id, payload, db)

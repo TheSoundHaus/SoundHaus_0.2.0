@@ -13,8 +13,7 @@ declare global {
       getAlsContent: (alsPath: string) => Promise<string | null>
       getAlsStruct: (alsPath: string) => Promise<any>
       findAls: (folderPath: string) => Promise<string | null>
-      diffXml: (curAlsPath, oldAlsPath) => Promise<any>
-      getRemoteHeadAls: (alsPath: string) => Promise<any>
+      getChanges: (alsPath: string) => Promise<any>
     }
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
@@ -38,6 +37,12 @@ declare global {
       showCloneUrl: () => Promise<{ url: string; path: string } | null>
       submitCloneUrl: (data: { url: string; path: string }) => void
       cancelCloneUrl: () => void
+      onMenuAction: (callback: (action: string, payload?: any) => void) => void
+      removeMenuActionListener: () => void
+      setLastProjectPath: (projectPath: string | null) => Promise<void>
+      setCurrentRoute: (route: string) => Promise<void>
+      getSearchMenuEntries: () => Promise<Array<{ label: string; breadcrumb: string; action: string | null; payload?: Record<string, unknown>; enabled: boolean; accelerator?: string }>>
+      openExternal: (url: string) => Promise<void>
     }
   }
 }
