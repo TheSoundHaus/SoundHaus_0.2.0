@@ -7,6 +7,7 @@ import {
   User,
   Users,
   Lock,
+  Globe,
   GitCommit,
   Download,
   Music,
@@ -35,10 +36,11 @@ import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import UserAvatar from "@/components/UserAvatar";
-import { deleteRepoAction, renameRepoAction, updateDescriptionAction } from "@/actions/repos";
+import { deleteRepoAction, renameRepoAction, updateDescriptionAction, updateVisibilityAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
+import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
   RepoStats,
   RepoActivity,
@@ -91,6 +93,10 @@ export default function RepoDetailClient({
   const [description, setDescription] = useState(stats?.description ?? "");
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
+  // Privacy state
+  const [isPrivate, setIsPrivate] = useState(stats?.private ?? true);
+  const [privacyUpdating, setPrivacyUpdating] = useState(false);
+
   // Commits state — deduplicate by SHA on init to guard against backend duplicates
   const [commits, setCommits] = useState<CommitSummary[]>(() => {
     const raw = initialCommits?.commits ?? [];
@@ -108,9 +114,17 @@ export default function RepoDetailClient({
   const [diffError, setDiffError] = useState<string | null>(null);
 
   const pushes: PushActivity[] = activity?.activity ?? [];
-  const repoEvents: RepoEvent[] = events?.events ?? [];
+  const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
+
+  // Refresh timeline events from the server
+  const refreshEvents = useCallback(async () => {
+    try {
+      const res = await getRepoEvents(owner, repo);
+      if (res.success && res.data) setRepoEvents(res.data.events ?? []);
+    } catch { /* Network failure — stale data is fine */ }
+  }, [owner, repo]);
 
   // Collaborators tab state
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -129,21 +143,29 @@ export default function RepoDetailClient({
   const loadCollaboratorsData = useCallback(async () => {
     setCollabLoading(true);
     setCollabError(null);
-    const [collabRes, invRes] = await Promise.all([
-      listCollaborators(owner, repo),
-      getRepoInvitations(repo),
-    ]);
-    if (collabRes.success) setCollaborators(collabRes.data ?? []);
-    else setCollabError(collabRes.error);
-    if (invRes.success) setRepoInvitations(invRes.data ?? []);
-    setCollabLoading(false);
+    try {
+      const [collabRes, invRes] = await Promise.all([
+        listCollaborators(owner, repo),
+        getRepoInvitations(repo),
+      ]);
+      if (collabRes.success) setCollaborators(collabRes.data ?? []);
+      else setCollabError(collabRes.error);
+      if (invRes.success) setRepoInvitations(invRes.data ?? []);
+    } catch (e) {
+      setCollabError(e instanceof Error ? e.message : "Failed to load collaborators");
+    } finally {
+      setCollabLoading(false);
+    }
   }, [owner, repo]);
 
   useEffect(() => {
     if (activeTab === "collaborators") {
       loadCollaboratorsData();
     }
-  }, [activeTab, loadCollaboratorsData]);
+    if (activeTab === "events") {
+      refreshEvents();
+    }
+  }, [activeTab, loadCollaboratorsData, refreshEvents]);
 
   // User search with debounce
   useEffect(() => {
@@ -153,9 +175,14 @@ export default function RepoDetailClient({
     }
     const timer = setTimeout(async () => {
       setSearchLoading(true);
-      const res = await searchUsers(searchQuery);
-      if (res.success) setSearchResults(res.data ?? []);
-      setSearchLoading(false);
+      try {
+        const res = await searchUsers(searchQuery);
+        if (res.success) setSearchResults(res.data ?? []);
+      } catch {
+        // Silently fail — user can re-type
+      } finally {
+        setSearchLoading(false);
+      }
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -177,15 +204,19 @@ export default function RepoDetailClient({
     });
   }, [repo, invitePermission, loadCollaboratorsData]);
 
-  // Cancel invite handler
+  // Cancel invite handler — optimistically remove from list to avoid stale key conflicts
   const handleCancelInvite = useCallback(async (invitationId: string) => {
     setInviteError(null);
+    // Optimistically remove the cancelled invitation from local state
+    setRepoInvitations((prev) => prev.filter((inv) => inv.id !== invitationId));
     startTransition(async () => {
       const result = await cancelInvitationAction(invitationId);
       if (result.success) {
         loadCollaboratorsData();
       } else {
         setCollabError(result.error);
+        // Re-fetch to restore accurate state on failure
+        loadCollaboratorsData();
       }
     });
   }, [loadCollaboratorsData]);
@@ -244,6 +275,32 @@ export default function RepoDetailClient({
     });
   }
 
+  async function handleTogglePrivacy() {
+    const newValue = !isPrivate;
+    // Confirm before making public
+    if (!newValue) {
+      const ok = window.confirm(
+        "Make this project public? Anyone will be able to see and clone it."
+      );
+      if (!ok) return;
+    }
+    setPrivacyUpdating(true);
+    setSettingsError(null);
+    try {
+      const result = await updateVisibilityAction(owner, repo, newValue);
+      if (result.success) {
+        setIsPrivate(newValue);
+        router.refresh();
+      } else {
+        setSettingsError(result.error);
+      }
+    } catch (e) {
+      setSettingsError(e instanceof Error ? e.message : "Failed to update visibility");
+    } finally {
+      setPrivacyUpdating(false);
+    }
+  }
+
   // Format relative time
   function timeAgo(iso: string | null | undefined): string {
     if (!iso) return "—";
@@ -267,18 +324,23 @@ export default function RepoDetailClient({
   // Load more commits (pagination)
   const handleLoadMore = useCallback(async () => {
     setLoadingMore(true);
-    const nextPage = commitPage + 1;
-    const result = await getCommits(owner, repo, nextPage, 20);
-    if (result.success && result.data) {
-      setCommits((prev) => {
-        const seen = new Set(prev.map((c) => c.sha));
-        const fresh = result.data.commits.filter((c) => !seen.has(c.sha));
-        return [...prev, ...fresh];
-      });
-      setCommitTotal(result.data.total);
-      setCommitPage(nextPage);
+    try {
+      const nextPage = commitPage + 1;
+      const result = await getCommits(owner, repo, nextPage, 20);
+      if (result.success && result.data) {
+        setCommits((prev) => {
+          const seen = new Set(prev.map((c) => c.sha));
+          const fresh = result.data.commits.filter((c) => !seen.has(c.sha));
+          return [...prev, ...fresh];
+        });
+        setCommitTotal(result.data.total);
+        setCommitPage(nextPage);
+      }
+    } catch {
+      // Network failure — do nothing, user can retry
+    } finally {
+      setLoadingMore(false);
     }
-    setLoadingMore(false);
   }, [owner, repo, commitPage]);
 
   // Toggle diff expansion for a commit
@@ -298,16 +360,22 @@ export default function RepoDetailClient({
 
     // Fetch diff from backend
     setDiffLoading(sha);
-    const result = await getCommitDiff(owner, repo, sha);
-    if (result.success && result.data) {
-      setDiffCache((prev) => ({ ...prev, [sha]: result.data.diff }));
-    } else {
-      setDiffCache((prev) => ({ ...prev, [sha]: null }));
-      if (!result.success) {
-        setDiffError(result.error);
+    try {
+      const result = await getCommitDiff(owner, repo, sha);
+      if (result.success && result.data) {
+        setDiffCache((prev) => ({ ...prev, [sha]: result.data.diff }));
+      } else {
+        setDiffCache((prev) => ({ ...prev, [sha]: null }));
+        if (!result.success) {
+          setDiffError(result.error);
+        }
       }
+    } catch (e) {
+      setDiffCache((prev) => ({ ...prev, [sha]: null }));
+      setDiffError(e instanceof Error ? e.message : "Failed to load diff");
+    } finally {
+      setDiffLoading(null);
     }
-    setDiffLoading(null);
   }, [owner, repo, expandedSha, diffCache]);
 
   const tabs = [
@@ -343,7 +411,7 @@ export default function RepoDetailClient({
           )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
-              <Lock size={14} /> Private
+              {isPrivate ? <><Lock size={14} /> Private</> : <><Globe size={14} /> Public</>}
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
@@ -438,9 +506,9 @@ export default function RepoDetailClient({
                 <p className="text-sm text-zinc-400">No push activity recorded yet.</p>
               ) : (
                 <div className="space-y-4">
-                  {pushes.slice(0, 5).map((p) => (
+                  {pushes.slice(0, 5).map((p, idx) => (
                     <div
-                      key={p.id}
+                      key={p.id ?? `push-${idx}`}
                       className="flex items-start gap-4 border-b border-zinc-800 pb-4 last:border-0"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
@@ -472,9 +540,9 @@ export default function RepoDetailClient({
             {/* Recent Clones */}
             <div className="rounded-lg border border-zinc-800 p-6">
               <h3 className="mb-4 text-lg font-semibold">Recent Clones</h3>
-              {stats && stats.recent_clones.length > 0 ? (
+              {(stats?.recent_clones?.length ?? 0) > 0 ? (
                 <div className="space-y-3">
-                  {stats.recent_clones.map((c, i) => (
+                  {stats!.recent_clones.map((c, i) => (
                     <div key={i} className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2 text-zinc-300">
                         <User size={14} /> User
@@ -570,7 +638,7 @@ export default function RepoDetailClient({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="mb-1 font-medium text-zinc-200 truncate">
-                          {c.message.split("\n")[0]}
+                          {(c.message ?? "No message").split("\n")[0]}
                         </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
                           <span className="flex items-center gap-1">
@@ -685,9 +753,9 @@ export default function RepoDetailClient({
             <p className="text-zinc-400">No activity recorded yet.</p>
           ) : (
             <div className="space-y-4">
-              {repoEvents.map((ev) => (
+              {repoEvents.map((ev, idx) => (
                 <div
-                  key={ev.id}
+                  key={ev.id ?? `ev-${idx}`}
                   className="flex items-start gap-4 border-b border-zinc-800 pb-4 last:border-0"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
@@ -846,9 +914,9 @@ export default function RepoDetailClient({
               <div className="space-y-3">
                 {repoInvitations
                   .filter((i) => i.status === "pending")
-                  .map((inv) => (
+                  .map((inv, idx) => (
                     <div
-                      key={inv.id}
+                      key={inv.id || `pending-${idx}`}
                       className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
                     >
                       <div className="flex items-center gap-3">
@@ -959,9 +1027,9 @@ export default function RepoDetailClient({
               <div className="space-y-3">
                 {repoInvitations
                   .filter((i) => i.status !== "pending")
-                  .map((inv) => (
+                  .map((inv, idx) => (
                     <div
-                      key={inv.id}
+                      key={inv.id || `history-${idx}`}
                       className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
                     >
                       <div className="flex items-center gap-3">
@@ -969,6 +1037,8 @@ export default function RepoDetailClient({
                           className={`flex h-9 w-9 items-center justify-center rounded-full ${
                             inv.status === "accepted"
                               ? "bg-green-500/10 text-green-500"
+                              : inv.status === "expired"
+                              ? "bg-zinc-500/10 text-zinc-500"
                               : "bg-red-500/10 text-red-500"
                           }`}
                         >
@@ -979,7 +1049,11 @@ export default function RepoDetailClient({
                             {inv.invitee_email}
                           </div>
                           <div className="text-xs text-zinc-400">
-                            {inv.status === "accepted" ? "Accepted" : "Declined"}{" "}
+                            {inv.status === "accepted"
+                              ? "Accepted"
+                              : inv.status === "expired"
+                              ? "Expired (repo deleted)"
+                              : "Declined"}{" "}
                             {inv.responded_at ? timeAgo(inv.responded_at) : ""}
                           </div>
                         </div>
@@ -988,6 +1062,8 @@ export default function RepoDetailClient({
                         className={`rounded-full px-2 py-0.5 text-xs ${
                           inv.status === "accepted"
                             ? "bg-green-500/10 text-green-400"
+                            : inv.status === "expired"
+                            ? "bg-zinc-500/10 text-zinc-400"
                             : "bg-red-500/10 text-red-400"
                         }`}
                       >
@@ -1118,13 +1194,29 @@ export default function RepoDetailClient({
               </h3>
               <div className="flex flex-wrap gap-3">
                 {/* Privacy toggle */}
-                <div className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5">
-                  <Lock size={14} className="text-zinc-400" />
-                  <span className="text-sm text-zinc-300">Private Project</span>
-                  <span className="ml-1 rounded bg-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
-                    Always
+                <button
+                  onClick={handleTogglePrivacy}
+                  disabled={privacyUpdating || isPending}
+                  className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5 transition-colors hover:bg-zinc-700/60 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isPrivate ? (
+                    <Lock size={14} className="text-zinc-400" />
+                  ) : (
+                    <Globe size={14} className="text-emerald-400" />
+                  )}
+                  <span className="text-sm text-zinc-300">
+                    {isPrivate ? "Private Project" : "Public Project"}
                   </span>
-                </div>
+                  <span
+                    className={`ml-1 rounded px-2 py-0.5 text-xs ${
+                      isPrivate
+                        ? "bg-zinc-700 text-zinc-400"
+                        : "bg-emerald-900/40 text-emerald-400"
+                    }`}
+                  >
+                    {privacyUpdating ? "Updating…" : isPrivate ? "Click to make public" : "Click to make private"}
+                  </span>
+                </button>
               </div>
             </div>
           </div>

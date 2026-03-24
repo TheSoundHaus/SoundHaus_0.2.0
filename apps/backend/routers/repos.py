@@ -20,6 +20,7 @@ from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
 from models.profile_models import Profile
+from models.invitation_models import CollaboratorInvitation
 from models.schemas import (
     CreateRepoRequest,
     UploadFileRequest,
@@ -369,20 +370,24 @@ async def get_repo_stats(
         .all()
     )
 
-    # Fetch description from Gitea
+    # Fetch description and privacy from Gitea
     svc = RepoService()
     description = ""
+    is_private = True
     try:
         gitea_info = svc.get_repo(owner, repo)
         if gitea_info.get("success"):
-            description = gitea_info.get("repo", {}).get("description", "")
+            repo_obj = gitea_info.get("repo", {})
+            description = repo_obj.get("description", "")
+            is_private = repo_obj.get("private", True)
     except Exception:
-        pass  # Non-critical: description is cosmetic
+        pass  # Non-critical: description/privacy are cosmetic
 
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
         "description": description,
+        "private": is_private,
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
@@ -493,6 +498,20 @@ async def delete_repo(
         db.delete(repo_data)
         db.commit()
         logger.info("repo_deleted", repo_id=repo_id)
+
+    # Mark orphaned invitations: expire pending ones, flag accepted/declined
+    orphaned = (
+        db.query(CollaboratorInvitation)
+        .filter(CollaboratorInvitation.repo_name == repo)
+        .all()
+    )
+    if orphaned:
+        for inv in orphaned:
+            if inv.status == "pending":
+                inv.status = "expired"
+            inv.repo_name = f"{inv.repo_name} [deleted]"
+        db.commit()
+        logger.info("repo_invitations_flagged", repo=repo, count=len(orphaned))
 
     return {"success": True, "message": f"Repository '{repo}' deleted"}
 

@@ -134,6 +134,68 @@ function FadeInSection({
     );
 }
 
+// ── Studio Image Carousel for CTA section ─────────────────────────────────
+
+const STUDIO_IMAGES = [
+    "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1519508234439-4f23643a15b0?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=1920&q=80",
+    "https://images.unsplash.com/photo-1511379938547-c1f69419868d?auto=format&fit=crop&w=1920&q=80",
+];
+
+function StudioCarousel() {
+    const [current, setCurrent] = useState(0);
+    const [loaded, setLoaded] = useState<boolean[]>(new Array(STUDIO_IMAGES.length).fill(false));
+
+    // Auto-advance every 6 seconds
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrent((prev) => (prev + 1) % STUDIO_IMAGES.length);
+        }, 6000);
+        return () => clearInterval(timer);
+    }, []);
+
+    // Preload images
+    useEffect(() => {
+        STUDIO_IMAGES.forEach((src, i) => {
+            const img = new Image();
+            img.onload = () =>
+                setLoaded((prev) => {
+                    const next = [...prev];
+                    next[i] = true;
+                    return next;
+                });
+            img.src = src;
+        });
+    }, []);
+
+    return (
+        <>
+            {/* Stacked images with crossfade */}
+            {STUDIO_IMAGES.map((src, i) => (
+                <div
+                    key={src}
+                    className="absolute inset-0 bg-cover bg-center transition-opacity duration-[2000ms] ease-in-out"
+                    style={{
+                        backgroundImage: loaded[i] ? `url("${src}")` : undefined,
+                        filter: "blur(2px) brightness(0.3)",
+                        opacity: i === current ? 1 : 0,
+                    }}
+                    aria-hidden
+                />
+            ))}
+
+            {/* Dark gradient overlays for readability */}
+            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/70 to-zinc-950/40" />
+            <div className="absolute inset-0 bg-gradient-to-r from-zinc-950/30 via-transparent to-zinc-950/30" />
+
+            {/* Subtle glass-blue accent glow */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px]
+                          bg-glass-blue/5 rounded-full blur-[100px] pointer-events-none" />
+        </>
+    );
+}
+
 // ── Navbar ─────────────────────────────────────────────────────────────────
 
 function LandingNavbar() {
@@ -199,7 +261,7 @@ function LandingNavbar() {
                         href="/signup"
                         className="btn btn-primary btn-sm !min-h-0 !py-2 !px-5 text-sm"
                     >
-                        Sign Up Free
+                        Sign Up
                     </Link>
                 </div>
             </div>
@@ -214,19 +276,19 @@ const FEATURES = [
         icon: GitBranch,
         title: "Git-Powered Versioning",
         description:
-            "Every save is a snapshot. Branch, merge, and rollback your Ableton projects like code — without losing a single take.",
+            "Every save is a snapshot. Branch, merge, and rollback your Ableton projects like code, without losing a single take.",
     },
     {
         icon: AudioLines,
-        title: "AI Stem Separation",
+        title: "Stem Separation",
         description:
-            "Upload a mix, get isolated vocals, drums, bass, and melody tracks powered by Demucs. Perfect for remixes and collabs.",
+            "Upload a mix, get isolated vocals, drums, bass, and melody tracks. Perfect for remixes, sampling, and collabs.",
     },
     {
         icon: BarChart3,
         title: "Visual Diff Engine",
         description:
-            "See exactly what changed between versions — note-by-note on an Ableton-style piano roll. No more guessing what your collaborator modified.",
+            "See exactly what changed between versions, note-by-note on an Ableton-style piano roll. No more guessing what your collaborator modified.",
     },
 ];
 
@@ -243,7 +305,7 @@ const STEPS = [
         icon: Eye,
         title: "See Every Change",
         description:
-            "Our visual diff engine shows note-level changes on a piano roll — added notes in green, removed in red, modified in blue.",
+            "Our visual diff engine shows note-level changes on a piano roll. Added notes in green, removed in red, modified in blue.",
     },
     {
         icon: Users,
@@ -297,11 +359,11 @@ export default function LandingPage() {
                     </h1>
                     <p className="mx-auto mb-10 max-w-2xl text-lg md:text-xl text-zinc-400 leading-relaxed">
                         SoundHaus brings git-powered collaboration to Ableton projects.
-                        Push, diff, branch, and remix — see every note that changed.
+                        Push, diff, branch, and remix. See every note that changed.
                     </p>
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                         <Link href="/signup" className="btn btn-primary btn-lg text-base no-underline">
-                            Get Started Free
+                            Get Started
                         </Link>
                         <a
                             href="#how-it-works"
@@ -334,7 +396,7 @@ export default function LandingPage() {
                     <div className="grid md:grid-cols-3 gap-6">
                         {FEATURES.map((feature, i) => (
                             <FadeInSection key={feature.title} delay={i * 120}>
-                                <div className="group relative rounded-xl border border-white/10 bg-zinc-800/50 p-8 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/80">
+                                <div className="group relative h-full rounded-xl border border-white/10 bg-zinc-800/50 p-8 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/80 flex flex-col">
                                     {/* Glow on hover */}
                                     <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
                                          style={{ boxShadow: "inset 0 1px 0 rgba(167, 199, 231, 0.1), 0 0 40px rgba(167, 199, 231, 0.05)" }} />
@@ -364,26 +426,44 @@ export default function LandingPage() {
                             Three steps to better collaboration
                         </h2>
                         <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
-                            Stop emailing zip files. Start producing together — asynchronously.
+                            Stop emailing zip files. Start producing together, asynchronously.
                         </p>
                     </FadeInSection>
 
                     <div className="relative">
-                        {/* Connecting line */}
-                        <div className="hidden md:block absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-glass-blue-400/20 to-transparent -translate-y-1/2" />
+                        {/* Waveform connector between steps */}
+                        <svg
+                            className="hidden md:block absolute top-[32px] left-0 right-0 h-[20px] -translate-y-1/2 pointer-events-none"
+                            viewBox="0 0 1000 20"
+                            preserveAspectRatio="none"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <path
+                                d="M0 10 Q50 2, 100 10 T200 10 T300 10 T400 10 T500 10 T600 10 T700 10 T800 10 T900 10 T1000 10"
+                                stroke="url(#waveGrad)"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                            />
+                            <defs>
+                                <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" stopColor="rgba(167, 199, 231, 0)" />
+                                    <stop offset="20%" stopColor="rgba(167, 199, 231, 0.25)" />
+                                    <stop offset="50%" stopColor="rgba(167, 199, 231, 0.35)" />
+                                    <stop offset="80%" stopColor="rgba(167, 199, 231, 0.25)" />
+                                    <stop offset="100%" stopColor="rgba(167, 199, 231, 0)" />
+                                </linearGradient>
+                            </defs>
+                        </svg>
 
                         <div className="grid md:grid-cols-3 gap-10 md:gap-8">
                             {STEPS.map((step, i) => (
                                 <FadeInSection key={step.title} delay={i * 150}>
                                     <div className="relative text-center">
-                                        {/* Step number */}
                                         <div className="relative z-10 mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-glass-blue-400/30 bg-zinc-900"
                                              style={{ boxShadow: "0 0 20px rgba(167, 199, 231, 0.1)" }}>
                                             <step.icon className="w-7 h-7 text-glass-blue-400" />
                                         </div>
-                                        <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 text-[10px] font-bold text-glass-blue-400/60 uppercase tracking-widest">
-                                            Step {i + 1}
-                                        </span>
                                         <h3 className="text-lg font-semibold text-white mb-2">
                                             {step.title}
                                         </h3>
@@ -410,7 +490,7 @@ export default function LandingPage() {
                         </h2>
                         <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
                             Our visual diff engine renders every MIDI change on an Ableton-style
-                            piano roll — so you can see exactly what your collaborator changed.
+                            piano roll so you can see exactly what your collaborator changed.
                         </p>
                     </FadeInSection>
 
@@ -503,23 +583,34 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── CTA Banner ─────────────────────────────── */}
-            <section className="py-20 px-6 border-t border-white/5">
+            {/* ── CTA Banner with Studio Image Carousel ── */}
+            <section className="py-20 px-6 border-t border-white/5 overflow-hidden">
                 <FadeInSection>
-                    <div className="mx-auto max-w-3xl text-center">
-                        <h2 className="text-3xl md:text-4xl font-bold mb-4">
-                            Ready to level up your workflow?
-                        </h2>
-                        <p className="text-zinc-400 text-lg mb-8">
-                            Join producers already using SoundHaus to version, share, and
-                            collaborate on their music.
-                        </p>
-                        <Link
-                            href="/signup"
-                            className="btn btn-primary btn-lg text-base no-underline"
-                        >
-                            Create Your Free Account
-                        </Link>
+                    <div className="mx-auto max-w-6xl">
+                        <div className="relative rounded-2xl overflow-hidden border border-white/10"
+                             style={{ boxShadow: "0 0 80px rgba(167, 199, 231, 0.06)" }}>
+                            {/* Studio image carousel background */}
+                            <StudioCarousel />
+
+                            {/* Glass overlay with CTA content */}
+                            <div className="relative z-10 flex items-center justify-center py-24 px-6">
+                                <div className="text-center max-w-2xl">
+                                    <h2 className="text-3xl md:text-4xl font-bold mb-4 text-white drop-shadow-lg">
+                                        Ready to level up your workflow?
+                                    </h2>
+                                    <p className="text-zinc-300 text-lg mb-8 drop-shadow">
+                                        Join producers already using SoundHaus to version, share, and
+                                        collaborate on their music.
+                                    </p>
+                                    <Link
+                                        href="/signup"
+                                        className="btn btn-primary btn-lg text-base no-underline"
+                                    >
+                                        Create Your Account
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </FadeInSection>
             </section>

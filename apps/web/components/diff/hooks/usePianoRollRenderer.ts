@@ -69,6 +69,10 @@ interface UsePianoRollRendererArgs {
     ghostNotes?: MidiNote[];
     /** When true, notes are rendered in a condensed overview — pitch labels hidden. */
     isCollapsed?: boolean;
+    /** Global pitch min (shared across all MIDI tracks for consistent note sizing). */
+    globalPitchMin?: number;
+    /** Global pitch max (shared across all MIDI tracks for consistent note sizing). */
+    globalPitchMax?: number;
 }
 
 export interface HoveredNoteInfo {
@@ -190,6 +194,8 @@ export function usePianoRollRenderer({
     changeType,
     ghostNotes,
     isCollapsed = false,
+    globalPitchMin,
+    globalPitchMax,
 }: UsePianoRollRendererArgs): UsePianoRollRendererResult {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [hoveredNote, setHoveredNote] = useState<HoveredNoteInfo | null>(null);
@@ -201,11 +207,14 @@ export function usePianoRollRenderer({
         [midiClips, changeType],
     );
 
-    // Auto-detect pitch range from actual notes
-    const { pitchMin, pitchMax } = useMemo(
+    // Use global pitch range when provided (consistent sizing across tracks),
+    // otherwise auto-detect from this track's notes.
+    const localRange = useMemo(
         () => detectPitchRange(tagged, ghostNotes),
         [tagged, ghostNotes],
     );
+    const pitchMin = globalPitchMin ?? localRange.pitchMin;
+    const pitchMax = globalPitchMax ?? localRange.pitchMax;
     const pitchRange = pitchMax - pitchMin;
     const pitchRowHeight = height / pitchRange;
 

@@ -35,6 +35,10 @@ interface PianoRollTrackProps {
     ghostNotes?: MidiNote[];
     /** Whether the track is in collapsed (overview) mode. */
     isCollapsed?: boolean;
+    /** Global pitch min (shared across all MIDI tracks for consistent note sizing). */
+    globalPitchMin?: number;
+    /** Global pitch max (shared across all MIDI tracks for consistent note sizing). */
+    globalPitchMax?: number;
 }
 
 // ── Helper: build modification detail lines for tooltip ────────────────────
@@ -72,6 +76,8 @@ export function PianoRollTrack({
     pixelsPerBeat = 20,
     ghostNotes,
     isCollapsed = false,
+    globalPitchMin,
+    globalPitchMax,
 }: PianoRollTrackProps) {
     const { canvasRef, hoveredNote, handleMouseMove, handleMouseLeave } =
         usePianoRollRenderer({
@@ -82,6 +88,8 @@ export function PianoRollTrack({
             changeType,
             ghostNotes,
             isCollapsed,
+            globalPitchMin,
+            globalPitchMax,
         });
 
     return (

@@ -60,7 +60,8 @@ export async function getCommits(
         `/repos/${_owner}/${_repo}/commits?page=${_page}&limit=${_limit}`
     );
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data! };
+    if (!result.data) return { success: false, error: "Empty commits response" };
+    return { success: true, data: result.data };
 }
 
 /** Fetches full metadata for a single commit by SHA. */
@@ -73,7 +74,8 @@ export async function getCommitDetail(
         `/repos/${_owner}/${_repo}/commits/${_sha}`
     );
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data! };
+    if (!result.data) return { success: false, error: "Empty commit detail response" };
+    return { success: true, data: result.data };
 }
 
 /** Fetches the ALS semantic diff for a specific commit SHA. */

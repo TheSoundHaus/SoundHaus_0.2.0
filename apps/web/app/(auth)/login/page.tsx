@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import LoginForm from "@/components/LoginForm";
+import { Waves } from "lucide-react";
 
 /**
- * Login Page - Studio Grade aesthetic
- * Balanced zinc neutrals with electric cyan accents
+ * Login Page - Studio-grade aesthetic
+ * Left: sign-in form with clean zinc design
+ * Right: blurred studio photography with glass overlay
  */
 export default function LoginPage() {
     return (
@@ -20,7 +22,8 @@ export default function LoginPage() {
                 <div className="w-full max-w-md">
                     {/* Logo/Brand */}
                     <div className="mb-12">
-                        <Link href="/" className="inline-block group">
+                        <Link href="/" className="inline-flex items-center gap-2 group">
+                            <Waves className="w-7 h-7 text-glass-blue-400 transition-transform duration-300 group-hover:scale-110" />
                             <h1 className="text-3xl font-bold text-zinc-50 tracking-tight transition-all duration-300 group-hover:text-glass-blue">
                                 Sound<span className="text-glass-blue">Haus</span>
                             </h1>
@@ -64,19 +67,31 @@ export default function LoginPage() {
                 </div>
             </div>
 
-            {/* Right Content Container - Gradient Accent */}
+            {/* Right Content Container - Studio Image */}
             <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
-                {/* Radial gradient background */}
-                <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-zinc-950 to-black" />
-
-                {/* Electric accent glow */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px]
-                              bg-glass-blue/10 rounded-full blur-[120px] animate-pulse-subtle" />
-
-                {/* Geometric pattern overlay */}
-                <div className="absolute inset-0 opacity-[0.03]"
-                     style={{backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 35px, rgba(167,199,231,0.5) 35px, rgba(167,199,231,0.5) 36px)'}}
+                {/* Studio photograph background with blur */}
+                <div
+                    className="absolute inset-0 bg-cover bg-center"
+                    style={{
+                        backgroundImage: 'url("https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&w=1920&q=80")',
+                        filter: "blur(2px) brightness(0.35)",
+                    }}
                 />
+
+                {/* Gradient overlay for depth */}
+                <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/60 to-transparent" />
+
+                {/* Bottom branding on image side */}
+                <div className="absolute bottom-8 left-8 right-8 z-10">
+                    <p className="text-zinc-400 text-sm leading-relaxed max-w-sm">
+                        Version control built for music producers.
+                        Push, diff, branch, and collaborate — see every note that changed.
+                    </p>
+                </div>
+
+                {/* Subtle glass-blue accent glow */}
+                <div className="absolute top-1/3 right-1/4 w-[400px] h-[400px]
+                              bg-glass-blue/8 rounded-full blur-[100px]" />
             </div>
         </div>
     );

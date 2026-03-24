@@ -127,6 +127,19 @@ export function TrackLabel({ track, isHighlighted = false, isExpanded = false, o
                     </span>
                 </div>
 
+                {/* Track type badge for return/group tracks */}
+                {(track.trackType === "return" || track.trackType === "group") && (
+                    <div className="flex items-center gap-1.5 mt-0.5 pl-5">
+                        <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0 rounded ${
+                            track.trackType === "return"
+                                ? "bg-purple-900/40 text-purple-400 border border-purple-700/40"
+                                : "bg-amber-900/30 text-amber-400 border border-amber-700/40"
+                        }`}>
+                            {track.trackType === "return" ? "Return" : "Group"}
+                        </span>
+                    </div>
+                )}
+
                 {/* Instrument (no type icon) */}
                 {track.instrument && (
                     <div className="flex items-center gap-1.5 mt-0.5 pl-5">

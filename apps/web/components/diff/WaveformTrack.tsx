@@ -62,15 +62,13 @@ export function WaveformTrack({
      * which AudioClipDiff region (if any) it falls within.
      */
     const getColorForBeat = useCallback(
-        (beat: number): string => {
+        (_beat: number) => {
             for (const clip of audioClips) {
-                // AudioClipDiff may have startBeat/endBeat from the parent track context.
-                // Fall back to the overall track changeType if clips don't define ranges.
-                if (clip.changeType && clip.changeType !== "unchanged") {
-                    return WAVEFORM_COLORS[clip.changeType] ?? WAVEFORM_COLORS.unchanged;
+                if (clip.changeType && WAVEFORM_COLORS[clip.changeType]) {
+                    return WAVEFORM_COLORS[clip.changeType]!;
                 }
             }
-            return WAVEFORM_COLORS[changeType] ?? WAVEFORM_COLORS.unchanged;
+            return WAVEFORM_COLORS[changeType] ?? WAVEFORM_COLORS.unchanged!;
         },
         [audioClips, changeType],
     );
@@ -115,7 +113,7 @@ export function WaveformTrack({
         }
 
         // Map peak samples to canvas pixels
-        const channel = peaks.data[0]; // mono or left channel
+        const channel = peaks?.data?.[0]; // mono or left channel
         if (!channel || channel.length === 0) return;
 
         const beatsPerSecond = tempo / 60;
@@ -126,7 +124,7 @@ export function WaveformTrack({
         const barWidth = Math.max(1, width / totalPeaks);
 
         for (let i = 0; i < totalPeaks; i++) {
-            const peakValue = channel[i];
+            const peakValue = channel[i] ?? 0;
             const x = (i / totalPeaks) * width;
 
             // Determine which beat this peak falls on

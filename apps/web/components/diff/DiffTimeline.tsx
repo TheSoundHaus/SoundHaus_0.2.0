@@ -18,6 +18,7 @@ import { TimeRuler } from "./TimeRuler";
 import { TrackLabel } from "./TrackLabel";
 import { PianoRollTrack } from "./PianoRollTrack";
 import { WaveformTrack } from "./WaveformTrack";
+import { DeviceChainRow } from "./DeviceChainRow";
 // ChangeOverlay removed — note colors themselves indicate changes; overlay caused visual clutter
 import { DiffSummaryPanel } from "./DiffSummaryPanel";
 import { useWaveformPeaks } from "./hooks/useWaveformPeaks";
@@ -42,10 +43,98 @@ const ABLETON_COLORS: string[] = [
 ];
 
 /** Track heights: collapsed shows a thin strip, expanded shows full detail. */
-const COLLAPSED_HEIGHT_MIDI = 48;
-const COLLAPSED_HEIGHT_AUDIO = 48;
-const EXPANDED_HEIGHT_MIDI = 400;
+const COLLAPSED_HEIGHT = 48;
 const EXPANDED_HEIGHT_AUDIO = 80;
+
+/** Pixels per semitone when expanded — consistent across all MIDI tracks. */
+const PITCH_ROW_HEIGHT = 12;
+const PITCH_PADDING = 3;
+
+/**
+ * Compute a global pitch range across ALL MIDI tracks in the project.
+ * This ensures every MIDI track renders notes at the same size.
+ */
+function computeGlobalPitchRange(tracks: TrackDiff[]): { pitchMin: number; pitchMax: number } {
+    let lo = 127;
+    let hi = 0;
+
+    for (const track of tracks) {
+        if (track.trackType !== "midi") continue;
+        for (const clip of track.midiClips ?? []) {
+            const allNotes = [
+                ...(clip.addedNotes ?? []),
+                ...(clip.removedNotes ?? []),
+                ...(clip.modifiedNotes?.map(m => m.after) ?? []),
+                ...(clip.modifiedNotes?.map(m => m.before) ?? []),
+                ...(clip.unchangedNotes ?? []),
+            ];
+            for (const n of allNotes) {
+                if (n.pitch < lo) lo = n.pitch;
+                if (n.pitch > hi) hi = n.pitch;
+            }
+        }
+    }
+
+    // Fallback if no notes found
+    if (lo > hi) { lo = 48; hi = 72; }
+
+    // Add padding and snap to C boundaries
+    lo = Math.max(0, Math.floor((lo - PITCH_PADDING) / 12) * 12);
+    hi = Math.min(127, Math.ceil((hi + PITCH_PADDING + 1) / 12) * 12);
+
+    // Ensure minimum 2 octaves
+    if (hi - lo < 24) {
+        const mid = Math.round((lo + hi) / 2);
+        lo = Math.max(0, mid - 12);
+        hi = Math.min(127, mid + 12);
+    }
+
+    return { pitchMin: lo, pitchMax: hi };
+}
+
+/**
+ * Determine if a track has meaningful content to render.
+ * Empty MIDI tracks (no clips or clips with 0 notes) and
+ * empty audio tracks (no clips) only show a quiet indicator row.
+ * Return/group tracks with device or parameter changes are NOT empty.
+ */
+function isTrackEmpty(track: TrackDiff): boolean {
+    // Return/group tracks: non-empty if they have device or parameter changes
+    if (track.trackType === "return" || track.trackType === "group") {
+        return !(track.deviceChanges?.length || track.parameterChanges?.length);
+    }
+    if (track.trackType === "midi") {
+        const clips = track.midiClips ?? [];
+        if (clips.length === 0) return true;
+        // All clips have zero notes
+        const totalNotes = clips.reduce(
+            (sum, c) => sum + (c.addedNotes?.length ?? 0) + (c.removedNotes?.length ?? 0) + (c.modifiedNotes?.length ?? 0) + (c.unchangedNotes?.length ?? 0),
+            0,
+        );
+        return totalNotes === 0;
+    }
+    // Audio
+    return (track.audioClips ?? []).length === 0;
+}
+
+/** Placeholder shown for empty/unchanged tracks — same height as collapsed. */
+function EmptyTrackRow({ type }: { type: "midi" | "audio" | "return" | "group" }) {
+    const message =
+        type === "midi" ? "No MIDI changes" :
+        type === "return" ? "No effect changes" :
+        type === "group" ? "No group changes" :
+        "No audio changes";
+    return (
+        <div
+            className="flex items-center justify-center text-zinc-600 text-xs select-none gap-2"
+            style={{ height: COLLAPSED_HEIGHT }}
+        >
+            <span className="inline-block w-6 h-[1px] bg-zinc-700/60" />
+            <span>{message}</span>
+            <span className="inline-block w-6 h-[1px] bg-zinc-700/60" />
+        </div>
+    );
+}
 
 // ── Props ──────────────────────────────────────────────────────────────────
 
@@ -146,6 +235,17 @@ export function DiffTimeline({
         return diffData.tempo.after ?? diffData.tempo.before;
     }, [diffData?.tempo]);
 
+    // Compute a global pitch range across all MIDI tracks so every piano roll
+    // renders notes at the same size (consistent pitchRowHeight).
+    const globalPitch = useMemo(() => {
+        if (!diffData?.tracks) return { pitchMin: 48, pitchMax: 72 };
+        return computeGlobalPitchRange(diffData.tracks);
+    }, [diffData?.tracks]);
+
+    // Expanded MIDI track height is derived from the global pitch range
+    // so that pitchRowHeight === PITCH_ROW_HEIGHT for all tracks.
+    const expandedHeightMidi = (globalPitch.pitchMax - globalPitch.pitchMin) * PITCH_ROW_HEIGHT;
+
     // ── Loading state ──
     if (isLoading) {
         return (
@@ -243,14 +343,21 @@ export function DiffTimeline({
                     <div>
                         {diffData.tracks.map((track, idx) => {
                             const isExpanded = expandedTracks.has(track.trackId);
+                            const empty = isTrackEmpty(track);
+                            const isReturn = track.trackType === "return" || track.trackType === "group";
 
-                            const trackHeight = track.trackType === "midi"
-                                ? (isExpanded ? EXPANDED_HEIGHT_MIDI : COLLAPSED_HEIGHT_MIDI)
-                                : (isExpanded ? EXPANDED_HEIGHT_AUDIO : COLLAPSED_HEIGHT_AUDIO);
+                            // All tracks: same collapsed height. Expanded height varies by type.
+                            const trackHeight = empty
+                                ? COLLAPSED_HEIGHT
+                                : isReturn
+                                    ? (isExpanded ? 120 : COLLAPSED_HEIGHT)
+                                    : track.trackType === "midi"
+                                        ? (isExpanded ? expandedHeightMidi : COLLAPSED_HEIGHT)
+                                        : (isExpanded ? EXPANDED_HEIGHT_AUDIO : COLLAPSED_HEIGHT);
 
                             // Collect ghost notes from modified clips (the "before" state)
                             const ghostNotes = track.midiClips
-                                ?.flatMap((c) => c.modifiedNotes.map((m) => m.before))
+                                ?.flatMap((c) => c.modifiedNotes?.map((m) => m.before) ?? [])
                                 ?? [];
 
                             // Resolve Ableton track color for row background tint
@@ -287,14 +394,26 @@ export function DiffTimeline({
                                         }`}
                                         style={isExpanded ? { maxHeight: trackHeight } : { height: trackHeight }}
                                     >
-                                        {track.trackType === "midi" ? (
+                                        {empty ? (
+                                            <EmptyTrackRow type={track.trackType as "midi" | "audio" | "return" | "group"} />
+                                        ) : isReturn ? (
+                                            <DeviceChainRow
+                                                track={track}
+                                                isCollapsed={!isExpanded}
+                                                height={trackHeight}
+                                            />
+                                        ) : track.trackType === "midi" ? (
                                             <PianoRollTrack
                                                 midiClips={track.midiClips ?? []}
                                                 totalBeats={diffData.totalBeats}
                                                 changeType={track.changeType}
                                                 height={trackHeight}
                                                 pixelsPerBeat={pixelsPerBeat}
-                                                ghostNotes={ghostNotes}                                                isCollapsed={!isExpanded}                                            />
+                                                ghostNotes={ghostNotes}
+                                                isCollapsed={!isExpanded}
+                                                globalPitchMin={globalPitch.pitchMin}
+                                                globalPitchMax={globalPitch.pitchMax}
+                                            />
                                         ) : (
                                             <AudioTrackRow
                                                 track={track}
