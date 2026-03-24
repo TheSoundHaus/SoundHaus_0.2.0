@@ -77,6 +77,9 @@ jspm_packages/
 web_modules/
 bower_components/
 
+# Lock files (commit package.json but not lock files)
+package-lock.json
+
 # TypeScript cache
 *.tsbuildinfo
 
@@ -318,3 +321,38 @@ coverage.xml
 
 # pyright
 pyrightconfig.json
+
+# ========================================
+# Rust
+# ========================================
+# Compiled files
+**/*.rs.bk
+*.rlib
+*.rmeta
+*.so
+*.dylib
+*.dll
+
+# Cargo build artifacts
+**/target/
+**/Cargo.lock  # Lock file for libraries (keep for binaries)
+
+# Cargo cache
+**/.cargo/
+
+# Native build directories
+**/native/
+apps/desktop/native/
+
+# NAPI-RS generated files
+**/*.node
+**/*.darwin
+**/*.win32
+**/*.linux
+
+# Rust documentation
+**/doc/
+**/_book/
+
+# Rust backup files
+**/*.orig
