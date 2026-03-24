@@ -2,11 +2,24 @@
 # SoundHaus Docker Compose
 # ==============================================================================
 #
-# Required: Create .env from .env.example and set at least:
+# Required (legacy single-profile): Create .env from .env.example and set at least:
 #   GITEA_DB_PASSWORD   - Postgres password for gitea_db (and Gitea app)
 #   GITEA_SECRET_KEY   - Gitea session/security key (e.g. from: gitea generate secret-key)
 #   GITEA_INTERNAL_TOKEN - Gitea internal API token (e.g. from: gitea generate secret-key)
 # Docker Compose loads .env from this directory for variable substitution.
+#
+# Local/remote profiles (recommended):
+#   - Copy .env.compose.local.example   -> .env.compose.local
+#   - Copy .env.compose.remote.example  -> .env.compose.remote
+#   - Copy apps/backend/.env.local.example  -> apps/backend/.env.local
+#   - Copy apps/backend/.env.remote.example -> apps/backend/.env.remote
+#   - Run with one profile env file:
+#       docker compose --env-file .env.compose.local up -d
+#       docker compose --env-file .env.compose.remote up -d
+#
+# BACKEND_ENV_FILE is resolved by compose interpolation and controls fastapi env_file:
+#   BACKEND_ENV_FILE=./apps/backend/.env.local   (local)
+#   BACKEND_ENV_FILE=./apps/backend/.env.remote  (remote)
 #
 # WEBHOOK INFRASTRUCTURE NOTES:
 #
@@ -135,7 +148,7 @@ services:
       - ${HOME}/.ssh:/root/.ssh:ro
       - /app/venv  # Prevent venv from being mounted from host
     env_file:
-      - ./apps/backend/.env
+      - ${BACKEND_ENV_FILE:-./apps/backend/.env}
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

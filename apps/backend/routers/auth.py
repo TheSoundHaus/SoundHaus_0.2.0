@@ -3,6 +3,7 @@ Authentication endpoints – signup, login, logout, refresh, user, reset-passwor
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from typing import Dict, Any
 
 from config import settings
@@ -200,6 +201,19 @@ async def reset_password(
     auth_service: SupabaseAuthService = Depends(get_auth),
 ):
     """Send a password reset email to the user."""
+    if not settings.password_reset_email_enabled:
+        logger.warning(
+            "password_reset_email_paused",
+            message="POST /api/auth/reset-password blocked: PASSWORD_RESET_EMAIL_ENABLED is false",
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "code": "password_reset_email_paused",
+                "message": "Password reset by email is temporarily unavailable.",
+            },
+        )
     result = await auth_service.reset_password_email(reset_request.email)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message"))
