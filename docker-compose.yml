@@ -97,8 +97,6 @@ services:
       - GITEA__webhook__ALLOWED_HOST_LIST=fastapi,external
     volumes:
       - ./gitea:/data
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
     ports:
       - "3000:3000"
       - "2222:2222"
@@ -148,6 +146,39 @@ services:
         max-file: "3"
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
+  # ── Stem Worker ──────────────────────────────────────────────────────────
+  # Polls DB for QUEUED SnippetVersion rows and runs Demucs separation.
+  # Shares the same image/code as fastapi but runs the worker script.
+  worker:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile.worker
+    image: soundhaus_worker:${TAG:-latest}
+    container_name: worker
+    restart: unless-stopped
+    networks: [appnet]
+    depends_on:
+      fastapi:
+        condition: service_started
+    volumes:
+      - ./apps/backend:/app
+      - ./workers:/workers
+      - /app/venv
+    env_file:
+      - ./apps/backend/.env
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Thread counts should match available CPU cores on the droplet
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
+      - MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: python /workers/stem_worker.py
+
   token-broker:
     build:
       context: ./apps/token-broker
@@ -160,7 +191,7 @@ services:
       gitea:
         condition: service_started
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-auto}
       - BROKER_PORT=9000

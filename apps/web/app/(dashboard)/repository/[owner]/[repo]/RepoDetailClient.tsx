@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useState, useTransition, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
+  Users,
   Lock,
   GitCommit,
   Download,
@@ -17,11 +18,26 @@ import {
   Clock,
   Trash2,
   Save,
+  ChevronDown,
+  FilePlus,
+  FileEdit,
+  FileMinus,
+  Eye,
+  Search,
+  Send,
+  X,
+  UserPlus,
+  UserMinus,
 } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
 import GenreEditor from "@/components/GenreEditor";
+import DiffView from "@/components/DiffView";
+import UserAvatar from "@/components/UserAvatar";
 import { deleteRepoAction, renameRepoAction } from "@/actions/repos";
+import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
+import { getCommits, getCommitDiff } from "@/lib/api/commits";
+import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
 import type {
   RepoStats,
   RepoActivity,
@@ -30,7 +46,11 @@ import type {
   PushActivity,
   RepoEvent,
   Genre,
+  SentInvitation,
+  Collaborator,
+  UserSearchResult,
 } from "@/lib/types/api";
+import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
 
 interface RepoDetailClientProps {
   owner: string;
@@ -40,6 +60,7 @@ interface RepoDetailClientProps {
   events: RepoEvents | null;
   snippet: Snippet | null;
   allGenres: Genre[];
+  initialCommits: CommitListResponse | null;
 }
 
 export default function RepoDetailClient({
@@ -50,9 +71,10 @@ export default function RepoDetailClient({
   events,
   snippet,
   allGenres,
+  initialCommits,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "commits" | "events" | "settings"
+    "overview" | "commits" | "events" | "collaborators" | "settings"
   >("overview");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -61,10 +83,117 @@ export default function RepoDetailClient({
   const [newName, setNewName] = useState(repo);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
+  // Commits state — deduplicate by SHA on init to guard against backend duplicates
+  const [commits, setCommits] = useState<CommitSummary[]>(() => {
+    const raw = initialCommits?.commits ?? [];
+    const seen = new Set<string>();
+    return raw.filter((c) => { if (seen.has(c.sha)) return false; seen.add(c.sha); return true; });
+  });
+  const [commitTotal, setCommitTotal] = useState(initialCommits?.total ?? 0);
+  const [commitPage, setCommitPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Expanded commit (shows diff) — keyed by SHA
+  const [expandedSha, setExpandedSha] = useState<string | null>(null);
+  const [diffCache, setDiffCache] = useState<Record<string, AlsDiffData | null>>({});
+  const [diffLoading, setDiffLoading] = useState<string | null>(null);
+  const [diffError, setDiffError] = useState<string | null>(null);
+
   const pushes: PushActivity[] = activity?.activity ?? [];
   const repoEvents: RepoEvent[] = events?.events ?? [];
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
+
+  // Collaborators tab state
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [repoInvitations, setRepoInvitations] = useState<SentInvitation[]>([]);
+  const [collabLoading, setCollabLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+  const [collabError, setCollabError] = useState<string | null>(null);
+
+  // Fetch collaborators & invitations when tab is active
+  const loadCollaboratorsData = useCallback(async () => {
+    setCollabLoading(true);
+    setCollabError(null);
+    const [collabRes, invRes] = await Promise.all([
+      listCollaborators(repo),
+      getRepoInvitations(repo),
+    ]);
+    if (collabRes.success) setCollaborators(collabRes.data ?? []);
+    else setCollabError(collabRes.error);
+    if (invRes.success) setRepoInvitations(invRes.data ?? []);
+    setCollabLoading(false);
+  }, [repo]);
+
+  useEffect(() => {
+    if (activeTab === "collaborators") {
+      loadCollaboratorsData();
+    }
+  }, [activeTab, loadCollaboratorsData]);
+
+  // User search with debounce
+  useEffect(() => {
+    if (searchQuery.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      const res = await searchUsers(searchQuery);
+      if (res.success) setSearchResults(res.data ?? []);
+      setSearchLoading(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Invite handler
+  const handleInvite = useCallback(async (email: string) => {
+    setInviteError(null);
+    setInviteSuccess(null);
+    startTransition(async () => {
+      const result = await inviteCollaboratorAction(repo, email);
+      if (result.success) {
+        setInviteSuccess(`Invitation sent to ${email}`);
+        setInviteEmail("");
+        setSearchQuery("");
+        setSearchResults([]);
+        loadCollaboratorsData();
+      } else {
+        setInviteError(result.error);
+      }
+    });
+  }, [repo, loadCollaboratorsData]);
+
+  // Cancel invite handler
+  const handleCancelInvite = useCallback(async (invitationId: string) => {
+    setInviteError(null);
+    startTransition(async () => {
+      const result = await cancelInvitationAction(invitationId);
+      if (result.success) {
+        loadCollaboratorsData();
+      } else {
+        setCollabError(result.error);
+      }
+    });
+  }, [loadCollaboratorsData]);
+
+  // Remove collaborator handler
+  const handleRemoveCollaborator = useCallback(async (username: string) => {
+    if (!confirm(`Remove ${username} from this project?`)) return;
+    startTransition(async () => {
+      const result = await removeCollaboratorAction(repo, username);
+      if (result.success) {
+        loadCollaboratorsData();
+      } else {
+        setCollabError(result.error);
+      }
+    });
+  }, [repo, loadCollaboratorsData]);
 
   function handleDelete() {
     if (!confirm(`Delete "${repo}"? This cannot be undone.`)) return;
@@ -114,10 +243,57 @@ export default function RepoDetailClient({
     }
   }
 
+  // Load more commits (pagination)
+  const handleLoadMore = useCallback(async () => {
+    setLoadingMore(true);
+    const nextPage = commitPage + 1;
+    const result = await getCommits(owner, repo, nextPage, 20);
+    if (result.success && result.data) {
+      setCommits((prev) => {
+        const seen = new Set(prev.map((c) => c.sha));
+        const fresh = result.data.commits.filter((c) => !seen.has(c.sha));
+        return [...prev, ...fresh];
+      });
+      setCommitTotal(result.data.total);
+      setCommitPage(nextPage);
+    }
+    setLoadingMore(false);
+  }, [owner, repo, commitPage]);
+
+  // Toggle diff expansion for a commit
+  const handleToggleDiff = useCallback(async (sha: string) => {
+    // Collapse if already expanded
+    if (expandedSha === sha) {
+      setExpandedSha(null);
+      setDiffError(null);
+      return;
+    }
+
+    setExpandedSha(sha);
+    setDiffError(null);
+
+    // Return cached diff if available
+    if (sha in diffCache) return;
+
+    // Fetch diff from backend
+    setDiffLoading(sha);
+    const result = await getCommitDiff(owner, repo, sha);
+    if (result.success && result.data) {
+      setDiffCache((prev) => ({ ...prev, [sha]: result.data.diff }));
+    } else {
+      setDiffCache((prev) => ({ ...prev, [sha]: null }));
+      if (!result.success) {
+        setDiffError(result.error);
+      }
+    }
+    setDiffLoading(null);
+  }, [owner, repo, expandedSha, diffCache]);
+
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Commits", icon: GitCommit },
     { key: "events" as const, label: "Events", icon: Activity },
+    { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "settings" as const, label: "Settings", icon: Settings },
   ];
 
@@ -126,7 +302,7 @@ export default function RepoDetailClient({
       {/* Breadcrumb */}
       <div className="mb-4 flex items-center gap-2 text-sm text-zinc-400">
         <Link href="/repositories" className="hover:text-zinc-100 transition-colors">
-          Repositories
+          Projects
         </Link>
         <span>/</span>
         <span className="text-zinc-200">{repo}</span>
@@ -327,7 +503,7 @@ export default function RepoDetailClient({
 
             {/* Repo Info */}
             <div className="rounded-lg border border-zinc-800 p-6">
-              <h3 className="mb-4 text-lg font-semibold">Repository Info</h3>
+              <h3 className="mb-4 text-lg font-semibold">Project Info</h3>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1 text-zinc-400">
@@ -344,38 +520,135 @@ export default function RepoDetailClient({
       {/* ── Commits Tab ────────────────────────────────────────────── */}
       {activeTab === "commits" && (
         <div className="rounded-lg border border-zinc-800 p-6">
-          <h2 className="mb-6 text-2xl font-semibold">Push History</h2>
-          {pushes.length === 0 ? (
-            <p className="text-zinc-500">No push activity recorded yet.</p>
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">Commit History</h2>
+            <span className="text-sm text-zinc-500">
+              {commitTotal} commit{commitTotal !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {commits.length === 0 ? (
+            <p className="text-zinc-500">No commits recorded yet.</p>
           ) : (
-            <div className="space-y-4">
-              {pushes.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-start gap-4 border-b border-zinc-800 pb-4 last:border-0"
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
-                    <GitCommit size={16} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="mb-1 font-medium">
-                      {p.commit_count} commit{p.commit_count !== 1 ? "s" : ""} pushed to{" "}
-                      <span className="text-glass-cyan-500">
-                        {p.ref?.replace("refs/heads/", "") ?? "unknown"}
-                      </span>
+            <div className="space-y-2">
+              {commits.map((c) => {
+                const isExpanded = expandedSha === c.sha;
+                const fileCount =
+                  (c.files_added?.length ?? 0) +
+                  (c.files_modified?.length ?? 0) +
+                  (c.files_removed?.length ?? 0);
+
+                return (
+                  <div key={c.sha} className="rounded-lg border border-zinc-800 overflow-hidden">
+                    {/* Commit row */}
+                    <div
+                      className="flex items-start gap-4 px-4 py-3 hover:bg-zinc-800/30 transition-colors cursor-pointer"
+                      onClick={() => c.has_diff && handleToggleDiff(c.sha)}
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 mt-0.5">
+                        <GitCommit size={15} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 font-medium text-zinc-200 truncate">
+                          {c.message.split("\n")[0]}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+                          <span className="flex items-center gap-1">
+                            <User size={11} /> {c.author_name}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock size={11} /> {timeAgo(c.timestamp)}
+                          </span>
+                          {fileCount > 0 && (
+                            <span className="flex items-center gap-1">
+                              <FileText size={11} /> {fileCount} file{fileCount !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-mono text-xs text-zinc-500">
+                          {c.short_sha}
+                        </span>
+                        {c.has_diff && (
+                          <button
+                            className="flex items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-400 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleDiff(c.sha);
+                            }}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown size={12} />
+                            ) : (
+                              <Eye size={12} />
+                            )}
+                            {isExpanded ? "Hide Diff" : "View Diff"}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-sm text-zinc-400">
-                      <span className="flex items-center gap-1">
-                        <User size={12} /> {p.pusher} • <Clock size={12} /> {timeAgo(p.pushed_at)}
-                      </span>
-                    </div>
+
+                    {/* Expanded: file changes + diff view */}
+                    {isExpanded && (
+                      <div className="border-t border-zinc-800 bg-zinc-900/30 px-4 py-4 space-y-4">
+                        {/* File change lists */}
+                        {(c.files_added?.length > 0 ||
+                          c.files_modified?.length > 0 ||
+                          c.files_removed?.length > 0) && (
+                          <div className="grid gap-1 text-xs">
+                            {c.files_added?.map((f) => (
+                              <span
+                                key={`a-${f}`}
+                                className="flex items-center gap-1.5 text-success"
+                              >
+                                <FilePlus size={11} /> {f}
+                              </span>
+                            ))}
+                            {c.files_modified?.map((f) => (
+                              <span
+                                key={`m-${f}`}
+                                className="flex items-center gap-1.5 text-glass-blue-500"
+                              >
+                                <FileEdit size={11} /> {f}
+                              </span>
+                            ))}
+                            {c.files_removed?.map((f) => (
+                              <span
+                                key={`r-${f}`}
+                                className="flex items-center gap-1.5 text-error"
+                              >
+                                <FileMinus size={11} /> {f}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Diff view (arrangement visualization) */}
+                        <DiffView
+                          diffData={diffCache[c.sha] ?? null}
+                          commit={c}
+                          isLoading={diffLoading === c.sha}
+                          error={diffError && expandedSha === c.sha ? diffError : null}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="font-mono text-sm text-zinc-400">{p.after_sha ?? "—"}</span>
-                    <span className="font-mono text-xs text-zinc-600">{p.before_sha ?? ""}</span>
-                  </div>
+                );
+              })}
+
+              {/* Load More button */}
+              {commits.length < commitTotal && (
+                <div className="pt-4 text-center">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    className="rounded-md border border-zinc-700 px-6 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {loadingMore ? "Loading…" : `Load More (${commits.length} of ${commitTotal})`}
+                  </button>
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -384,7 +657,7 @@ export default function RepoDetailClient({
       {/* ── Events Tab ─────────────────────────────────────────────── */}
       {activeTab === "events" && (
         <div className="rounded-lg border border-zinc-800 p-6">
-          <h2 className="mb-6 text-2xl font-semibold">Repository Events</h2>
+          <h2 className="mb-6 text-2xl font-semibold">Project Events</h2>
           {repoEvents.length === 0 ? (
             <p className="text-zinc-500">No events recorded yet.</p>
           ) : (
@@ -412,10 +685,240 @@ export default function RepoDetailClient({
         </div>
       )}
 
+      {/* ── Collaborators Tab ──────────────────────────────────────── */}
+      {activeTab === "collaborators" && (
+        <div className="space-y-8">
+          {/* Error/Success banners */}
+          {collabError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {collabError}
+            </div>
+          )}
+          {inviteError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {inviteError}
+            </div>
+          )}
+          {inviteSuccess && (
+            <div className="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+              {inviteSuccess}
+            </div>
+          )}
+
+          {/* Invite Collaborators Section */}
+          <div className="rounded-lg border border-zinc-800 p-6">
+            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+              <UserPlus size={18} /> Invite Collaborators
+            </h2>
+
+            {/* Search users */}
+            <div className="relative mb-4">
+              <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
+                <Search size={16} className="text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Search users by email or username…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none text-sm"
+                />
+                {searchQuery && (
+                  <button onClick={() => { setSearchQuery(""); setSearchResults([]); }}>
+                    <X size={14} className="text-zinc-500 hover:text-zinc-300" />
+                  </button>
+                )}
+              </div>
+
+              {/* Search results dropdown */}
+              {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
+                <div className="absolute z-10 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg max-h-48 overflow-y-auto">
+                  {searchLoading ? (
+                    <div className="px-4 py-3 text-sm text-zinc-500">Searching…</div>
+                  ) : (
+                    searchResults.map((u) => (
+                      <div
+                        key={u.username}
+                        className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <UserAvatar src={u.avatar_url} alt={u.username} size={32} />
+                          <div>
+                            <div className="text-sm font-medium text-zinc-200">{u.username}</div>
+                            <div className="text-xs text-zinc-500">{u.email}</div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleInvite(u.email)}
+                          disabled={isPending}
+                          className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
+                        >
+                          <Send size={11} /> Invite
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Manual email invite */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (inviteEmail.trim()) handleInvite(inviteEmail.trim());
+              }}
+              className="flex gap-3"
+            >
+              <input
+                type="email"
+                placeholder="Or invite by email address…"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={isPending || !inviteEmail.trim()}
+                className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Send size={14} /> Send Invite
+              </button>
+            </form>
+          </div>
+
+          {/* Pending Invitations */}
+          <div className="rounded-lg border border-zinc-800 p-6">
+            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+              <Clock size={18} /> Pending Invitations
+            </h2>
+            {collabLoading ? (
+              <p className="text-sm text-zinc-500">Loading…</p>
+            ) : repoInvitations.filter((i) => i.status === "pending").length === 0 ? (
+              <p className="text-sm text-zinc-500">No pending invitations.</p>
+            ) : (
+              <div className="space-y-3">
+                {repoInvitations
+                  .filter((i) => i.status === "pending")
+                  .map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-yellow-500/10 text-yellow-500">
+                          <Send size={14} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-zinc-200">
+                            {inv.invitee_email}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            Sent {timeAgo(inv.created_at)} · {inv.permission} access
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleCancelInvite(inv.id)}
+                        disabled={isPending}
+                        className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                      >
+                        <X size={11} /> Cancel
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          {/* Active Collaborators */}
+          <div className="rounded-lg border border-zinc-800 p-6">
+            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+              <Users size={18} /> Active Collaborators
+            </h2>
+            {collabLoading ? (
+              <p className="text-sm text-zinc-500">Loading…</p>
+            ) : collaborators.length === 0 ? (
+              <p className="text-sm text-zinc-500">No collaborators yet. Invite someone above!</p>
+            ) : (
+              <div className="space-y-3">
+                {collaborators.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <UserAvatar src={c.avatar_url} alt={c.login} size={40} />
+                      <div>
+                        <div className="text-sm font-medium text-zinc-200">{c.login}</div>
+                        <div className="text-xs text-zinc-500">{c.email || "No email"}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveCollaborator(c.login)}
+                      disabled={isPending}
+                      className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                    >
+                      <UserMinus size={11} /> Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Invitation History (accepted/declined) */}
+          {repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
+            <div className="rounded-lg border border-zinc-800 p-6">
+              <h2 className="mb-4 text-xl font-semibold">Invitation History</h2>
+              <div className="space-y-3">
+                {repoInvitations
+                  .filter((i) => i.status !== "pending")
+                  .map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                            inv.status === "accepted"
+                              ? "bg-green-500/10 text-green-500"
+                              : "bg-red-500/10 text-red-500"
+                          }`}
+                        >
+                          <User size={14} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-zinc-200">
+                            {inv.invitee_email}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {inv.status === "accepted" ? "Accepted" : "Declined"}{" "}
+                            {inv.responded_at ? timeAgo(inv.responded_at) : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          inv.status === "accepted"
+                            ? "bg-green-500/10 text-green-400"
+                            : "bg-red-500/10 text-red-400"
+                        }`}
+                      >
+                        {inv.status}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Settings Tab ───────────────────────────────────────────── */}
       {activeTab === "settings" && (
         <div className="rounded-lg border border-zinc-800 p-6">
-          <h2 className="mb-6 text-2xl font-semibold">Repository Settings</h2>
+          <h2 className="mb-6 text-2xl font-semibold">Project Settings</h2>
 
           {/* Settings error banner */}
           {settingsError && (
@@ -428,7 +931,7 @@ export default function RepoDetailClient({
             {/* Rename */}
             <form onSubmit={handleRename}>
               <label className="mb-2 block text-sm font-medium">
-                Repository Name
+                Project Name
               </label>
               <div className="flex gap-3">
                 <input
@@ -473,13 +976,13 @@ export default function RepoDetailClient({
               }
             />
 
-            {/* Delete repository */}
+            {/* Delete project */}
             <button
               onClick={handleDelete}
               disabled={isPending}
               className="flex items-center gap-2 rounded-md border border-red-500/30 px-6 py-3 font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:opacity-50"
             >
-              <Trash2 size={16} /> Delete Repository
+              <Trash2 size={16} /> Delete Project
             </button>
           </div>
         </div>

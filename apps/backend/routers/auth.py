@@ -1,20 +1,25 @@
 """
 Authentication endpoints – signup, login, logout, refresh, user, reset-password, OAuth.
+Profile endpoints – get/update profile, upload/delete avatar.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from typing import Dict, Any
+from sqlalchemy.orm import Session
 
+from database import get_db
 from dependencies import limiter, user_limiter, verify_token, get_auth
 from logging_config import get_logger, log_external_service
 from services.auth_service import SupabaseAuthService
 from services.gitea_service import GiteaAdminService
+from services.profile_service import profile_service
 from models.schemas import (
     SignUpRequest,
     SignInRequest,
     UpdateUserRequest,
     ResetPasswordRequest,
     RefreshTokenRequest,
+    ProfileUpdateRequest,
 )
 import secrets
 
@@ -31,9 +36,23 @@ async def signup(
     request: Request,
     signup_request: SignUpRequest,
     auth_service: SupabaseAuthService = Depends(get_auth),
+    db: Session = Depends(get_db),
 ):
     """Register a new user and provision a matching Gitea account."""
-    logger.info("signup", email=signup_request.email)
+    username = signup_request.name.strip()
+    logger.info("signup", email=signup_request.email, username=username)
+
+    # Validate username format before anything else
+    try:
+        profile_service._validate_username(username)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Check username uniqueness in our profiles table
+    from models.profile_models import Profile
+    existing = db.query(Profile).filter(Profile.username == username).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Username '{username}' is already taken")
 
     sb = await auth_service.sign_up(
         email=signup_request.email,
@@ -49,31 +68,31 @@ async def signup(
     if not supabase_user_id:
         raise HTTPException(status_code=500, detail="Supabase user created but no ID returned")
 
-    # Provision Gitea user with Supabase UUID as username
+    # Provision Gitea user with human-readable username (not UUID)
     gitea_result: Dict[str, Any]
     try:
         gitea = GiteaAdminService()
         logger.debug("signup", message="gitea service initialized")
 
-        existing_user = gitea.get_user_by_username(supabase_user_id)
+        existing_user = gitea.get_user_by_username(username)
 
         if existing_user.get("exists"):
-            logger.info("signup", gitea_user=supabase_user_id, message="Using existing Gitea account")
+            logger.info("signup", gitea_user=username, message="Using existing Gitea account")
             gitea_result = {
                 "success": True,
                 "status": 200,
                 "message": "Using existing SoundHaus Gitea account",
-                "username": supabase_user_id,
+                "username": username,
                 "data": existing_user.get("data"),
                 "is_new": False,
             }
         else:
-            logger.info("signup", gitea_user=supabase_user_id, message="Creating new Gitea user")
+            logger.info("signup", gitea_user=username, message="Creating new Gitea user")
             pw_len = len(signup_request.password) if signup_request.password else 0
             logger.debug("signup", password_present=bool(signup_request.password), password_length=pw_len)
 
             gitea_result = gitea.create_user(
-                username=supabase_user_id,
+                username=username,
                 email=signup_request.email,
                 password=(
                     signup_request.password
@@ -96,6 +115,20 @@ async def signup(
             "message": f"Gitea provisioning error: {e}",
         }
         logger.error("signup", service="gitea", error=str(e), exc_info=True)
+
+    # Create profile row in our database
+    try:
+        profile_result = profile_service.create_profile(
+            user_id=supabase_user_id,
+            username=username,
+            email=signup_request.email,
+            display_name=username,
+            db=db,
+        )
+        if not profile_result.get("success"):
+            logger.warning("signup", message=f"Profile creation issue: {profile_result.get('message')}")
+    except Exception as e:
+        logger.error("signup", service="profile", error=str(e), exc_info=True)
 
     return {"success": True, "supabase": sb, "gitea": gitea_result}
 
@@ -216,6 +249,118 @@ async def oauth_signin(
 ):
     """Initiate OAuth sign in with a provider (google, github, etc.)."""
     result = await auth_service.sign_in_with_oauth(provider)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+
+# ── Profile ──────────────────────────────────────────────────────────────────
+
+@router.get("/profile")
+@user_limiter.limit("60/minute")
+async def get_profile(
+    request: Request,
+    token: str = Depends(verify_token),
+    auth_service: SupabaseAuthService = Depends(get_auth),
+    db: Session = Depends(get_db),
+):
+    """Get the current user's profile (username, display_name, bio, avatar_url)."""
+    user_res = await auth_service.get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user_res["user"]["id"]
+    profile = profile_service.get_profile(user_id, db)
+
+    if not profile:
+        # Auto-create a stub profile from Supabase metadata if missing
+        email = user_res["user"].get("email", "")
+        username = user_res["user"].get("user_metadata", {}).get("username", email.split("@")[0])
+        result = profile_service.create_profile(
+            user_id=user_id,
+            username=username,
+            email=email,
+            display_name=username,
+            db=db,
+        )
+        if result.get("success"):
+            profile = result["profile"]
+        else:
+            raise HTTPException(status_code=500, detail="Could not create profile")
+
+    return {"success": True, "profile": profile}
+
+
+@router.put("/profile")
+@user_limiter.limit("20/minute")
+async def update_profile(
+    request: Request,
+    body: ProfileUpdateRequest,
+    token: str = Depends(verify_token),
+    auth_service: SupabaseAuthService = Depends(get_auth),
+    db: Session = Depends(get_db),
+):
+    """Update display_name and/or bio for the current user."""
+    user_res = await auth_service.get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user_res["user"]["id"]
+    updates = {}
+    if body.display_name is not None:
+        updates["display_name"] = body.display_name
+    if body.bio is not None:
+        updates["bio"] = body.bio
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No updates provided")
+
+    result = profile_service.update_profile(user_id, updates, db)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+
+@router.post("/profile/avatar")
+@user_limiter.limit("10/minute")
+async def upload_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+    token: str = Depends(verify_token),
+    auth_service: SupabaseAuthService = Depends(get_auth),
+    db: Session = Depends(get_db),
+):
+    """Upload or replace the current user's profile avatar."""
+    user_res = await auth_service.get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user_res["user"]["id"]
+    file_bytes = await file.read()
+    content_type = file.content_type or "application/octet-stream"
+    filename = file.filename or "avatar"
+
+    result = profile_service.upload_avatar(user_id, file_bytes, content_type, filename, db)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+
+@router.delete("/profile/avatar")
+@user_limiter.limit("10/minute")
+async def delete_avatar(
+    request: Request,
+    token: str = Depends(verify_token),
+    auth_service: SupabaseAuthService = Depends(get_auth),
+    db: Session = Depends(get_db),
+):
+    """Remove the current user's profile avatar."""
+    user_res = await auth_service.get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user_res["user"]["id"]
+    result = profile_service.delete_avatar(user_id, db)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result
