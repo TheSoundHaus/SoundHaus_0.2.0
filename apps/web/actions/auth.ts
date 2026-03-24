@@ -170,3 +170,27 @@ export async function logout(): Promise<{ error?: string }> {
 
   redirect("/login");
 }
+
+/**
+ * Request a password reset email via Supabase.
+ */
+export async function requestPasswordResetAction(
+  email: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.detail || data.message || "Failed to send reset email." };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error("Password reset error:", error);
+    return { success: false, error: "An error occurred. Please try again." };
+  }
+}
