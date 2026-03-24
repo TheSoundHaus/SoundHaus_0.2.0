@@ -28,9 +28,9 @@ import {
   X,
   UserPlus,
   UserMinus,
+  BookOpen,
 } from "lucide-react";
 import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
-import { useUser } from "@/lib/context/UserContext";
 import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
 import SnippetUploader from "@/components/SnippetUploader";
 import StemPlayer from "@/components/StemPlayer";
@@ -38,7 +38,10 @@ import GenreEditor from "@/components/GenreEditor";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import UserAvatar from "@/components/UserAvatar";
-import { deleteRepoAction, renameRepoAction, updateDescriptionAction } from "@/actions/repos";
+import Markdown from "react-markdown";
+import { useUser } from "@/lib/context/UserContext";
+import { getReadme, updateReadme } from "@/lib/api/readme";
+import { deleteRepoAction, renameRepoAction, updateDescriptionAction, updateVisibilityAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
@@ -82,7 +85,7 @@ export default function RepoDetailClient({
   initialStems,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "commits" | "events" | "collaborators" | "settings"
+    "overview" | "commits" | "events" | "collaborators" | "about" | "settings"
   >("overview");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -93,6 +96,14 @@ export default function RepoDetailClient({
 
   // Snippet comment state
   const [snippetComments, setSnippetComments] = useState<SnippetComment[]>([]);
+
+  // README editor state
+  const [readmeContent, setReadmeContent] = useState("");
+  const [readmeDraft, setReadmeDraft] = useState("");
+  const [readmeTab, setReadmeTab] = useState<"edit" | "preview">("preview");
+  const [readmeLoading, setReadmeLoading] = useState(false);
+  const [readmeSaving, setReadmeSaving] = useState(false);
+  const [readmeError, setReadmeError] = useState<string | null>(null);
 
   // Settings form state
   const [newName, setNewName] = useState(repo);
@@ -186,7 +197,21 @@ export default function RepoDetailClient({
     if (activeTab === "collaborators") {
       loadCollaboratorsData();
     }
-  }, [activeTab, loadCollaboratorsData]);
+    if (activeTab === "events") {
+      refreshEvents();
+    }
+    if (activeTab === "about" && !readmeContent && !readmeLoading) {
+      setReadmeLoading(true);
+      getReadme(owner, repo)
+        .then((res) => {
+          if (res.success) {
+            setReadmeContent(res.data);
+            setReadmeDraft(res.data);
+          }
+        })
+        .finally(() => setReadmeLoading(false));
+    }
+  }, [activeTab, loadCollaboratorsData, refreshEvents, owner, repo, readmeContent, readmeLoading]);
 
   // User search with debounce
   useEffect(() => {
@@ -369,6 +394,7 @@ export default function RepoDetailClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
+    { key: "about" as const, label: "About", icon: BookOpen },
     { key: "events" as const, label: "Timeline", icon: Activity },
     { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "settings" as const, label: "Settings", icon: Settings },
@@ -1132,6 +1158,120 @@ export default function RepoDetailClient({
                       </span>
                     </div>
                   ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── About Tab (README) ──────────────────────────────────────── */}
+      {activeTab === "about" && (
+        <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">About</h2>
+
+            {/* Edit/Preview toggle (only for owner or collaborator) */}
+            {user && (
+              <div className="flex rounded-md border border-zinc-700 overflow-hidden">
+                <button
+                  onClick={() => setReadmeTab("preview")}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    readmeTab === "preview"
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <Eye size={14} className="mr-1.5 inline" />
+                  Preview
+                </button>
+                <button
+                  onClick={() => setReadmeTab("edit")}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    readmeTab === "edit"
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <FileEdit size={14} className="mr-1.5 inline" />
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+
+          {readmeError && (
+            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {readmeError}
+            </div>
+          )}
+
+          {readmeLoading ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-4 w-3/4 rounded bg-zinc-800" />
+              <div className="h-4 w-1/2 rounded bg-zinc-800" />
+              <div className="h-4 w-5/6 rounded bg-zinc-800" />
+              <div className="h-4 w-2/3 rounded bg-zinc-800" />
+            </div>
+          ) : readmeTab === "preview" ? (
+            /* Markdown preview */
+            <div className="prose prose-invert prose-zinc max-w-none">
+              {readmeContent ? (
+                <Markdown>{readmeContent}</Markdown>
+              ) : (
+                <p className="text-zinc-500 italic">
+                  No README yet. Switch to Edit to add a description for this project.
+                </p>
+              )}
+            </div>
+          ) : (
+            /* Edit mode */
+            <div className="space-y-4">
+              <textarea
+                value={readmeDraft}
+                onChange={(e) => setReadmeDraft(e.target.value)}
+                placeholder="Write a description for your project using Markdown..."
+                className="w-full min-h-[300px] rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-y"
+                maxLength={50000}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">
+                  {readmeDraft.length.toLocaleString()} / 50,000 characters · Markdown supported
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setReadmeDraft(readmeContent);
+                      setReadmeTab("preview");
+                    }}
+                    className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={readmeSaving || readmeDraft === readmeContent}
+                    onClick={async () => {
+                      setReadmeSaving(true);
+                      setReadmeError(null);
+                      try {
+                        const res = await updateReadme(owner, repo, readmeDraft);
+                        if (res.success) {
+                          setReadmeContent(res.data);
+                          setReadmeTab("preview");
+                        } else {
+                          setReadmeError(res.error);
+                        }
+                      } catch {
+                        setReadmeError("Failed to save README");
+                      } finally {
+                        setReadmeSaving(false);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+                  >
+                    <Save size={14} />
+                    {readmeSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
