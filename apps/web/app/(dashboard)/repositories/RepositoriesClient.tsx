@@ -1,34 +1,43 @@
 "use client"
 import { useState, useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, List, Plus, ArrowUpDown, Star, ChevronDown, Check, Music } from "lucide-react";
+import { LayoutGrid, List, ArrowUpDown, Star, ChevronDown, Check, Music, Mail, Users } from "lucide-react";
 import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import RepositoryCard from "@/components/RepositoryCard";
-import type { EnrichedRepo, Genre } from "@/lib/types/api";
-import { createRepoAction, starRepoAction, unstarRepoAction, deleteRepoAction, renameRepoAction } from "@/actions/repos";
+import type { EnrichedRepo, Genre, Invitation } from "@/lib/types/api";
+import { starRepoAction, unstarRepoAction, deleteRepoAction, renameRepoAction } from "@/actions/repos";
+import { acceptInvitationAction, declineInvitationAction } from "@/actions/invitations";
 
 type SortKey = "updated" | "alpha" | "created" | "stars" | "clones";
+type RoleFilter = "all" | "owner" | "collaborator";
 
 interface RepositoriesClientProps {
     repos: EnrichedRepo[];
     genres: Genre[];
+    invitations: Invitation[];
 }
 
-export default function RepositoriesClient({ repos, genres }: RepositoriesClientProps) {
+export default function RepositoriesClient({ repos, genres, invitations }: RepositoriesClientProps) {
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [showInvites, setShowInvites] = useState(false);
   const router = useRouter();
 
   // Sorting & filtering state
   const [sortBy, setSortBy] = useState<SortKey>("updated");
   const [filterStarred, setFilterStarred] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<Set<string>>(new Set());
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
   // Derive sorted + filtered list
   const filteredRepos = useMemo(() => {
     let list = [...repos];
+
+    // Filter: role
+    if (roleFilter !== "all") {
+      list = list.filter((r) => r.role === roleFilter);
+    }
 
     // Filter: starred only
     if (filterStarred) {
@@ -60,7 +69,7 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
     });
 
     return list;
-  }, [repos, sortBy, filterStarred, selectedGenres]);
+  }, [repos, sortBy, filterStarred, selectedGenres, roleFilter]);
 
   function toggleGenre(name: string) {
     setSelectedGenres((prev) => {
@@ -71,32 +80,43 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
     });
   }
 
-  function handleCreate(formData: FormData) {
-    const name = (formData.get("name") as string).trim();
-    const description = (formData.get("description") as string || "").trim();
-    const isPrivate = formData.get("visibility") === "private";
-
-    if (!name) { setError("Repository name is required."); return; }
-
-    setError(null);
+  function handleAcceptInvite(invitationId: number) {
     startTransition(async () => {
-      const result = await createRepoAction(name, isPrivate, description);
+      const result = await acceptInvitationAction(invitationId);
       if (!result.success) {
         setError(result.error);
         return;
       }
-      setShowModal(false);
+      router.refresh();
+    });
+  }
+
+  function handleDeclineInvite(invitationId: number) {
+    startTransition(async () => {
+      const result = await declineInvitationAction(invitationId);
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       router.refresh();
     });
   }
 
   return (
     <>
-    {/* Create Repository Modal */}
-    {showModal && (
+    {/* Invitations Panel */}
+    {showInvites && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
-          <h2 className="mb-4 text-xl font-semibold text-zinc-100">New Repository</h2>
+        <div className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-zinc-100">Pending Invitations</h2>
+            <button
+              onClick={() => setShowInvites(false)}
+              className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              Close
+            </button>
+          </div>
 
           {error && (
             <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
@@ -104,60 +124,51 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
             </div>
           )}
 
-          <form action={handleCreate} className="space-y-4">
-            <div>
-              <label htmlFor="repo-name" className="mb-1 block text-sm font-medium text-zinc-300">Name</label>
-              <input
-                id="repo-name"
-                name="name"
-                required
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500
-                           focus:border-glass-blue focus:outline-none focus:ring-1 focus:ring-glass-blue/50"
-                placeholder="my-new-project"
-              />
+          {invitations.length === 0 ? (
+            <p className="py-8 text-center text-zinc-500">No pending invitations</p>
+          ) : (
+            <div className="max-h-96 space-y-3 overflow-y-auto">
+              {invitations.map((inv) => (
+                <div
+                  key={inv.id}
+                  className="rounded-lg border border-zinc-800 bg-zinc-800/50 p-4"
+                >
+                  <div className="mb-2 flex items-start justify-between">
+                    <div>
+                      <p className="font-medium text-zinc-100">{inv.repo_name}</p>
+                      <p className="text-sm text-zinc-400">
+                        from <span className="text-zinc-300">{inv.owner_username}</span>
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-zinc-700 px-2.5 py-0.5 text-xs text-zinc-300 capitalize">
+                      {inv.permission}
+                    </span>
+                  </div>
+                  <p className="mb-3 text-xs text-zinc-500">
+                    Expires {new Date(inv.expires_at).toLocaleDateString()}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleAcceptInvite(inv.id)}
+                      disabled={isPending}
+                      className="rounded-lg bg-glass-blue px-4 py-1.5 text-sm font-semibold text-zinc-950
+                                 hover:bg-glass-highlight transition-colors disabled:opacity-50"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => handleDeclineInvite(inv.id)}
+                      disabled={isPending}
+                      className="rounded-lg border border-zinc-700 px-4 py-1.5 text-sm text-zinc-400
+                                 hover:border-red-500/50 hover:text-red-400 transition-colors disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <div>
-              <label htmlFor="repo-desc" className="mb-1 block text-sm font-medium text-zinc-300">Description</label>
-              <input
-                id="repo-desc"
-                name="description"
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500
-                           focus:border-glass-blue focus:outline-none focus:ring-1 focus:ring-glass-blue/50"
-                placeholder="Optional description"
-              />
-            </div>
-
-            <fieldset className="flex gap-4 text-sm text-zinc-300">
-              <legend className="mb-1 text-sm font-medium text-zinc-300">Visibility</legend>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="visibility" value="public" defaultChecked className="accent-glass-blue" />
-                Public
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="visibility" value="private" className="accent-glass-blue" />
-                Private
-              </label>
-            </fieldset>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => { setShowModal(false); setError(null); }}
-                className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isPending}
-                className="rounded-lg bg-glass-blue px-5 py-2 text-sm font-semibold text-zinc-950
-                           hover:bg-glass-highlight transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isPending ? "Creating…" : "Create Repository"}
-              </button>
-            </div>
-          </form>
+          )}
         </div>
       </div>
     )}
@@ -167,16 +178,32 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="mb-2 text-4xl font-bold tracking-tight">
-              Your Repositories
+              Your Projects
             </h1>
             <p className="text-lg text-zinc-400">
               Manage your remote Ableton projects
             </p>
           </div>
-          <button onClick={() => setShowModal(true)} className="btn btn-primary flex items-center gap-2">
-            <Plus size={16} /> New Repository
-          </button>
+          <div className="relative inline-block">
+            <button
+              onClick={() => setShowInvites(true)}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <Mail size={16} /> Invites
+            </button>
+            {invitations.length > 0 && (
+              <span className="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white shadow-sm">
+                {invitations.length}
+              </span>
+            )}
+          </div>
         </div>
+
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {error}
+          </div>
+        )}
 
         {/* Toolbar: sort, filter, view toggle */}
         <div className="mb-6 flex flex-wrap items-center gap-4">
@@ -193,6 +220,24 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
               <option value="created">Date Created</option>
               <option value="stars">Stars</option>
               <option value="clones">Clones</option>
+            </select>
+          </div>
+
+          {/* Role filter dropdown */}
+          <div className="flex items-center gap-2 text-sm text-zinc-400">
+            <Users size={14} />
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
+              className={`rounded-md border px-3 py-1.5 text-sm focus:border-glass-blue focus:outline-none ${
+                roleFilter !== "all"
+                  ? "border-glass-blue-500/50 bg-glass-blue-500/10 text-glass-cyan-500"
+                  : "border-zinc-700 bg-zinc-800 text-zinc-200"
+              }`}
+            >
+              <option value="all">All Projects</option>
+              <option value="owner">My Projects</option>
+              <option value="collaborator">Collaborations</option>
             </select>
           </div>
 
@@ -277,7 +322,7 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
           <div className="flex-1" />
 
           {/* Count + view toggle */}
-          <span className="text-sm text-zinc-500">{filteredRepos.length} repos</span>
+          <span className="text-sm text-zinc-500">{filteredRepos.length} projects</span>
           <div className="flex gap-1">
             <button
               onClick={() => setView("grid")}
@@ -302,7 +347,7 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
           </div>
         </div>
 
-        {/* Repository Grid */}
+        {/* Project Grid */}
         <div
           className={
             view === "grid"
@@ -313,8 +358,8 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
           {filteredRepos.length === 0 ? (
             <p className="text-zinc-500 col-span-3 text-center py-12">
                 {repos.length === 0
-                  ? "No repositories yet. Create one to get started."
-                  : "No repositories match the current filters."}
+                  ? "No projects yet. Push from the desktop app to get started."
+                  : "No projects match the current filters."}
             </p>
           ) : (
               filteredRepos.map((repo) => (
@@ -322,13 +367,13 @@ export default function RepositoriesClient({ repos, genres }: RepositoriesClient
                         key={repo.id}
                         id={repo.full_name}
                         title={repo.name}
-                        author={repo.owner_id}
+                        author={repo.owner_username || repo.name}
                         updatedAt={repo.updated_at}
                         isPublic={!repo.private}
                         audioSnippet={repo.audio_snippet}
                         cloneCount={repo.clone_count}
                         isStarred={repo.is_starred}
-                        isOwner={true}
+                        isOwner={repo.role === "owner"}
                         genres={repo.genres}
                         stats={{
                             stars: repo.stars_count,

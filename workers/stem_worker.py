@@ -27,6 +27,40 @@ logger = get_logger("soundhaus.worker")
 # How long to sleep when no jobs are found
 POLL_INTERVAL = int(os.getenv("WORKER_POLL_INTERVAL", "5"))  # seconds
 
+# How long a PROCESSING job can sit before it's considered stale (seconds)
+STALE_JOB_TIMEOUT = int(os.getenv("STALE_JOB_TIMEOUT", "600"))  # 10 min
+
+
+def recover_stale_jobs() -> int:
+    """
+    Reset any PROCESSING jobs back to QUEUED on startup.
+    This handles cases where the worker crashed mid-separation.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=STALE_JOB_TIMEOUT)
+        stale = (
+            db.query(SnippetVersion)
+            .filter(
+                SnippetVersion.status == StemJobStatus.PROCESSING,
+                SnippetVersion.updated_at < cutoff,
+            )
+            .all()
+        )
+        count = len(stale)
+        for job in stale:
+            logger.warning("recovering_stale_job", job_id=job.id, repo=job.repo_gitea_id)
+            job.status = StemJobStatus.QUEUED
+            job.error_message = "Recovered: previous worker died mid-processing"
+        db.commit()
+        if count:
+            logger.info("stale_jobs_recovered", count=count)
+        return count
+    finally:
+        db.close()
+
 
 async def process_next_job() -> bool:
     """
@@ -78,6 +112,10 @@ async def process_next_job() -> bool:
 async def main():
     """Main worker loop."""
     logger.info("worker_started", poll_interval=POLL_INTERVAL)
+
+    # Recover any jobs stuck in PROCESSING from a prior crash
+    recover_stale_jobs()
+
     while True:
         had_job = await process_next_job()
         if not had_job:

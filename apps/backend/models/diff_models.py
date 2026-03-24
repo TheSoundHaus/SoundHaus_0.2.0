@@ -42,7 +42,14 @@ class AlsDiff(Base):
 
     # ── Relationships ──────────────────────────────────────────────────────
     repo = relationship("RepoData", back_populates="als_diffs")
-    commit = None  # Manual SHA lookups in service layer until FK is added
+    commit = relationship(
+        "CommitDetail",
+        primaryjoin="AlsDiff.commit_sha == CommitDetail.sha",
+        foreign_keys="[AlsDiff.commit_sha]",
+        back_populates="als_diff",
+        uselist=False,
+        viewonly=True,
+    )
 
     def __repr__(self) -> str:
         return f"<AlsDiff(repo='{self.repo_id}', sha='{self.commit_sha[:8]}', type='{self.diff_type}')>"

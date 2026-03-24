@@ -100,6 +100,7 @@ export interface RecentClone {
 export interface RepoStats {
   success: boolean;
   gitea_id: string;              // "owner/repo-name"
+  description: string;           // Gitea repo description
   clone_count: number;
   audio_snippet: string | null;
   genres: GenreRef[];
@@ -114,6 +115,7 @@ export interface EnrichedRepo {
   description: string;
   private: boolean;
   owner_id: string;              // Gitea login (= Supabase UUID)
+  owner_username: string;        // SoundHaus username (human-readable)
   created_at: string;            // ISO timestamp
   updated_at: string;            // ISO timestamp
   stars_count: number;
@@ -152,12 +154,15 @@ export interface SentInvitation {
   responded_at: string | null;
 }
 
-// Gitea collaborator (from GET /repos/{repo_name}/collaborators)
+// Enriched collaborator (from GET /repos/{owner}/{repo_name}/collaborators)
 export interface Collaborator {
-  id: number;
-  login: string;
+  login: string;       // Gitea login (Supabase UUID) — used for remove operations
+  username: string;    // SoundHaus username (falls back to UUID if no profile)
+  display_name: string | null;
   email: string;
   avatar_url: string;
+  bio: string | null;
+  permission: "admin" | "write" | "read";  // role on the project
 }
 
 // User search result (from GET /users/search)

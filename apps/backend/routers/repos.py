@@ -19,6 +19,7 @@ from services.webhook_service import webhook_service
 from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
+from models.profile_models import Profile
 from models.schemas import (
     CreateRepoRequest,
     UploadFileRequest,
@@ -96,29 +97,13 @@ async def create_repo(
     db.commit()
     db.refresh(repo_data)
 
-    # Auto-create webhook for push/create/delete notifications
-    webhook_result = None
-    try:
-        gitea_admin = GiteaAdminService()
-        webhook_result = webhook_service.setup_webhook_for_repo(
-            owner=gitea_username,
-            repo=create_request.name,
-            gitea_admin=gitea_admin,
-            db=db,
-        )
-        db.commit()
-        if webhook_result.get("success"):
-            logger.info("webhook_auto_created", repo=gitea_id, webhook_id=webhook_result.get("webhook_id"))
-        else:
-            logger.warning("webhook_auto_create_failed", repo=gitea_id, error=webhook_result.get("message"))
-    except Exception as e:
-        logger.error("webhook_auto_create_error", repo=gitea_id, error=str(e))
+    # Note: webhook is already created inside RepoService.create_user_repo()
+    # via _create_repo_webhook(), so no duplicate setup needed here.
 
     return {
         "success": True,
         "repo": res.get("repo"),
         "repo_data": {"gitea_id": repo_data.gitea_id},
-        "webhook": webhook_result,
     }
 
 
@@ -384,9 +369,20 @@ async def get_repo_stats(
         .all()
     )
 
+    # Fetch description from Gitea
+    svc = RepoService()
+    description = ""
+    try:
+        gitea_info = svc.get_repo(owner, repo)
+        if gitea_info.get("success"):
+            description = gitea_info.get("repo", {}).get("description", "")
+    except Exception:
+        pass  # Non-critical: description is cosmetic
+
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
+        "description": description,
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
@@ -528,6 +524,7 @@ async def get_enriched_repos(
         raise HTTPException(status_code=400, detail=gitea_result.get("message", "Failed to list repos"))
 
     gitea_repos = gitea_result.get("repos", [])
+    owned_ids = gitea_result.get("owned_ids", set())
 
     # Fetch starred repos for this user
     gitea_admin = GiteaAdminService()
@@ -546,10 +543,16 @@ async def get_enriched_repos(
     )
     repo_data_map = {rd.gitea_id: rd for rd in repo_data_rows}
 
+    # Batch-resolve owner UUIDs → SoundHaus usernames
+    owner_ids = list({r.get("owner", {}).get("login", "") for r in gitea_repos})
+    profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
+    profile_map = {p.id: p.username for p in profile_rows}
+
     enriched = []
     for repo in gitea_repos:
         full_name = repo.get("full_name", "")
         rd = repo_data_map.get(full_name)
+        owner_login = repo.get("owner", {}).get("login", "")
 
         enriched.append({
             "id": repo.get("id"),
@@ -557,7 +560,8 @@ async def get_enriched_repos(
             "full_name": full_name,
             "description": repo.get("description", ""),
             "private": repo.get("private", True),
-            "owner_id": repo.get("owner", {}).get("login", ""),
+            "owner_id": owner_login,
+            "owner_username": profile_map.get(owner_login, owner_login),
             "created_at": repo.get("created_at", ""),
             "updated_at": repo.get("updated_at", ""),
             "stars_count": repo.get("stars_count", 0),
@@ -572,6 +576,7 @@ async def get_enriched_repos(
             } if rd and rd.audio_snippet else None,
             "genres": [g.genre_name for g in rd.genres] if rd else [],
             "is_starred": full_name in starred_ids,
+            "role": "owner" if repo.get("id") in owned_ids else "collaborator",
         })
 
     return {"success": True, "repos": enriched}

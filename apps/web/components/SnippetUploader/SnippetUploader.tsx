@@ -21,8 +21,9 @@ const ALLOWED_TYPES = new Set([
 
 const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".flac", ".aiff", ".aif", ".ogg", ".m4a"];
 
-/** Max snippet duration in seconds — files longer than this are rejected with a message */
-const MAX_DURATION_SECONDS = 90;
+/** Max snippet duration in seconds — files longer than this are rejected with a message.
+ *  30s keeps AI stem-separation (Demucs) fast and responsive. */
+const MAX_DURATION_SECONDS = 30;
 
 /** 10 MB — matches backend MAX_AUDIO_SNIPPET_SIZE */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -34,8 +35,11 @@ interface SnippetUploaderProps {
     existingUrl: string | null;
     /** Currently stored metadata */
     existingMetadata: SnippetMetadata | null;
-    /** Called after successful upload or delete so parent can refresh */
-    onUpdate?: () => void;
+    /** Called after successful upload or delete so parent can refresh.
+     *  Receives the new snippet URL on upload, or null on delete. */
+    onUpdate?: (newUrl: string | null) => void;
+    /** Optional content rendered between the snippet display and the drop zone */
+    middleContent?: React.ReactNode;
 }
 
 /**
@@ -53,6 +57,7 @@ export default function SnippetUploader({
     existingUrl,
     existingMetadata,
     onUpdate,
+    middleContent,
 }: SnippetUploaderProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [isPending, startTransition] = useTransition();
@@ -118,7 +123,7 @@ export default function SnippetUploader({
         try {
             const duration = await getAudioDuration(file);
             if (duration > MAX_DURATION_SECONDS) {
-                return `Audio is ${Math.round(duration)}s long — max allowed is ${MAX_DURATION_SECONDS}s. Please trim before uploading.`;
+                return `Audio is ${Math.round(duration)}s long — max allowed is ${MAX_DURATION_SECONDS}s for AI stem separation. Please trim or upload a shorter clip.`;
             }
         } catch {
             // Some audio formats (e.g. certain .ogg containers) don't expose
@@ -160,7 +165,7 @@ export default function SnippetUploader({
                 setSnippetUrl(result.url);
                 setSnippetMeta(result.metadata);
                 setSuccessMsg("Snippet uploaded successfully!");
-                onUpdate?.();
+                onUpdate?.(result.url ?? null);
             });
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -170,7 +175,7 @@ export default function SnippetUploader({
     // ── Delete handler ──────────────────────────────────────────────
 
     const handleDelete = useCallback(() => {
-        if (!confirm("Remove the audio snippet from this repository?")) return;
+        if (!confirm("Remove the audio snippet from this project?")) return;
         setError(null);
         setSuccessMsg(null);
 
@@ -183,7 +188,7 @@ export default function SnippetUploader({
             setSnippetUrl(null);
             setSnippetMeta(null);
             setSuccessMsg("Snippet removed.");
-            onUpdate?.();
+            onUpdate?.(null);
         });
     }, [owner, repo, onUpdate]);
 
@@ -232,6 +237,10 @@ export default function SnippetUploader({
                 Upload a short audio preview for your project (max {MAX_DURATION_SECONDS}s, up to{" "}
                 {formatBytes(MAX_FILE_SIZE)}).
             </p>
+            <p className="text-xs text-amber-400/80">
+                Snippets are limited to {MAX_DURATION_SECONDS}s for AI stem separation.
+                Longer files will be automatically trimmed.
+            </p>
 
             {/* Existing snippet player + delete */}
             {snippetUrl && (
@@ -259,7 +268,7 @@ export default function SnippetUploader({
                             type="button"
                             onClick={handleDelete}
                             disabled={isPending}
-                            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                            className="flex items-center gap-1 rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
                         >
                             <Trash2 size={12} /> Remove
                         </button>
@@ -267,6 +276,9 @@ export default function SnippetUploader({
                     <AudioPlayer src={snippetUrl} />
                 </div>
             )}
+
+            {/* Middle content slot (e.g. StemPlayer) */}
+            {middleContent}
 
             {/* Drop zone */}
             <div
@@ -295,11 +307,11 @@ export default function SnippetUploader({
                     </>
                 ) : (
                     <>
-                        <Upload size={32} className="mb-3 text-zinc-500" />
+                        <Upload size={32} className="mb-3 text-zinc-400" />
                         <p className="text-sm font-medium text-zinc-300">
                             {snippetUrl ? "Replace snippet" : "Drop audio file here"}
                         </p>
-                        <p className="mt-1 text-xs text-zinc-500">
+                        <p className="mt-1 text-xs text-zinc-400">
                             or click to browse — {ALLOWED_EXTENSIONS.join(", ")}
                         </p>
                     </>
