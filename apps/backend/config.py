@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     rate_limit_signup: str = Field(default="5/minute", description="Signup endpoint rate limit")
     rate_limit_upload: str = Field(default="5/minute", description="Upload endpoint rate limit")
     
+    # === Auth features ===
+    password_reset_email_enabled: bool = Field(
+        default=True,
+        description="When false, POST /api/auth/reset-password is disabled (temporary pause); logged at startup and per request",
+    )
+    
     # === CORS ===
     cors_origins: List[str] = Field(
         default=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],

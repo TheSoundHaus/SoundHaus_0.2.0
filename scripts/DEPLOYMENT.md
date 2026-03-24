@@ -29,12 +29,15 @@ Before deploying, ensure you have:
 
 ## Step 1: Configure Environment Variables
 
-1. Copy the example environment file:
+1. Copy the profile environment files:
    ```bash
-   cp .env.example .env
+   cp .env.compose.local.example .env.compose.local
+   cp .env.compose.remote.example .env.compose.remote
+   cp apps/backend/.env.local.example apps/backend/.env.local
+   cp apps/backend/.env.remote.example apps/backend/.env.remote
    ```
 
-2. Edit `.env` and fill in all required values:
+2. Edit the selected profile files and fill in all required values:
 
    **Supabase Database:**
    ```env
@@ -69,14 +72,14 @@ Before deploying, ensure you have:
 Before deploying to production, test the configuration locally:
 
 ```bash
-docker compose up
+./scripts/compose.sh local up -d
 ```
 
 Access Gitea at `http://localhost:3000` and FastAPI at `http://localhost:8000/docs`.
 
 If everything works, stop the containers:
 ```bash
-docker compose down
+./scripts/compose.sh local down
 ```
 
 ## Step 3: Deploy to Digital Ocean
@@ -90,6 +93,11 @@ Run the deployment script:
 Example:
 ```bash
 ./scripts/deploy-digital-ocean.sh 142.93.123.45 root
+```
+
+If you are running compose directly on a remote host, use the remote profile:
+```bash
+./scripts/compose.sh remote up -d
 ```
 
 The script will:
