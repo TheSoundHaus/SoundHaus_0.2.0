@@ -194,36 +194,6 @@ class SnippetService:
             "channels": metadata.get("channels"),
         }
 
-    async def _get_next_version_number(
-        self,
-        repo_id: str,
-        db
-    ) -> int:
-        """
-        Returns the next version number for a repository's snippet history.
-        Queries MAX(version_number) for this repo and returns MAX + 1 (or 1 if none exist).
-        """
-        # TODO: implement
-        raise NotImplementedError("_get_next_version_number not yet implemented")
-
-    async def _snapshot_existing_snippet(
-        self,
-        owner: str,
-        repo: str,
-        current_url: str,
-        current_metadata: dict,
-        version_number: int,
-        db,
-        uploader_user_id: Optional[str] = None,
-        commit_sha: Optional[str] = None,
-    ) -> None:
-        """
-        Saves the current live snippet as a versioned history entry before overwrite.
-        Copies the storage file to a versioned path and creates a SnippetHistory row.
-        """
-        # TODO: implement
-        raise NotImplementedError("_snapshot_existing_snippet not yet implemented")
-
     async def delete_snippet(self, owner: str, repo: str) -> bool:
         """
         Delete snippet from Supabase Storage.

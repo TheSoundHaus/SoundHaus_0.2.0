@@ -27,9 +27,7 @@ from routers import (
     desktop,
     genres,
     snippets,
-    stems,
     webhooks,
-    commits,
 )
 
 # ── App creation ─────────────────────────────────────────────────────────────
@@ -108,6 +106,4 @@ app.include_router(collaborators.router)  # /repos/*/collaborators/*  ,  /invita
 app.include_router(desktop.router)      # /api/auth/desktop-login  ,  /api/auth/tokens  ,  /api/desktop/*
 app.include_router(genres.router)       # /genres/*  ,  /repos/*/genres
 app.include_router(snippets.router)     # /repos/*/snippet*
-app.include_router(stems.router)        # /repos/*/stems/*
 app.include_router(webhooks.router)     # /api/webhooks/*
-app.include_router(commits.router)      # /repos/*/commits/*  ,  /repos/*/diff

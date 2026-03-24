@@ -5,12 +5,7 @@ class SignUpRequest(BaseModel):
     email: EmailStr
     password: str
     metadata: Optional[Dict[str, Any]] = None
-    name: str  # username — required
-
-
-class ProfileUpdateRequest(BaseModel):
-    display_name: Optional[str] = None
-    bio: Optional[str] = None
+    name: Optional[str] = None
 
 class SignInRequest(BaseModel):
     email: EmailStr

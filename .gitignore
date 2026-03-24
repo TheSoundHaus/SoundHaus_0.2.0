@@ -318,6 +318,3 @@ coverage.xml
 
 # pyright
 pyrightconfig.json
-
-# Personal notes
-learning.md
