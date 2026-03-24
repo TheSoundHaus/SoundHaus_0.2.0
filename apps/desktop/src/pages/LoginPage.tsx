@@ -22,31 +22,6 @@ const EqualizerBars = ({ className = '' }: { className?: string }) => (
     </div>
 );
 
-/** Floating music notes — absolutely positioned decorations */
-const FloatingNotes = () => {
-    const notes = [
-        { char: '\u266A', x: '12%', y: '20%', delay: '0s', size: 'text-lg' },
-        { char: '\u266B', x: '85%', y: '15%', delay: '1.5s', size: 'text-xl' },
-        { char: '\u266C', x: '8%', y: '72%', delay: '3s', size: 'text-base' },
-        { char: '\u266A', x: '90%', y: '65%', delay: '2s', size: 'text-lg' },
-        { char: '\u266B', x: '75%', y: '82%', delay: '4s', size: 'text-sm' },
-        { char: '\u266A', x: '20%', y: '88%', delay: '1s', size: 'text-base' },
-    ];
-    return (
-        <>
-            {notes.map((n, i) => (
-                <span
-                    key={i}
-                    className={`absolute ${n.size} text-accent/20 animate-float select-none pointer-events-none`}
-                    style={{ left: n.x, top: n.y, animationDelay: n.delay }}
-                >
-                    {n.char}
-                </span>
-            ))}
-        </>
-    );
-};
-
 /** Horizontal waveform SVG — scrolling sine-wave overlay */
 const WaveformOverlay = () => (
     <div className="absolute bottom-0 left-0 right-0 h-24 overflow-hidden opacity-[0.06] pointer-events-none">
@@ -262,7 +237,6 @@ const LoginPage = () => {
     if (isAutoLogging) {
         return (
             <div className="flex items-center justify-center w-full h-screen bg-bg-primary relative overflow-hidden">
-                <FloatingNotes />
                 <div className="flex flex-col items-center gap-4 animate-fade-in">
                     <div className="relative">
                         <div className="absolute inset-0 rounded-full bg-accent/20 blur-xl animate-pulse-glow" />
@@ -282,13 +256,10 @@ const LoginPage = () => {
     /* ── Login form ── */
     return (
         <div className="flex items-center justify-center w-full h-screen bg-bg-primary relative overflow-hidden">
-            {/* Background glow orbs — navy-tinted */}
-            <div className="absolute top-1/4 -left-32 w-72 h-72 rounded-full bg-accent/[0.07] blur-3xl" />
-            <div className="absolute bottom-1/4 -right-32 w-80 h-80 rounded-full bg-accent/[0.05] blur-3xl" />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-bg-tertiary/30 blur-3xl" />
-
-            {/* Floating music notes */}
-            <FloatingNotes />
+            {/* Background glow orbs */}
+            <div className="absolute top-1/4 -left-32 w-72 h-72 rounded-full bg-accent/[0.05] blur-3xl" />
+            <div className="absolute bottom-1/4 -right-32 w-80 h-80 rounded-full bg-accent/[0.04] blur-3xl" />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-bg-tertiary/20 blur-3xl" />
 
             {/* Waveform bottom accent */}
             <WaveformOverlay />

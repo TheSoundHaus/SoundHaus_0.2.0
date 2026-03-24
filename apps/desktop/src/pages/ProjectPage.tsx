@@ -9,6 +9,48 @@ import {
     Save, ArrowUpFromLine, Music, GitBranch, Layers, ArrowLeft, CheckCircle2, AlertCircle
 } from 'lucide-react'
 
+/**
+ * Returns styling info for a diff summary line based on its operation type.
+ * Top-level lines use prefixes: '+ ' (added), '- ' (removed), '~ ' (modified)
+ * Child lines start with indented action: '  renamed:', '  moved:', '  added:', '  removed:'
+ */
+function getDiffLineStyle(line: string): { color: string; bg: string; icon: string; text: string } {
+    const trimmed = line.trimStart()
+    const isChild = line.startsWith('  ')
+
+    // Child lines — action word is first token
+    if (isChild) {
+        if (trimmed.startsWith('added:')) {
+            return { color: 'text-diff-added', bg: 'bg-diff-added-bg', icon: '+', text: trimmed }
+        }
+        if (trimmed.startsWith('removed:')) {
+            return { color: 'text-diff-removed', bg: 'bg-diff-removed-bg', icon: '\u2212', text: trimmed }
+        }
+        if (trimmed.startsWith('renamed:')) {
+            return { color: 'text-diff-renamed', bg: 'bg-diff-renamed-bg', icon: '\u21C4', text: trimmed }
+        }
+        if (trimmed.startsWith('moved:')) {
+            return { color: 'text-diff-moved', bg: 'bg-diff-moved-bg', icon: '\u2195', text: trimmed }
+        }
+        // Fallback child
+        return { color: 'text-diff-modified', bg: 'bg-diff-modified-bg', icon: '\u00B7', text: trimmed }
+    }
+
+    // Top-level lines — prefix character
+    if (line.startsWith('+ ')) {
+        return { color: 'text-diff-added', bg: 'bg-diff-added-bg', icon: '+', text: line.slice(2) }
+    }
+    if (line.startsWith('- ')) {
+        return { color: 'text-diff-removed', bg: 'bg-diff-removed-bg', icon: '\u2212', text: line.slice(2) }
+    }
+    if (line.startsWith('~ ')) {
+        return { color: 'text-diff-modified', bg: 'bg-diff-modified-bg', icon: '~', text: line.slice(2) }
+    }
+
+    // Fallback
+    return { color: 'text-text-secondary', bg: '', icon: ' ', text: line }
+}
+
 const ProjectPage = () => {
     const location = useLocation()
     const navigate = useNavigate()
@@ -234,10 +276,31 @@ const ProjectPage = () => {
                                     In sync with last snapshot
                                 </div>
                             ) : alsStruct.diffStatus === 'has-changes' ? (
-                                <div className="rounded-xl bg-bg-primary/40 p-3 font-mono text-xs text-text-secondary leading-relaxed">
-                                    {alsStruct.summary.split('\n').map((line: string, i: number) => (
-                                        <div key={i} className="py-0.5">{line}</div>
-                                    ))}
+                                <div className="diff-panel rounded-xl p-3 font-mono text-xs leading-relaxed space-y-0.5">
+                                    {alsStruct.summary.split('\n').map((line: string, i: number) => {
+                                        const style = getDiffLineStyle(line)
+                                        return (
+                                            <div
+                                                key={i}
+                                                className={`flex items-start gap-2 px-2 py-1 rounded-md transition-colors duration-100 ${style.bg}`}
+                                            >
+                                                <span className={`flex-shrink-0 select-none font-semibold ${style.color}`}>
+                                                    {style.icon}
+                                                </span>
+                                                <span className={style.color}>
+                                                    {style.text}
+                                                </span>
+                                            </div>
+                                        )
+                                    })}
+                                    {/* Legend */}
+                                    <div className="flex items-center gap-4 pt-2 mt-2 border-t border-white/[0.04] text-[10px] text-text-tertiary">
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-diff-added" />added</span>
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-diff-removed" />removed</span>
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-diff-renamed" />renamed</span>
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-diff-moved" />moved</span>
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-diff-modified" />modified</span>
+                                    </div>
                                 </div>
                             ) : (
                                 <p className="text-sm text-text-tertiary py-2">
