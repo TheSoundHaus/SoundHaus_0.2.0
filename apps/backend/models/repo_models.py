@@ -105,5 +105,14 @@ class RepoData(Base):
         cascade="all, delete-orphan",
     )
 
+    # Populated by: models/stem_models.py — SnippetVersion table
+    # Each stem separation job creates a SnippetVersion row.
+    # Back-reference: SnippetVersion.repo
+    snippet_versions = relationship(
+        "SnippetVersion",
+        back_populates="repo",
+        cascade="all, delete-orphan",
+    )
+
     def __repr__(self):
         return f"<RepoData(gitea_id='{self.gitea_id}', clones={self.clone_count})>"

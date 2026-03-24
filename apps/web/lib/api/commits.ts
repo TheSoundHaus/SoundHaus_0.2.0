@@ -4,7 +4,6 @@
  * Commit and diff API calls for the Repository Detail page.
  */
 
-import { authFetch } from "./client";
 import type { ApiResponse } from "../types/api";
 
 
@@ -50,10 +49,10 @@ export interface AlsDiffData {
 
 /** Fetches paginated commit history for a repository. */
 export async function getCommits(
-    owner: string,
-    repo: string,
-    page: number = 1,
-    limit: number = 20,
+    _owner: string,
+    _repo: string,
+    _page: number = 1,
+    _limit: number = 20,
 ): Promise<ApiResponse<CommitListResponse>> {
     const result = await authFetch<CommitListResponse>(
         `/repos/${owner}/${repo}/commits?page=${page}&limit=${limit}`
@@ -64,9 +63,9 @@ export async function getCommits(
 
 /** Fetches full metadata for a single commit by SHA. */
 export async function getCommitDetail(
-    owner: string,
-    repo: string,
-    sha: string,
+    _owner: string,
+    _repo: string,
+    _sha: string,
 ): Promise<ApiResponse<{ commit: CommitSummary }>> {
     const result = await authFetch<{ commit: CommitSummary }>(
         `/repos/${owner}/${repo}/commits/${sha}`
@@ -77,9 +76,9 @@ export async function getCommitDetail(
 
 /** Fetches the ALS semantic diff for a specific commit SHA. */
 export async function getCommitDiff(
-    owner: string,
-    repo: string,
-    sha: string,
+    _owner: string,
+    _repo: string,
+    _sha: string,
 ): Promise<ApiResponse<{ diff: AlsDiffData | null }>> {
     const result = await authFetch<{ diff: AlsDiffData | null }>(
         `/repos/${owner}/${repo}/commits/${sha}/diff`

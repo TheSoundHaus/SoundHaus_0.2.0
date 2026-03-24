@@ -3,7 +3,10 @@ import { getRepoStats } from "@/lib/api/repos";
 import { getRepoActivity, getRepoEvents } from "@/lib/api/webhooks";
 import { getSnippetMetadata } from "@/lib/api/snippets";
 import { getAllGenres } from "@/lib/api/genre";
-import type { RepoStats, RepoActivity, RepoEvents, Snippet, Genre } from "@/lib/types/api";
+import { getCommits } from "@/lib/api/commits";
+import { getLatestStems } from "@/lib/api/stems";
+import type { RepoStats, RepoActivity, RepoEvents, Snippet, Genre, SnippetVersion } from "@/lib/types/api";
+import type { CommitListResponse } from "@/lib/api/commits";
 
 interface Params {
   owner: string;
@@ -17,13 +20,15 @@ export default async function RepositoryPage({
 }) {
   const { owner, repo } = await params;
 
-  // Fetch all data in parallel
-  const [statsRes, activityRes, eventsRes, snippetRes, genresRes] = await Promise.all([
+  // Fetch all data in parallel (commits included)
+  const [statsRes, activityRes, eventsRes, snippetRes, genresRes, commitsRes, stemsRes] = await Promise.all([
     getRepoStats(owner, repo),
     getRepoActivity(owner, repo),
     getRepoEvents(owner, repo),
     getSnippetMetadata(owner, repo),
     getAllGenres(),
+    getCommits(owner, repo, 1, 20),
+    getLatestStems(owner, repo),
   ]);
 
   const stats: RepoStats | null = statsRes.success ? statsRes.data : null;
@@ -31,6 +36,10 @@ export default async function RepositoryPage({
   const events: RepoEvents | null = eventsRes.success ? eventsRes.data : null;
   const snippet: Snippet | null = snippetRes.success ? snippetRes.data.snippet : null;
   const allGenres: Genre[] = genresRes.success ? genresRes.data : [];
+  const commitData: CommitListResponse | null = commitsRes.success ? commitsRes.data : null;
+  const initialStems: SnippetVersion | null = stemsRes.success && stemsRes.data?.snippet_version
+    ? stemsRes.data.snippet_version
+    : null;
 
   return (
     <RepoDetailClient
@@ -41,6 +50,8 @@ export default async function RepositoryPage({
       events={events}
       snippet={snippet}
       allGenres={allGenres}
+      initialCommits={commitData}
+      initialStems={initialStems}
     />
   );
 }
