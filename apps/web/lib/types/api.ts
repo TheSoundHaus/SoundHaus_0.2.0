@@ -149,7 +149,7 @@ export interface SentInvitation {
   repo_name?: string;            // present in /invitations/sent
   invitee_email: string;
   permission: string;
-  status: "pending" | "accepted" | "declined";
+  status: "pending" | "accepted" | "declined" | "expired";
   created_at: string;
   expires_at: string;
   responded_at: string | null;

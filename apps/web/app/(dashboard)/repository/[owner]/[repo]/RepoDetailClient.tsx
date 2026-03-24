@@ -40,6 +40,7 @@ import { deleteRepoAction, renameRepoAction, updateDescriptionAction, updateVisi
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
+import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
   RepoStats,
   RepoActivity,
@@ -113,9 +114,17 @@ export default function RepoDetailClient({
   const [diffError, setDiffError] = useState<string | null>(null);
 
   const pushes: PushActivity[] = activity?.activity ?? [];
-  const repoEvents: RepoEvent[] = events?.events ?? [];
+  const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
+
+  // Refresh timeline events from the server
+  const refreshEvents = useCallback(async () => {
+    try {
+      const res = await getRepoEvents(owner, repo);
+      if (res.success && res.data) setRepoEvents(res.data.events ?? []);
+    } catch { /* Network failure — stale data is fine */ }
+  }, [owner, repo]);
 
   // Collaborators tab state
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -153,7 +162,10 @@ export default function RepoDetailClient({
     if (activeTab === "collaborators") {
       loadCollaboratorsData();
     }
-  }, [activeTab, loadCollaboratorsData]);
+    if (activeTab === "events") {
+      refreshEvents();
+    }
+  }, [activeTab, loadCollaboratorsData, refreshEvents]);
 
   // User search with debounce
   useEffect(() => {
@@ -192,15 +204,19 @@ export default function RepoDetailClient({
     });
   }, [repo, invitePermission, loadCollaboratorsData]);
 
-  // Cancel invite handler
+  // Cancel invite handler — optimistically remove from list to avoid stale key conflicts
   const handleCancelInvite = useCallback(async (invitationId: string) => {
     setInviteError(null);
+    // Optimistically remove the cancelled invitation from local state
+    setRepoInvitations((prev) => prev.filter((inv) => inv.id !== invitationId));
     startTransition(async () => {
       const result = await cancelInvitationAction(invitationId);
       if (result.success) {
         loadCollaboratorsData();
       } else {
         setCollabError(result.error);
+        // Re-fetch to restore accurate state on failure
+        loadCollaboratorsData();
       }
     });
   }, [loadCollaboratorsData]);
@@ -490,9 +506,9 @@ export default function RepoDetailClient({
                 <p className="text-sm text-zinc-400">No push activity recorded yet.</p>
               ) : (
                 <div className="space-y-4">
-                  {pushes.slice(0, 5).map((p) => (
+                  {pushes.slice(0, 5).map((p, idx) => (
                     <div
-                      key={p.id}
+                      key={p.id ?? `push-${idx}`}
                       className="flex items-start gap-4 border-b border-zinc-800 pb-4 last:border-0"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
@@ -737,9 +753,9 @@ export default function RepoDetailClient({
             <p className="text-zinc-400">No activity recorded yet.</p>
           ) : (
             <div className="space-y-4">
-              {repoEvents.map((ev) => (
+              {repoEvents.map((ev, idx) => (
                 <div
-                  key={ev.id}
+                  key={ev.id ?? `ev-${idx}`}
                   className="flex items-start gap-4 border-b border-zinc-800 pb-4 last:border-0"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
@@ -898,9 +914,9 @@ export default function RepoDetailClient({
               <div className="space-y-3">
                 {repoInvitations
                   .filter((i) => i.status === "pending")
-                  .map((inv) => (
+                  .map((inv, idx) => (
                     <div
-                      key={inv.id}
+                      key={inv.id || `pending-${idx}`}
                       className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
                     >
                       <div className="flex items-center gap-3">
@@ -1011,9 +1027,9 @@ export default function RepoDetailClient({
               <div className="space-y-3">
                 {repoInvitations
                   .filter((i) => i.status !== "pending")
-                  .map((inv) => (
+                  .map((inv, idx) => (
                     <div
-                      key={inv.id}
+                      key={inv.id || `history-${idx}`}
                       className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
                     >
                       <div className="flex items-center gap-3">
@@ -1021,6 +1037,8 @@ export default function RepoDetailClient({
                           className={`flex h-9 w-9 items-center justify-center rounded-full ${
                             inv.status === "accepted"
                               ? "bg-green-500/10 text-green-500"
+                              : inv.status === "expired"
+                              ? "bg-zinc-500/10 text-zinc-500"
                               : "bg-red-500/10 text-red-500"
                           }`}
                         >
@@ -1031,7 +1049,11 @@ export default function RepoDetailClient({
                             {inv.invitee_email}
                           </div>
                           <div className="text-xs text-zinc-400">
-                            {inv.status === "accepted" ? "Accepted" : "Declined"}{" "}
+                            {inv.status === "accepted"
+                              ? "Accepted"
+                              : inv.status === "expired"
+                              ? "Expired (repo deleted)"
+                              : "Declined"}{" "}
                             {inv.responded_at ? timeAgo(inv.responded_at) : ""}
                           </div>
                         </div>
@@ -1040,6 +1062,8 @@ export default function RepoDetailClient({
                         className={`rounded-full px-2 py-0.5 text-xs ${
                           inv.status === "accepted"
                             ? "bg-green-500/10 text-green-400"
+                            : inv.status === "expired"
+                            ? "bg-zinc-500/10 text-zinc-400"
                             : "bg-red-500/10 text-red-400"
                         }`}
                       >

@@ -276,7 +276,7 @@ const FEATURES = [
         icon: GitBranch,
         title: "Git-Powered Versioning",
         description:
-            "Every save is a snapshot. Branch, merge, and rollback your Ableton projects like code — without losing a single take.",
+            "Every save is a snapshot. Branch, merge, and rollback your Ableton projects like code, without losing a single take.",
     },
     {
         icon: AudioLines,
@@ -288,7 +288,7 @@ const FEATURES = [
         icon: BarChart3,
         title: "Visual Diff Engine",
         description:
-            "See exactly what changed between versions — note-by-note on an Ableton-style piano roll. No more guessing what your collaborator modified.",
+            "See exactly what changed between versions, note-by-note on an Ableton-style piano roll. No more guessing what your collaborator modified.",
     },
 ];
 
@@ -305,7 +305,7 @@ const STEPS = [
         icon: Eye,
         title: "See Every Change",
         description:
-            "Our visual diff engine shows note-level changes on a piano roll — added notes in green, removed in red, modified in blue.",
+            "Our visual diff engine shows note-level changes on a piano roll. Added notes in green, removed in red, modified in blue.",
     },
     {
         icon: Users,
@@ -359,7 +359,7 @@ export default function LandingPage() {
                     </h1>
                     <p className="mx-auto mb-10 max-w-2xl text-lg md:text-xl text-zinc-400 leading-relaxed">
                         SoundHaus brings git-powered collaboration to Ableton projects.
-                        Push, diff, branch, and remix — see every note that changed.
+                        Push, diff, branch, and remix. See every note that changed.
                     </p>
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                         <Link href="/signup" className="btn btn-primary btn-lg text-base no-underline">
@@ -426,13 +426,35 @@ export default function LandingPage() {
                             Three steps to better collaboration
                         </h2>
                         <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
-                            Stop emailing zip files. Start producing together — asynchronously.
+                            Stop emailing zip files. Start producing together, asynchronously.
                         </p>
                     </FadeInSection>
 
                     <div className="relative">
-                        {/* Connecting line */}
-                        <div className="hidden md:block absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-glass-blue-400/20 to-transparent -translate-y-1/2" />
+                        {/* Waveform connector between steps */}
+                        <svg
+                            className="hidden md:block absolute top-[32px] left-0 right-0 h-[20px] -translate-y-1/2 pointer-events-none"
+                            viewBox="0 0 1000 20"
+                            preserveAspectRatio="none"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <path
+                                d="M0 10 Q50 2, 100 10 T200 10 T300 10 T400 10 T500 10 T600 10 T700 10 T800 10 T900 10 T1000 10"
+                                stroke="url(#waveGrad)"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                            />
+                            <defs>
+                                <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" stopColor="rgba(167, 199, 231, 0)" />
+                                    <stop offset="20%" stopColor="rgba(167, 199, 231, 0.25)" />
+                                    <stop offset="50%" stopColor="rgba(167, 199, 231, 0.35)" />
+                                    <stop offset="80%" stopColor="rgba(167, 199, 231, 0.25)" />
+                                    <stop offset="100%" stopColor="rgba(167, 199, 231, 0)" />
+                                </linearGradient>
+                            </defs>
+                        </svg>
 
                         <div className="grid md:grid-cols-3 gap-10 md:gap-8">
                             {STEPS.map((step, i) => (
@@ -468,7 +490,7 @@ export default function LandingPage() {
                         </h2>
                         <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
                             Our visual diff engine renders every MIDI change on an Ableton-style
-                            piano roll — so you can see exactly what your collaborator changed.
+                            piano roll so you can see exactly what your collaborator changed.
                         </p>
                     </FadeInSection>
 

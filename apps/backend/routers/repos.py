@@ -20,6 +20,7 @@ from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
 from models.profile_models import Profile
+from models.invitation_models import CollaboratorInvitation
 from models.schemas import (
     CreateRepoRequest,
     UploadFileRequest,
@@ -497,6 +498,20 @@ async def delete_repo(
         db.delete(repo_data)
         db.commit()
         logger.info("repo_deleted", repo_id=repo_id)
+
+    # Mark orphaned invitations: expire pending ones, flag accepted/declined
+    orphaned = (
+        db.query(CollaboratorInvitation)
+        .filter(CollaboratorInvitation.repo_name == repo)
+        .all()
+    )
+    if orphaned:
+        for inv in orphaned:
+            if inv.status == "pending":
+                inv.status = "expired"
+            inv.repo_name = f"{inv.repo_name} [deleted]"
+        db.commit()
+        logger.info("repo_invitations_flagged", repo=repo, count=len(orphaned))
 
     return {"success": True, "message": f"Repository '{repo}' deleted"}
 
