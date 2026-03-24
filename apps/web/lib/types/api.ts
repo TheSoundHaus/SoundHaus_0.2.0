@@ -101,6 +101,7 @@ export interface RepoStats {
   success: boolean;
   gitea_id: string;              // "owner/repo-name"
   description: string;           // Gitea repo description
+  private: boolean;              // Gitea repo visibility
   clone_count: number;
   audio_snippet: string | null;
   genres: GenreRef[];
@@ -148,7 +149,7 @@ export interface SentInvitation {
   repo_name?: string;            // present in /invitations/sent
   invitee_email: string;
   permission: string;
-  status: "pending" | "accepted" | "declined";
+  status: "pending" | "accepted" | "declined" | "expired";
   created_at: string;
   expires_at: string;
   responded_at: string | null;

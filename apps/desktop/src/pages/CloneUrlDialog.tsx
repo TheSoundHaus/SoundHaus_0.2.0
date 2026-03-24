@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Download, FolderSearch, X, AlertCircle } from 'lucide-react'
 
 function parseAllowedHostPort(remote: string): string {
     const trimmed = remote.trim()
@@ -96,109 +97,113 @@ const CloneUrlDialog = () => {
     }
 
     return (
-        <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-            <h2 style={{ marginTop: 0 }}>Clone Repository</h2>
-            
-            <form onSubmit={handleSubmit}>
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 500 }}>
-                        Repository URL *
-                    </label>
-                    <input
-                        type="text"
-                        autoFocus
-                        value={cloneUrl}
-                        onChange={(e) => setCloneUrl(e.target.value)}
-                        placeholder="https://gitea.example.com/user/repo.git"
-                        style={{
-                            width: '100%',
-                            padding: '8px',
-                            boxSizing: 'border-box',
-                            borderRadius: '4px',
-                            border: '1px solid #ccc',
-                            fontSize: '14px'
-                        }}
-                    />
-                </div>
-
-                {validationError && (
-                    <div style={{ marginBottom: '15px', color: '#b00020', fontSize: '12px' }}>
-                        {validationError}
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-5">
+            <div className="w-full max-w-md animate-scale-in">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2.5">
+                        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-accent/10">
+                            <Download className="w-4.5 h-4.5 text-accent" />
+                        </div>
+                        <h2 className="text-lg font-semibold text-text-primary">Clone Repository</h2>
                     </div>
-                )}
-
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 500 }}>
-                        Clone to Local Path *
-                    </label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <input
-                            type="text"
-                            value={clonePath}
-                            onChange={(e) => setClonePath(e.target.value)}
-                            placeholder="/path/to/local/repo"
-                            readOnly
-                            style={{
-                                flex: 1,
-                                padding: '8px',
-                                boxSizing: 'border-box',
-                                borderRadius: '4px',
-                                border: '1px solid #ccc',
-                                fontSize: '14px',
-                                backgroundColor: '#f5f5f5',
-                                cursor: 'default'
-                            }}
-                        />
-                        <button
-                            type="button"
-                            onClick={handleBrowseFolder}
-                            style={{
-                                padding: '8px 12px',
-                                borderRadius: '4px',
-                                border: '1px solid #ccc',
-                                background: '#f5f5f5',
-                                cursor: 'pointer',
-                                fontSize: '14px',
-                                whiteSpace: 'nowrap'
-                            }}
-                        >
-                            Browse
-                        </button>
-                    </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
                     <button
-                        type="button"
                         onClick={handleCancel}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: '4px',
-                            border: '1px solid #ccc',
-                            background: '#f5f5f5',
-                            cursor: 'pointer',
-                            fontSize: '14px'
-                        }}
+                        className="flex items-center justify-center w-7 h-7 rounded-lg
+                                   text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary/60
+                                   transition-all duration-200 cursor-pointer"
                     >
-                        Cancel
-                    </button>
-                    <button
-                        type="submit"
-                        disabled={!canSubmit}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: '4px',
-                            border: 'none',
-                            background: canSubmit ? '#007acc' : '#ccc',
-                            color: 'white',
-                            cursor: canSubmit ? 'pointer' : 'not-allowed',
-                            fontSize: '14px'
-                        }}
-                    >
-                        Clone
+                        <X className="w-4 h-4" />
                     </button>
                 </div>
-            </form>
+
+                {/* Form Card */}
+                <div className="glass-panel rounded-2xl p-5">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        {/* Repository URL */}
+                        <div>
+                            <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
+                                Repository URL <span className="text-accent">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                autoFocus
+                                value={cloneUrl}
+                                onChange={(e) => setCloneUrl(e.target.value)}
+                                placeholder="https://gitea.example.com/user/repo.git"
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-bg-primary/60 border border-border-default text-text-primary text-sm
+                                           placeholder:text-text-tertiary
+                                           focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent
+                                           transition-all duration-200"
+                            />
+                        </div>
+
+                        {/* Validation Error */}
+                        {validationError && (
+                            <div className="flex items-start gap-2 text-xs text-error bg-error-soft rounded-xl px-3 py-2 animate-slide-down">
+                                <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                {validationError}
+                            </div>
+                        )}
+
+                        {/* Clone Path */}
+                        <div>
+                            <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
+                                Local Path <span className="text-accent">*</span>
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={clonePath}
+                                    readOnly
+                                    placeholder="Choose a folder…"
+                                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-bg-primary/40 border border-border-default text-text-primary text-sm
+                                               placeholder:text-text-tertiary cursor-default"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleBrowseFolder}
+                                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl
+                                               bg-bg-elevated border border-border-default
+                                               text-sm text-text-secondary hover:text-text-primary
+                                               hover:bg-bg-tertiary
+                                               active:scale-[0.97] transition-all duration-200 cursor-pointer whitespace-nowrap"
+                                >
+                                    <FolderSearch className="w-4 h-4" />
+                                    Browse
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={handleCancel}
+                                className="flex-1 px-4 py-2.5 rounded-xl
+                                           bg-bg-primary/40 border border-border-default
+                                           text-sm font-medium text-text-secondary
+                                           hover:text-text-primary hover:bg-bg-elevated
+                                           active:scale-[0.97] transition-all duration-200 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!canSubmit}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
+                                           btn-brand
+                                           text-sm
+                                           disabled:opacity-40 disabled:cursor-not-allowed
+                                           active:scale-[0.97] transition-all duration-200 cursor-pointer"
+                            >
+                                <Download className="w-4 h-4" />
+                                Clone
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
     )
 }
