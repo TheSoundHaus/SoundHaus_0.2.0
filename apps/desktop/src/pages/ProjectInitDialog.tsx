@@ -24,21 +24,29 @@ const ProjectInitDialog = () => {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-5">
-            <div className="card-glass w-full max-w-md animate-scale-in">
+        <div className="page-centered">
+            <div className="card w-full max-w-md animate-scale-in">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-glass-blue/10 flex items-center justify-center">
-                            <FolderPlus className="w-4 h-4 text-glass-blue" />
+                        <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center"
+                            style={{ background: 'var(--accent-bg)' }}
+                        >
+                            <FolderPlus className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                         </div>
-                        <h2 className="text-base font-semibold text-soft-white">New Project</h2>
+                        <h2
+                            className="text-base font-semibold"
+                            style={{ color: 'var(--text-primary)' }}
+                        >
+                            New Project
+                        </h2>
                     </div>
                     <button
                         onClick={handleCancel}
-                        className="p-1.5 rounded-btn hover:bg-white/5 transition-colors"
+                        className="icon-btn"
                     >
-                        <X className="w-4 h-4 text-muted" />
+                        <X className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
                     </button>
                 </div>
 
@@ -47,7 +55,7 @@ const ProjectInitDialog = () => {
                     {/* Project Name */}
                     <div>
                         <label className="label">
-                            Project Name <span className="text-glass-blue">*</span>
+                            Project Name <span className="text-brand">*</span>
                         </label>
                         <input
                             type="text"
@@ -83,10 +91,10 @@ const ProjectInitDialog = () => {
                                 <div className="radio-indicator">
                                     <div className="radio-dot" />
                                 </div>
-                                <Lock className="w-4 h-4 text-muted flex-shrink-0" />
+                                <Lock className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} />
                                 <div>
-                                    <div className="text-sm font-medium text-soft-white">Private</div>
-                                    <div className="text-xs text-muted">Only you and collaborators can access</div>
+                                    <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Private</div>
+                                    <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>Only you and collaborators can access</div>
                                 </div>
                             </div>
                             <div
@@ -97,10 +105,10 @@ const ProjectInitDialog = () => {
                                 <div className="radio-indicator">
                                     <div className="radio-dot" />
                                 </div>
-                                <Globe className="w-4 h-4 text-muted flex-shrink-0" />
+                                <Globe className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} />
                                 <div>
-                                    <div className="text-sm font-medium text-soft-white">Public</div>
-                                    <div className="text-xs text-muted">Anyone can discover and clone</div>
+                                    <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Public</div>
+                                    <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>Anyone can discover and clone</div>
                                 </div>
                             </div>
                         </div>

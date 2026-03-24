@@ -19,7 +19,7 @@ export function createCloneUrlDialog(parentWindow: BrowserWindow): Promise<Clone
       modal: true,
       show: false,
       resizable: false,
-      backgroundColor: '#0B1622',
+      backgroundColor: '#18181B',
       webPreferences: {
         preload: path.join(__dirname, '../preload.js'),
       },

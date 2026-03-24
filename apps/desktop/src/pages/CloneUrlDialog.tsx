@@ -96,21 +96,29 @@ const CloneUrlDialog = () => {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-5">
-            <div className="card-glass w-full max-w-md animate-scale-in">
+        <div className="page-centered">
+            <div className="card w-full max-w-md animate-scale-in">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-glass-blue/10 flex items-center justify-center">
-                            <Download className="w-4 h-4 text-glass-blue" />
+                        <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center"
+                            style={{ background: 'var(--accent-bg)' }}
+                        >
+                            <Download className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                         </div>
-                        <h2 className="text-base font-semibold text-soft-white">Clone Repository</h2>
+                        <h2
+                            className="text-base font-semibold"
+                            style={{ color: 'var(--text-primary)' }}
+                        >
+                            Clone Repository
+                        </h2>
                     </div>
                     <button
                         onClick={handleCancel}
-                        className="p-1.5 rounded-btn hover:bg-white/5 transition-colors"
+                        className="icon-btn"
                     >
-                        <X className="w-4 h-4 text-muted" />
+                        <X className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
                     </button>
                 </div>
 
@@ -119,11 +127,11 @@ const CloneUrlDialog = () => {
                     {/* Repository URL */}
                     <div>
                         <label className="label">
-                            Repository URL <span className="text-glass-blue">*</span>
+                            Repository URL <span className="text-brand">*</span>
                         </label>
                         <div className="relative">
                             <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                                <Link className="w-4 h-4 text-muted" />
+                                <Link className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
                             </div>
                             <input
                                 type="text"
@@ -136,7 +144,7 @@ const CloneUrlDialog = () => {
                         </div>
                         {validationError && (
                             <div className="flex items-center gap-1.5 mt-2">
-                                <AlertCircle className="w-3.5 h-3.5 text-error flex-shrink-0" />
+                                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--color-error)' }} />
                                 <span className="error-text mt-0">{validationError}</span>
                             </div>
                         )}
@@ -145,12 +153,12 @@ const CloneUrlDialog = () => {
                     {/* Clone Path */}
                     <div>
                         <label className="label">
-                            Local Path <span className="text-glass-blue">*</span>
+                            Local Path <span className="text-brand">*</span>
                         </label>
                         <div className="flex gap-2">
                             <div className="relative flex-1">
                                 <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                                    <FolderOpen className="w-4 h-4 text-muted" />
+                                    <FolderOpen className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
                                 </div>
                                 <input
                                     type="text"

@@ -1,141 +1,129 @@
-import { useNavigate } from 'react-router-dom'
-import { useElectronIPC } from '../hooks/useElectronIPC'
-import { Download, Compass, Upload, FolderOpen, Music } from 'lucide-react'
+import { useNavigate } from 'react-router-dom';
+import { Download, Upload, FolderOpen, Globe, Music } from 'lucide-react';
 
 const HomePage = () => {
-    const { chooseFolder, hasGitFile, initRepo, showProjectSetup, cloneRepo, showCloneUrl } = useElectronIPC()
-    const navigate = useNavigate()
+    const navigate = useNavigate();
 
-    const handleProjectClone = async () => {
-        try {
-            const cloneData = await showCloneUrl();
-            if (!cloneData) return;
+    const handleClone = () => {
+        window.electron?.openCloneDialog();
+    };
 
-            const cloneUrl = cloneData.url;
-            const folder = cloneData.path;
-
-            if (!cloneUrl.trim() || !folder.trim()) {
-                alert('Please enter both repository URL and local path');
-                return;
-            }
-
-            try {
-                console.log('Cloning from:', cloneUrl);
-                console.log('Cloning to:', folder);
-                const clonedPath = await cloneRepo(cloneUrl, folder);
-                alert(`Clone complete:\n${clonedPath}`);
-
-                const git = await hasGitFile(clonedPath);
-                if (git) {
-                    navigate('/project', { state: { projectPath: clonedPath } });
-                } else {
-                    alert('Warning: .git folder not found. The clone may have failed.');
-                }
-            } catch (error) {
-                alert(`Clone failed:\n${error}`);
-            }
-        } catch (error) {
-            console.error('Error in handleProjectClone:', error);
-            alert(`An error occurred:\n${error}`);
+    const handleImport = async () => {
+        const result = await window.electron?.openProjectSetup();
+        if (result?.projectPath) {
+            navigate('/project', { state: { projectPath: result.projectPath } });
         }
-    }
+    };
 
-    const handleServerExplore = async () => {
-        window.open("http://www.rickleinecker.com/", "_blank");
-    }
-
-    const handleAbletonImport = async () => {
-        const folder = await chooseFolder();
-        if (folder) {
-            const projectInfo = await showProjectSetup();
-            if (!projectInfo) return;
-
-            try {
-                const result = await initRepo(folder, projectInfo);
-                alert(`Init complete:\n${result}`)
-            } catch (error) {
-                alert(`Init failed:\n${error}`)
-            }
-
-            const git = await hasGitFile(folder);
-            if (git) {
-                navigate('/project', { state: { projectPath: folder } });
-            }
+    const handleOpen = async () => {
+        const projectPath = await window.electron?.selectProjectFolder();
+        if (projectPath) {
+            navigate('/project', { state: { projectPath } });
         }
-    }
+    };
 
-    const handleExistingProject = async () => {
-        const folder = await chooseFolder();
-        if (folder) {
-            const git = await hasGitFile(folder);
-            if (git) {
-                navigate('/project', { state: { projectPath: folder } });
-            }
-        }
-    }
+    const handleExplore = () => {
+        window.electron?.openExternal('http://localhost:3000');
+    };
 
     const actions = [
         {
             icon: Download,
             title: 'Clone Project',
-            description: 'Download an existing SoundHaus project from the server',
-            onClick: handleProjectClone,
+            description: 'Download a project from the server',
+            onClick: handleClone,
         },
         {
-            icon: Compass,
-            title: 'Explore Projects',
-            description: 'Browse public projects and discover collaborators',
-            onClick: handleServerExplore,
+            icon: Globe,
+            title: 'Explore',
+            description: 'Browse public projects online',
+            onClick: handleExplore,
         },
         {
             icon: Upload,
             title: 'Import Project',
-            description: 'Import a local Ableton project into SoundHaus',
-            onClick: handleAbletonImport,
+            description: 'Import a local Ableton project',
+            onClick: handleImport,
         },
         {
             icon: FolderOpen,
             title: 'Open Project',
-            description: 'Open an existing local SoundHaus project',
-            onClick: handleExistingProject,
+            description: 'Open an existing local project',
+            onClick: handleOpen,
         },
-    ]
+    ];
 
     return (
-        <div className="min-h-screen flex flex-col p-6 animate-fade-in">
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-8">
-                <div className="w-8 h-8 rounded-lg bg-glass-blue/10 flex items-center justify-center">
-                    <Music className="w-4 h-4 text-glass-blue" />
+        <div className="page-full">
+            {/* Toolbar */}
+            <div className="toolbar">
+                <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center"
+                    style={{ background: 'var(--accent-bg)' }}
+                >
+                    <Music className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                 </div>
-                <div>
-                    <h1 className="text-lg font-bold text-soft-white leading-tight">SoundHaus</h1>
-                    <p className="text-xs text-muted">Choose an action to get started</p>
-                </div>
+                <span
+                    className="text-sm font-semibold"
+                    style={{ color: 'var(--text-primary)' }}
+                >
+                    Sound<span className="text-brand">Haus</span>
+                </span>
             </div>
 
-            {/* Action Grid */}
-            <div className="grid grid-cols-2 gap-3 flex-1">
-                {actions.map((action) => (
-                    <button
-                        key={action.title}
-                        onClick={action.onClick}
-                        className="card-interactive text-left group flex flex-col"
-                    >
-                        <div className="w-10 h-10 rounded-lg bg-glass-blue/8 flex items-center justify-center mb-3 transition-colors duration-300 group-hover:bg-glass-blue/15">
-                            <action.icon className="w-5 h-5 text-glass-blue transition-colors duration-300" />
-                        </div>
-                        <h3 className="text-sm font-semibold text-soft-white mb-1 transition-colors duration-300 group-hover:text-glass-blue">
-                            {action.title}
-                        </h3>
-                        <p className="text-xs text-muted leading-relaxed">
-                            {action.description}
+            {/* Centered content */}
+            <div className="flex-1 flex flex-col items-center justify-center p-6">
+                <div className="w-full max-w-lg animate-fade-in">
+                    <div className="mb-6">
+                        <h2
+                            className="text-xl font-semibold mb-1"
+                            style={{ color: 'var(--text-primary)' }}
+                        >
+                            Welcome back
+                        </h2>
+                        <p
+                            className="text-sm"
+                            style={{ color: 'var(--text-secondary)' }}
+                        >
+                            Choose an action to get started
                         </p>
-                    </button>
-                ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        {actions.map((action) => (
+                            <button
+                                key={action.title}
+                                onClick={action.onClick}
+                                className="card-interactive text-left"
+                            >
+                                <div
+                                    className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
+                                    style={{ background: 'var(--accent-bg)' }}
+                                >
+                                    <action.icon
+                                        className="w-5 h-5"
+                                        style={{ color: 'var(--accent)' }}
+                                    />
+                                </div>
+                                <h3
+                                    className="text-sm font-semibold mb-1"
+                                    style={{ color: 'var(--text-primary)' }}
+                                >
+                                    {action.title}
+                                </h3>
+                                <p
+                                    className="text-xs leading-relaxed"
+                                    style={{ color: 'var(--text-secondary)' }}
+                                >
+                                    {action.description}
+                                </p>
+                            </button>
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
-    )
-}
+    );
+};
 
 export default HomePage;
