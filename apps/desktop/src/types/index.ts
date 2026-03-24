@@ -62,6 +62,12 @@ export interface ProjectSetupData {
   isPublic: boolean
 }
 
+export interface RecentProject {
+  path: string
+  name: string
+  lastOpened: string
+}
+
 declare global {
   interface Window {
     electronAPI?: ElectronAPI
@@ -78,6 +84,9 @@ declare global {
       removeMenuActionListener: () => void
       setLastProjectPath: (projectPath: string | null) => Promise<void>
       setCurrentRoute: (route: string) => Promise<void>
+      addRecentProject: (projectPath: string, projectName: string) => Promise<void>
+      getRecentProjects: () => Promise<RecentProject[]>
+      removeRecentProject: (projectPath: string) => Promise<void>
       getSearchMenuEntries: () => Promise<Array<{ label: string; breadcrumb: string; action: string | null; payload?: Record<string, unknown>; enabled: boolean; accelerator?: string }>>
       openExternal: (url: string) => Promise<void>
     }
