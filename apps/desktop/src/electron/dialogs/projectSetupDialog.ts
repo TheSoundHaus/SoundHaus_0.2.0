@@ -15,11 +15,12 @@ export function createProjectSetupDialog(parentWindow: BrowserWindow): Promise<P
   return new Promise((resolve) => {
     const dialog = new BrowserWindow({
       width: 500,
-      height: 450,
+      height: 520,
       parent: parentWindow,
       modal: true,
       show: false,
       resizable: false,
+      backgroundColor: '#0B1622',
       webPreferences: {
         preload: path.join(__dirname, '../preload.js'),
       },
