@@ -1,117 +1,177 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { useState } from "react";
+import { useState, useMemo } from 'react';
+import { SearchBar } from '@/components/SearchBar';
+import { RepositoryCard } from '@/components/RepositoryCard';
+import { useDebounce } from '@/hooks/useDebounce';
+import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
+import { mockExploreRepos, MockExploreRepository } from '@/lib/mockData/repositories';
 
-/**
- * Explore Page - Browse and discover public repositories
- * Displays top N repositories with sorting and filtering options
- * API Call: Get Top N Repos (returns array of repo overviews)
- */
+type SortOption = 'recent' | 'stars' | 'trending';
+
 export default function ExplorePage() {
-  const [sortBy, setSortBy] = useState<"top" | "recent" | "trending">("top");
+    // State management
+    const [searchQuery, setSearchQuery] = useState('');
+    const debouncedQuery = useDebounce(searchQuery, 500);
+    const [sortBy, setSortBy] = useState<SortOption>('recent');
+    const [page, setPage] = useState(1);
 
-  return (
-    <div className="min-h-screen bg-zinc-900 text-zinc-100">
-      {/* Navigation Header */}
-      <nav className="border-b border-zinc-800 px-6 py-4">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <Link href="/" className="text-2xl font-bold tracking-tight hover:text-glass-blue-400 transition-colors duration-300" style={{textShadow: '0 0 20px rgba(167, 199, 231, 0.3)'}}>
-            SoundHaus
-          </Link>
-          <div className="flex gap-4">
-            <Link
-              href="/repositories"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 hover:bg-zinc-800 text-zinc-300 hover:text-glass-blue-400"
-            >
-              My Repositories
-            </Link>
-            <Link
-              href="/settings"
-              className="rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100"
-            >
-              Settings
-            </Link>
-          </div>
-        </div>
-      </nav>
+    const itemsPerPage = 12;
 
-      <main className="mx-auto max-w-7xl px-6 py-12">
-        {/* Page Header */}
-        <div className="mb-8">
-          <h1 className="mb-2 text-4xl font-bold tracking-tight">
-            Explore
-          </h1>
-          <p className="text-lg text-zinc-400">
-            Discover public Ableton projects from the community
-          </p>
-        </div>
+    // Filter repositories by search query
+    const filteredRepos = useMemo(() => {
+        if (!debouncedQuery) return mockExploreRepos;
 
-        {/* Filters and Sorting */}
-        <div className="mb-8 flex items-center justify-between">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setSortBy("top")}
-              className={`rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 ${
-                sortBy === "top"
-                  ? "btn btn-primary"
-                  : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
-              }`}
-            >
-              Top Rated
-            </button>
-            <button
-              onClick={() => setSortBy("recent")}
-              className={`rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 ${
-                sortBy === "recent"
-                  ? "btn btn-primary"
-                  : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
-              }`}
-            >
-              Recent
-            </button>
-            <button
-              onClick={() => setSortBy("trending")}
-              className={`rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 ${
-                sortBy === "trending"
-                  ? "btn btn-primary"
-                  : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
-              }`}
-            >
-              Trending
-            </button>
-          </div>
-          <input
-            type="search"
-            placeholder="Search repositories..."
-            className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all duration-300"
-          />
-        </div>
+        const query = debouncedQuery.toLowerCase();
+        return mockExploreRepos.filter(
+            (repo) =>
+                repo.title.toLowerCase().includes(query) ||
+                repo.author.toLowerCase().includes(query)
+        );
+    }, [debouncedQuery]);
 
-        {/* Repository Grid - Placeholder */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {/* Placeholder cards - will be populated via API */}
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className="rounded-lg border border-zinc-800 p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] cursor-pointer group"
-            >
-              <div className="mb-4 h-32 rounded bg-zinc-800"></div>
-              <h3 className="mb-2 text-lg font-semibold group-hover:text-glass-blue-400 transition-colors duration-300">
-                Repository Title
-              </h3>
-              <p className="mb-4 text-sm text-zinc-400">
-                By Username • Updated 2 days ago
-              </p>
-              <div className="flex gap-4 text-sm text-glass-cyan-500">
-                <span>⭐ 42</span>
-                <span>🎵 12 tracks</span>
-                <span>👥 3 collaborators</span>
-              </div>
+    // Sort filtered repositories
+    const sortedRepos = useMemo(() => {
+        const repos = [...filteredRepos];
+
+        switch (sortBy) {
+            case 'recent':
+                return repos.sort(
+                    (a, b) =>
+                        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+                );
+            case 'stars':
+            case 'trending': // Trending uses stars for now (placeholder)
+                return repos.sort((a, b) => (b.stats.stars || 0) - (a.stats.stars || 0));
+            default:
+                return repos;
+        }
+    }, [filteredRepos, sortBy]);
+
+    // Paginate sorted repositories
+    const paginatedRepos = useMemo(() => {
+        return sortedRepos.slice(0, page * itemsPerPage);
+    }, [sortedRepos, page]);
+
+    const hasMore = paginatedRepos.length < sortedRepos.length;
+
+    // Load more repositories on scroll
+    const loadMore = () => {
+        if (hasMore) {
+            setPage((prev) => prev + 1);
+        }
+    };
+
+    const sentinelRef = useInfiniteScroll(loadMore, hasMore);
+
+    // Reset pagination when search or sort changes
+    useMemo(() => {
+        setPage(1);
+    }, [debouncedQuery, sortBy]);
+
+    return (
+        <div className="min-h-screen bg-midnight-950">
+            {/* Header */}
+            <div className="bg-navy-900/50 backdrop-blur-sm border-b border-glass-blue-500/20">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    <h1 className="text-4xl font-bold bg-gradient-chromatic bg-clip-text text-transparent mb-2">
+                        Explore
+                    </h1>
+                    <p className="text-glass-blue-200">
+                        Discover music projects from the community
+                    </p>
+                </div>
             </div>
-          ))}
+
+            {/* Search and Sort Controls */}
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-6">
+                    {/* Search Bar */}
+                    <SearchBar
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        placeholder="Search by title or author..."
+                        className="w-full sm:w-96"
+                    />
+
+                    {/* Sort Buttons */}
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setSortBy('recent')}
+                            className={
+                                sortBy === 'recent'
+                                    ? 'btn-primary'
+                                    : 'btn-secondary'
+                            }
+                        >
+                            Recent
+                        </button>
+                        <button
+                            onClick={() => setSortBy('stars')}
+                            className={
+                                sortBy === 'stars'
+                                    ? 'btn-primary'
+                                    : 'btn-secondary'
+                            }
+                        >
+                            Top
+                        </button>
+                        <button
+                            onClick={() => setSortBy('trending')}
+                            className={
+                                sortBy === 'trending'
+                                    ? 'btn-primary'
+                                    : 'btn-secondary'
+                            }
+                        >
+                            Trending
+                        </button>
+                    </div>
+                </div>
+
+                {/* Results Count */}
+                <div className="text-glass-blue-300 text-sm mb-4">
+                    {debouncedQuery ? (
+                        <>
+                            Showing {paginatedRepos.length} of {sortedRepos.length} results
+                            for &quot;{debouncedQuery}&quot;
+                        </>
+                    ) : (
+                        <>Showing {paginatedRepos.length} repositories</>
+                    )}
+                </div>
+
+                {/* Repository Grid */}
+                {paginatedRepos.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {paginatedRepos.map((repo) => (
+                            <RepositoryCard key={repo.id} repository={repo} />
+                        ))}
+                    </div>
+                ) : (
+                    /* Empty State */
+                    <div className="text-center py-12">
+                        <div className="text-glass-blue-400 text-lg mb-2">
+                            No repositories found
+                        </div>
+                        {debouncedQuery && (
+                            <div className="text-glass-blue-500 text-sm">
+                                Try a different search term
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Infinite Scroll Sentinel */}
+                {hasMore && <div ref={sentinelRef} className="h-10" />}
+
+                {/* End of Results Message */}
+                {!hasMore && paginatedRepos.length > 0 && (
+                    <div className="text-center py-8 text-glass-blue-500 text-sm">
+                        You&apos;ve reached the end
+                    </div>
+                )}
+            </div>
         </div>
-      </main>
-    </div>
-  );
+    );
 }
