@@ -33,35 +33,35 @@ def get_repo_data(gitea_id: str) -> Optional[RepoData]:
         return None
 
 
-def list_public_repos(
-    limit: int = 50, offset: int = 0, search: Optional[str] = None
+def list_all_repo_metadata(
+    limit: int = 50, offset: int = 0
 ) -> List[RepoData]:
     """
-    List public repositories with optional search and pagination
+    List all repository metadata from repo_data table
+
+    NOTE: This returns SoundHaus-specific metadata ONLY, not basic Gitea fields.
+    Use this to enrich Gitea repository data with:
+    - Audio snippets and metadata
+    - Clone counts
+    - Commit stats
+    - Activity timestamps
+
+    For public repo discovery, combine this with Gitea API data.
 
     Args:
         limit: Maximum number of results
         offset: Number of results to skip (for pagination)
-        search: Optional search query (searches name and description)
 
     Returns:
-        List of RepoData objects
+        List of RepoData objects with SoundHaus enrichment data
     """
     try:
         client = get_db_client()
-        query = client.table("repo_data").select("*").eq("private", False)
+        query = client.table("repo_data").select("*")
 
-        # Add search filter if provided
-        if search and search.strip():
-            # Search in both repo_name and description
-            # Note: Supabase uses 'ilike' for case-insensitive LIKE
-            search_term = f"%{search.strip()}%"
-            query = query.or_(
-                f"repo_name.ilike.{search_term},description.ilike.{search_term}"
-            )
-
-        # Order by updated_at descending (most recent first)
-        query = query.order("updated_at", desc=True)
+        # Order by last_activity_at descending (most recent activity first)
+        # Use nulls_last to put repos without activity at the end
+        query = query.order("last_activity_at", desc=True, nullslast=True)
 
         # Apply pagination
         query = query.range(offset, offset + limit - 1)
@@ -70,13 +70,13 @@ def list_public_repos(
 
         return [RepoData(**repo) for repo in response.data]
     except Exception as e:
-        print(f"[DB Query] Error listing public repos: {e}")
+        print(f"[DB Query] Error listing repo metadata: {e}")
         return []
 
 
 def upsert_repo_data(repo: RepoData) -> Optional[RepoData]:
     """
-    Insert or update repository data (idempotent operation)
+    Insert or update repository SoundHaus metadata (idempotent operation)
 
     Args:
         repo: RepoData object to insert/update
@@ -91,10 +91,10 @@ def upsert_repo_data(repo: RepoData) -> Optional[RepoData]:
         repo_dict = repo.model_dump()
 
         # Convert datetime objects to ISO strings
-        if isinstance(repo_dict.get("created_at"), datetime):
-            repo_dict["created_at"] = repo_dict["created_at"].isoformat()
-        if isinstance(repo_dict.get("updated_at"), datetime):
-            repo_dict["updated_at"] = repo_dict["updated_at"].isoformat()
+        datetime_fields = ["last_push_at", "last_activity_at"]
+        for field in datetime_fields:
+            if isinstance(repo_dict.get(field), datetime):
+                repo_dict[field] = repo_dict[field].isoformat()
 
         # Upsert (insert or update on conflict)
         response = (

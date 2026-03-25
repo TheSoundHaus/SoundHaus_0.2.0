@@ -10,17 +10,28 @@ from datetime import datetime
 class RepoData(BaseModel):
     """
     Model for repo_data table
-    Stores repository metadata cache from Gitea
+    Stores SoundHaus-specific repository metadata (NOT basic Gitea data)
+    This table enriches Gitea repos with SoundHaus features like audio snippets,
+    clone tracking, commit stats, etc. Basic repo info (name, description, etc.)
+    comes from Gitea API.
     """
     gitea_id: str  # Primary key: "owner/repo-name"
-    owner: str
-    repo_name: str
-    description: Optional[str] = None
-    private: bool = False
-    created_at: datetime
-    updated_at: datetime
-    clone_count: int = 0
+    owner_id: str  # Supabase Auth user UUID (not username)
     audio_snippet: Optional[str] = None  # URL to audio snippet file
+    clone_count: int = 0
+    last_push_at: Optional[datetime] = None
+    total_commits: int = 0
+    last_activity_at: Optional[datetime] = None
+    # Audio snippet metadata
+    snippet_duration: Optional[float] = None  # seconds
+    snippet_file_size: Optional[int] = None  # bytes
+    snippet_format: Optional[str] = None  # e.g. "mp3", "wav"
+    snippet_sample_rate: Optional[int] = None  # e.g. 44100
+    snippet_channels: Optional[int] = None  # 1=mono, 2=stereo
+    # Sync metadata
+    needs_update: bool = False
+    last_push_commit_sha: Optional[str] = None
+    readme_content: Optional[str] = None
 
 
 class Genre(BaseModel):
