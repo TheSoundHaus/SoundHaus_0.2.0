@@ -136,3 +136,82 @@ export class ApiClient {
 
 // Export singleton instance
 export const apiClient = new ApiClient();
+
+/**
+ * Authenticated fetch helper for server actions
+ * Handles auth token injection and response parsing
+ */
+export async function authFetch<T>(
+  endpoint: string,
+  options?: RequestInit
+): Promise<ApiResponse<T>> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+  // Get auth token (for server-side use with Server Actions)
+  let token: string | null = null;
+  if (typeof window !== 'undefined') {
+    token = localStorage.getItem('auth_token');
+  }
+
+  const headers: HeadersInit = {
+    ...options?.headers,
+  };
+
+  // Only set Content-Type if body is not FormData
+  if (!(options?.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      ...options,
+      headers,
+    });
+
+    // Handle non-JSON responses
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
+      const text = await response.text();
+      return {
+        success: true,
+        data: text as unknown as T,
+      };
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.detail || data.error || `HTTP ${response.status}: ${response.statusText}`,
+        message: data.message,
+      };
+    }
+
+    // Handle both {success, data} and direct data responses
+    if (data.success !== undefined) {
+      return data;
+    }
+
+    return {
+      success: true,
+      data: data as T,
+    };
+  } catch (error) {
+    console.error('authFetch failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Network error',
+    };
+  }
+}
