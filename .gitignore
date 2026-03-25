@@ -162,6 +162,7 @@ gitea/ssh/*.pub
 
 claude.local.md
 __pycache__/
+*.pyc
 
 # Documentation directory
 docs/
