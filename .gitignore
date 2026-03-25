@@ -162,3 +162,6 @@ gitea/ssh/*.pub
 
 claude.local.md
 __pycache__/
+
+# Documentation directory
+docs/
