@@ -1,231 +1,88 @@
+"use server";
+
 /**
- * Commits API
- * API calls for git commits and history
- * Note: These may call Gitea API directly since backend doesn't have commit endpoints yet
+ * Commit and diff API calls for the Repository Detail page.
  */
 
-import { apiClient } from './client';
-import { ApiResponse } from '@/types/api';
-import { Commit, CommitFile, Branch, Tag } from '@/types/commit';
+import type { ApiResponse } from "../types/api";
 
-// Gitea API base URL (usually same as backend but different path)
-const GITEA_API_BASE = process.env.NEXT_PUBLIC_GITEA_URL || 'http://localhost:3000/api/v1';
 
-export const commitsApi = {
-  /**
-   * Get commit history for a repository
-   */
-  async getCommits(
-    owner: string,
-    repo: string,
-    options?: {
-      sha?: string; // Branch/commit to start from
-      path?: string; // Only commits that affect this path
-      page?: number;
-      limit?: number;
-    }
-  ): Promise<ApiResponse<Commit[]>> {
-    const params = new URLSearchParams();
-    if (options?.sha) params.append('sha', options.sha);
-    if (options?.path) params.append('path', options.path);
-    if (options?.page) params.append('page', options.page.toString());
-    if (options?.limit) params.append('limit', options.limit.toString());
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-    const queryString = params.toString();
-    const endpoint = `/repos/${owner}/${repo}/commits${queryString ? `?${queryString}` : ''}`;
+/** A single commit as returned by the commits endpoint. */
+export interface CommitSummary {
+    id: string;
+    sha: string;
+    short_sha: string;
+    message: string;
+    author_name: string;
+    author_email: string | null;
+    timestamp: string | null;
+    files_added: string[];
+    files_modified: string[];
+    files_removed: string[];
+    has_diff: boolean;
+}
 
-    try {
-      // Call Gitea API directly
-      const response = await fetch(`${GITEA_API_BASE}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+/** Paginated list response from GET /repos/{owner}/{repo}/commits. */
+export interface CommitListResponse {
+    repo: string;
+    page: number;
+    limit: number;
+    total: number;
+    commits: CommitSummary[];
+}
 
-      if (!response.ok) {
-        return {
-          success: false,
-          error: `Failed to fetch commits: ${response.statusText}`,
-        };
-      }
+/** ALS diff data returned by GET /repos/{owner}/{repo}/commits/{sha}/diff. */
+export interface AlsDiffData {
+    id: string;
+    commit_sha: string;
+    before_sha: string | null;
+    diff_type: string;
+    diff_summary: string | null;
+    diff_data: Record<string, unknown>;
+    created_at: string;
+}
 
-      const data = await response.json();
-      return {
-        success: true,
-        data,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch commits',
-      };
-    }
-  },
 
-  /**
-   * Get a single commit by SHA
-   */
-  async getCommit(
-    owner: string,
-    repo: string,
-    sha: string
-  ): Promise<ApiResponse<Commit & { files?: CommitFile[] }>> {
-    const endpoint = `/repos/${owner}/${repo}/git/commits/${sha}`;
+// ── API functions ─────────────────────────────────────────────────────────────
 
-    try {
-      // Call Gitea API directly
-      const response = await fetch(`${GITEA_API_BASE}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+/** Fetches paginated commit history for a repository. */
+export async function getCommits(
+    _owner: string,
+    _repo: string,
+    _page: number = 1,
+    _limit: number = 20,
+): Promise<ApiResponse<CommitListResponse>> {
+    const result = await authFetch<CommitListResponse>(
+        `/repos/${_owner}/${_repo}/commits?page=${_page}&limit=${_limit}`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
 
-      if (!response.ok) {
-        return {
-          success: false,
-          error: `Failed to fetch commit: ${response.statusText}`,
-        };
-      }
+/** Fetches full metadata for a single commit by SHA. */
+export async function getCommitDetail(
+    _owner: string,
+    _repo: string,
+    _sha: string,
+): Promise<ApiResponse<{ commit: CommitSummary }>> {
+    const result = await authFetch<{ commit: CommitSummary }>(
+        `/repos/${_owner}/${_repo}/commits/${_sha}`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
 
-      const data = await response.json();
-
-      // Also fetch the commit's diff to get file changes
-      const diffResponse = await fetch(
-        `${GITEA_API_BASE}/repos/${owner}/${repo}/commits/${sha}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (diffResponse.ok) {
-        const diffData = await diffResponse.json();
-        return {
-          success: true,
-          data: {
-            ...data,
-            files: diffData.files,
-          },
-        };
-      }
-
-      return {
-        success: true,
-        data,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch commit',
-      };
-    }
-  },
-
-  /**
-   * Compare two commits or branches
-   */
-  async compareCommits(
-    owner: string,
-    repo: string,
-    base: string,
-    head: string
-  ): Promise<ApiResponse<{ commits: Commit[]; files: CommitFile[] }>> {
-    const endpoint = `/repos/${owner}/${repo}/compare/${base}...${head}`;
-
-    try {
-      const response = await fetch(`${GITEA_API_BASE}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        return {
-          success: false,
-          error: `Failed to compare commits: ${response.statusText}`,
-        };
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data: {
-          commits: data.commits || [],
-          files: data.files || [],
-        },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to compare commits',
-      };
-    }
-  },
-
-  /**
-   * Get branches for a repository
-   */
-  async getBranches(owner: string, repo: string): Promise<ApiResponse<Branch[]>> {
-    const endpoint = `/repos/${owner}/${repo}/branches`;
-
-    try {
-      const response = await fetch(`${GITEA_API_BASE}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        return {
-          success: false,
-          error: `Failed to fetch branches: ${response.statusText}`,
-        };
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch branches',
-      };
-    }
-  },
-
-  /**
-   * Get tags for a repository
-   */
-  async getTags(owner: string, repo: string): Promise<ApiResponse<Tag[]>> {
-    const endpoint = `/repos/${owner}/${repo}/tags`;
-
-    try {
-      const response = await fetch(`${GITEA_API_BASE}${endpoint}`, {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        return {
-          success: false,
-          error: `Failed to fetch tags: ${response.statusText}`,
-        };
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch tags',
-      };
-    }
-  },
-};
+/** Fetches the ALS semantic diff for a specific commit SHA. */
+export async function getCommitDiff(
+    _owner: string,
+    _repo: string,
+    _sha: string,
+): Promise<ApiResponse<{ diff: AlsDiffData | null }>> {
+    const result = await authFetch<{ diff: AlsDiffData | null }>(
+        `/repos/${_owner}/${_repo}/commits/${_sha}/diff`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
