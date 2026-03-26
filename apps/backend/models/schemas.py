@@ -189,3 +189,35 @@ class StemsLatestResponse(BaseModel):
     """Latest confirmed stems for a repo."""
     snippet_version: Optional[SnippetVersionResponse] = None
     has_stems: bool
+
+
+# ============== SEARCH SCHEMAS ==============
+
+class SearchRepoItem(BaseModel):
+    """
+    A single repository result returned by the search endpoint.
+    """
+    gitea_id: str
+    owner: str  # UUID of the repository owner
+    owner_username: str
+    repo_name: str
+    description: Optional[str] = None
+    stars_count: int
+    updated_at: str
+    clone_count: int = 0
+    audio_snippet: Optional[str] = None
+    snippet_metadata: Optional[Dict[str, Any]] = None  # keys: duration, format, sample_rate, file_size, channels
+    genres: List[str] = []
+    clone_url: str
+
+
+class SearchReposResponse(BaseModel):
+    """
+    Response schema for GET /repos/search.
+    """
+    success: bool
+    repos: List[SearchRepoItem]
+    total: int
+    has_more: bool
+    offset: int
+    limit: int
