@@ -681,7 +681,7 @@ class RepoService:
 
             # Query Gitea for matching public repositories
             gitea_svc = GiteaAdminService(base_url=self.base_url, admin_token=self.token)
-            gitea_result = gitea_svc.search_repos(query=query, limit=limit, page=page)
+            gitea_result = gitea_svc.search_repos(query=query, limit=limit, page=page, sort=sort)
 
             if not gitea_result.get("success"):
                 logger.warning("search_public_repos_gitea_error", query=query, error=gitea_result.get("message", "Unknown error"))
@@ -739,11 +739,10 @@ class RepoService:
                     "clone_url": f"{settings.gitea_public_url}/{full_name}.git",
                 })
 
-            # Apply sort for fields not handled by Gitea's native sort
+            # Gitea handles 'stars' and 'updated' sort natively.
+            # 'clones' is SoundHaus-specific (not in Gitea), so sort client-side.
             if sort == "clones":
                 enriched.sort(key=lambda r: r["clone_count"], reverse=True)
-            elif sort == "updated":
-                enriched.sort(key=lambda r: r["updated_at"], reverse=True)
 
             has_more = (offset + limit) < total
 

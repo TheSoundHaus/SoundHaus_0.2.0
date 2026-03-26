@@ -1083,18 +1083,21 @@ class GiteaAdminService:
 		except Exception as e:
 			return {"success": False, "message": f"Unexpected error: {e}"}
 
-	def search_repos(self, query: str, limit: int = 20, page: int = 1, public_only: bool = True) -> Dict[str, Any]:
+	def search_repos(self, query: str, limit: int = 20, page: int = 1, public_only: bool = True, sort: str = "stars") -> Dict[str, Any]:
 		"""
 		Search repositories via Gitea's search API.
 
 		Uses Gitea API: GET /api/v1/repos/search
-		Returns results sorted by stars descending, with total count from response headers.
+		Supports Gitea-native sort values: 'stars', 'updated'. For 'clones' (SoundHaus-specific),
+		callers should sort client-side after enrichment.
 		"""
+		# Gitea supports: alpha, created, updated, size, id, newest, oldest, forks, stars
+		gitea_sort = sort if sort in ("stars", "updated") else "stars"
 		params = {
 			"q": query,
 			"limit": limit,
 			"page": page,
-			"sort": "stars",
+			"sort": gitea_sort,
 			"order": "desc",
 		}
 		if public_only:

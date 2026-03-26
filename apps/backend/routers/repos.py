@@ -285,15 +285,15 @@ async def search_repos(
             detail=f"Invalid sort value '{sort}'. Must be one of: {', '.join(sorted(valid_sort_values))}",
         )
 
-    logger.info("search_repos: q=%r limit=%d offset=%d sort=%s", q, limit, offset, sort)
+    logger.info("search_repos_request", query=q, limit=limit, offset=offset, sort=sort)
     start = time.monotonic()
 
     try:
         svc = RepoService()
         result = svc.search_public_repos(query=q, limit=limit, offset=offset, sort=sort, db=db)
 
-        elapsed = time.monotonic() - start
-        logger.info("search_repos: completed in %.3fs, success=%s", elapsed, result.get("success"))
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.info("search_repos_response", success=result.get("success"), duration_ms=round(elapsed_ms, 1))
 
         if not result.get("success"):
             msg = result.get("message", "")
@@ -306,7 +306,7 @@ async def search_repos(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("search_repos: unexpected error: %s", exc)
+        logger.exception("search_repos_unexpected_error", error=str(exc))
         raise HTTPException(status_code=500, detail="Unexpected error during search")
 
 
