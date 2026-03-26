@@ -3,7 +3,7 @@
  * Base HTTP client for making API requests with auth handling
  */
 
-import { ApiResponse, ApiError } from '@/types/api';
+import { ApiResponse } from '@/lib/types/api';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
