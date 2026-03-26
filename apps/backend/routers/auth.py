@@ -3,11 +3,13 @@ Authentication endpoints – signup, login, logout, refresh, user, reset-passwor
 Profile endpoints – get/update profile, upload/delete avatar.
 """
 
+from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from typing import Dict, Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from dependencies import limiter, user_limiter, verify_token, get_auth
 from logging_config import get_logger, log_external_service
@@ -34,7 +36,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # ── Signup ───────────────────────────────────────────────────────────────────
 
 @router.post("/signup")
-@limiter.limit("5/minute")
+@limiter.limit(settings.rate_limit_signup)
 async def signup(
     request: Request,
     signup_request: SignUpRequest,
@@ -139,7 +141,7 @@ async def signup(
 # ── Login / Logout / Refresh ─────────────────────────────────────────────────
 
 @router.post("/login")
-@limiter.limit("10/minute")
+@limiter.limit(settings.rate_limit_auth)
 async def login(
     request: Request,
     login_request: SignInRequest,
@@ -235,6 +237,19 @@ async def reset_password(
     auth_service: SupabaseAuthService = Depends(get_auth),
 ):
     """Send a password reset email to the user."""
+    if not settings.password_reset_email_enabled:
+        logger.warning(
+            "password_reset_email_paused",
+            message="POST /api/auth/reset-password blocked: PASSWORD_RESET_EMAIL_ENABLED is false",
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "code": "password_reset_email_paused",
+                "message": "Password reset by email is temporarily unavailable.",
+            },
+        )
     result = await auth_service.reset_password_email(reset_request.email)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message"))

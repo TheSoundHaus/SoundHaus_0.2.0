@@ -95,6 +95,7 @@ bower_components/
 .env
 .env.*
 !.env.example
+!.env.*.example
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -199,10 +200,13 @@ vite.config.ts.timestamp-*
 .env
 .env.*
 !.env.example
+!.env.*.example
+.soundhaus-compose-profile
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+env.md
 
 # ========================================
 # Gitea Data Directory
@@ -291,23 +295,3 @@ pyrightconfig.json
 
 # Personal notes
 learning.md
-
-# Documentation directory
-docs/
-
-# ========================================
-# Rust Build Artifacts
-# ========================================
-# Rust target directories (semantic-diff and other Rust projects)
-**/target/
-**/target 2/
-
-# ========================================
-# Project-Specific Exclusions
-# ========================================
-# Database documentation and test scripts
-apps/backend/fastapi/app/db/README.md
-apps/backend/fastapi/scripts/test_db_connection.py
-
-# AI-generated search documentation
-SEARCH.md
