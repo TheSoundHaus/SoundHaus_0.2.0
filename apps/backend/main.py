@@ -84,6 +84,12 @@ logger = get_logger(__name__)
 # ── Database init ────────────────────────────────────────────────────────────
 
 logger.info("api_startup", message="Starting SoundHaus API")
+if not settings.password_reset_email_enabled:
+    logger.warning(
+        "feature_paused",
+        feature="password_reset_email",
+        message="PASSWORD_RESET_EMAIL_ENABLED=false: POST /api/auth/reset-password returns 503 until re-enabled",
+    )
 logger.info("db_init", message="Attempting database connection")
 
 try:

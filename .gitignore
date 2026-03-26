@@ -96,6 +96,7 @@ bower_components/
 .env
 .env.*
 !.env.example
+!.env.*.example
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -162,6 +163,8 @@ dist/types
 .pnp.*
 
 bin/git
+apps/desktop/vendor/git/
+
 # yarn v3
 .pnp.*
 .yarn/*
@@ -198,10 +201,13 @@ vite.config.ts.timestamp-*
 .env
 .env.*
 !.env.example
+!.env.*.example
+.soundhaus-compose-profile
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+env.md
 
 # ========================================
 # Gitea Data Directory
@@ -262,31 +268,11 @@ gitea/ssh/*.pub
 
 claude.local.md
 
-# ── Python ──────────────────────────────────────────
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# ── Python (Extended) ───────────────────────────────
+# Byte-compiled / optimized / DLL files (already covered above but kept for clarity)
+*.pyc
 
-# Virtual environments
-venv/
-.venv/
-env/
-ENV/
-
-# Distribution / packaging
-*.egg
-*.egg-info/
-dist/
-build/
-eggs/
-*.whl
-sdist/
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
+# Additional Python tooling
 # Pipenv
 Pipfile
 Pipfile.lock
@@ -299,20 +285,8 @@ Pipfile.lock
 .dmypy.json
 dmypy.json
 
-# pytest
-.pytest_cache/
-
 # Ruff
 .ruff_cache/
-
-# Coverage
-htmlcov/
-.coverage
-.coverage.*
-coverage.xml
-
-# Tox
-.tox/
 
 # Jupyter
 .ipynb_checkpoints/
