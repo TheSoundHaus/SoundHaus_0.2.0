@@ -292,3 +292,20 @@ learning.md
 
 # Documentation directory
 docs/
+
+# ========================================
+# Rust Build Artifacts
+# ========================================
+# Rust target directories (semantic-diff and other Rust projects)
+**/target/
+**/target 2/
+
+# ========================================
+# Project-Specific Exclusions
+# ========================================
+# Database documentation and test scripts
+apps/backend/fastapi/app/db/README.md
+apps/backend/fastapi/scripts/test_db_connection.py
+
+# AI-generated search documentation
+SEARCH.md
