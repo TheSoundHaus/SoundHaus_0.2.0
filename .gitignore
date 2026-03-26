@@ -161,6 +161,8 @@ dist/types
 .pnp.*
 
 bin/git
+apps/desktop/vendor/git/
+
 # yarn v3
 .pnp.*
 .yarn/*
