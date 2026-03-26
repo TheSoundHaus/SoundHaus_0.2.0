@@ -6,9 +6,9 @@ import { UserProvider } from '@/lib/context/UserContext';
  * Provides consistent navigation via Navbar and user profile context
  */
 export default function DashboardLayout({
-  children
+  children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
     <UserProvider>
