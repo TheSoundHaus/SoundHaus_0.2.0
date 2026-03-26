@@ -50,3 +50,5 @@ htmlcov/
 # Documentation
 *.md
 !README.md
+
+.cursorrules

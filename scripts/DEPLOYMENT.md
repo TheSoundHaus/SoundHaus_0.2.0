@@ -1,6 +1,17 @@
 # SoundHaus Digital Ocean Deployment Guide
 
-This guide walks you through deploying the SoundHaus backend (FastAPI + Gitea) to Digital Ocean with LFS storage in Digital Ocean Spaces.
+This guide covers deploying the SoundHaus backend (**FastAPI + Gitea + token-broker**) to a **DigitalOcean droplet**, with optional **Spaces** for LFS-related configuration in the legacy deploy script.
+
+## Two ways to run Compose
+
+| Approach | When to use |
+|----------|-------------|
+| **Compose profiles (`local` / `remote`)** | Everyday dev on your laptop (`compose.sh local` / `compose.ps1 local`) or running the stack **on the server** with **`.env.compose.remote`** + **`apps/backend/.env.remote`**. Uses `docker compose --env-file .env.compose.<profile> …`. |
+| **`deploy-digital-ocean.sh`** | One-shot **rsync** from your machine: copies **`docker-compose.yml`**, a root **`.env`**, and **`apps/backend/`** to **`/opt/soundhaus`**, then runs **`docker compose up -d`** **without** the profile env file. Expects certain variables in that root **`.env`** (see script + below). |
+
+You can standardize the droplet on **profiles** instead: copy the repo, create **`.env.compose.remote`** and **`apps/backend/.env.remote`**, then `docker compose --env-file .env.compose.remote up -d` (or `./scripts/compose.sh remote up -d`). The deploy script is optional automation on top of the same `docker-compose.yml`.
+
+**Secrets on the droplet:** use **different** `GITEA_DB_PASSWORD`, `GITEA_SECRET_KEY`, and `GITEA_INTERNAL_TOKEN` than on your laptop; each host has its own Postgres volume and Gitea data.
 
 ## Prerequisites
 
@@ -22,21 +33,37 @@ Before deploying, ensure you have:
 - Note database connection details (Settings → Database)
 - Note API keys (Settings → API)
 
-### 4. Local Setup
+### 4. Local machine (for deploy script)
 - Clone this repository
-- Docker installed locally (for testing)
-- `rsync` installed (usually pre-installed on macOS/Linux)
+- Docker (optional, for local testing)
+- `bash`, `ssh`, `rsync` (use **Git Bash** or **WSL** on Windows for `./scripts/deploy-digital-ocean.sh`)
 
-## Step 1: Configure Environment Variables
+### 5. Compose profiles (local / remote)
+- Copy **`.env.compose.*.example`** and **`apps/backend/.env.*.example`** as in the root **README** for the recommended profile workflow.
 
-1. Copy the example environment file:
+## Step 1: Configure environment variables
+
+### A) Profile-based (local laptop or remote server)
+
+1. Copy templates:
    ```bash
-   cp .env.example .env
+   cp .env.compose.local.example .env.compose.local
+   cp .env.compose.remote.example .env.compose.remote
+   cp apps/backend/.env.local.example apps/backend/.env.local
+   cp apps/backend/.env.remote.example apps/backend/.env.remote
    ```
 
-2. Edit `.env` and fill in all required values:
+2. Fill **`.env.compose.remote`** on the droplet (or locally before you copy the repo): `GITEA_DB_PASSWORD`, `GITEA_SECRET_KEY`, `GITEA_INTERNAL_TOKEN`, `HOME`, and **`BACKEND_ENV_FILE=./apps/backend/.env.remote`**.
 
-   **Supabase Database:**
+3. Fill **`apps/backend/.env.remote`** with production URLs (`API_BASE_URL`, `GITEA_PUBLIC_URL`, `WEBHOOK_BASE_URL` reachable from Gitea on the droplet, Supabase keys, `DATABASE_URL`, etc.).
+
+### B) Legacy `deploy-digital-ocean.sh` (root `.env` on your machine)
+
+The script **sources a root `.env`** (same directory you run the script from) and validates **DO Spaces** + Supabase DB variables. It then rsyncs that **`.env`** to **`/opt/soundhaus/.env`** along with `docker-compose.yml` and `apps/backend/`.
+
+Ensure **`apps/backend/.env`** on the droplet (or the merged layout after rsync) still satisfies FastAPI’s required settings—align **`apps/backend/.env.remote`** content with what you need in production, or maintain a single backend env file the script copies.
+
+**Supabase Database (if used by script validation):**
    ```env
    SUPABASE_DB_HOST=db.xxxxxxxxxxxxxx.supabase.co
    SUPABASE_DB_NAME=postgres
@@ -45,7 +72,7 @@ Before deploying, ensure you have:
    SUPABASE_DB_SSL_MODE=require
    ```
 
-   **Supabase API:**
+**Supabase API (backend):**
    ```env
    SUPABASE_URL=https://xxxxxxxxxxxxxx.supabase.co
    SUPABASE_PUB_KEY=your-anon-key
@@ -53,7 +80,7 @@ Before deploying, ensure you have:
    SUPABASE_JWT_SECRET=your-jwt-secret
    ```
 
-   **Digital Ocean Spaces:**
+**Digital Ocean Spaces:**
    ```env
    DO_SPACES_ENDPOINT=nyc3.digitaloceanspaces.com
    DO_SPACES_KEY=your-spaces-access-key
@@ -62,44 +89,55 @@ Before deploying, ensure you have:
    DO_SPACES_REGION=nyc3
    ```
 
-   **Note:** Leave `GITEA_ADMIN_TOKEN` empty for now. We'll generate it after first deployment.
+**Note:** Leave **`GITEA_ADMIN_TOKEN`** empty until after first Gitea setup; place the token in the backend env file the **`fastapi`** service loads (`env_file` in Compose).
 
-## Step 2: Test Locally (Optional but Recommended)
-
-Before deploying to production, test the configuration locally:
+## Step 2: Test locally (recommended)
 
 ```bash
-docker compose up
+./scripts/compose.sh local up -d
+# Windows: .\scripts\compose.ps1 local up -d
 ```
 
-Access Gitea at `http://localhost:3000` and FastAPI at `http://localhost:8000/docs`.
+- Gitea: http://localhost:3000  
+- API docs: http://localhost:8000/docs  
 
-If everything works, stop the containers:
+Stop when done:
+
 ```bash
-docker compose down
+./scripts/compose.sh local down
 ```
 
-## Step 3: Deploy to Digital Ocean
+## Step 3: Deploy to DigitalOcean
 
-Run the deployment script:
+### Option 1 — `deploy-digital-ocean.sh` (from your laptop)
+
+From the **repository root**, with root **`.env`** configured:
 
 ```bash
 ./scripts/deploy-digital-ocean.sh [DROPLET_IP] [SSH_USER]
-```
-
-Example:
-```bash
+# Example:
 ./scripts/deploy-digital-ocean.sh 142.93.123.45 root
 ```
 
 The script will:
-1. Validate your environment variables
-2. Test SSH connection to the droplet
-3. Install Docker if not present
-4. Copy necessary files to the droplet
-5. Configure firewall rules
-6. Start the Docker containers
-7. Perform health checks
+
+1. Validate required variables in **`.env`**
+2. Test SSH to the droplet
+3. Install Docker if missing
+4. Rsync `docker-compose.yml`, **`.env`**, and **`apps/backend/`** to **`/opt/soundhaus`**
+5. Open firewall ports (22, 80, 443, 3000, 2222, 8000)
+6. Run **`docker compose up -d`** on the server (no `--env-file .env.compose.remote` unless you change the script)
+7. Run basic health checks
+
+### Option 2 — SSH to droplet and use **remote** profile
+
+```bash
+ssh user@droplet
+cd /opt/soundhaus   # or your clone path
+./scripts/compose.sh remote up -d --build
+```
+
+Requires **`.env.compose.remote`** and **`apps/backend/.env.remote`** on that machine.
 
 ## Step 4: Initial Gitea Setup
 
@@ -124,16 +162,14 @@ After successful deployment:
    - Click "Generate Token"
    - **IMPORTANT:** Copy the token immediately (you can't see it again)
 
-4. **Update .env with Token:**
-   - Edit your local `.env` file
-   - Add the token:
-     ```env
-     GITEA_ADMIN_TOKEN=your-generated-token-here
-     ```
+4. **Update backend env with token**
+   - If you use **Compose profiles**: set **`GITEA_ADMIN_TOKEN`** in **`apps/backend/.env.remote`** (or `.env.local` on the server) and restart **`fastapi`**.
+   - If you use **deploy script**: add the token to the backend env file that the stack loads on the droplet (under **`/opt/soundhaus`**, typically inside **`apps/backend/.env`** or the file referenced by Compose **`env_file`**), then redeploy or restart.
 
-5. **Redeploy with Token:**
+5. **Redeploy or restart**
    ```bash
    ./scripts/deploy-digital-ocean.sh [DROPLET_IP] [SSH_USER]
+   # or on server: docker compose restart fastapi
    ```
 
 ## Step 5: Verify LFS Storage
@@ -164,32 +200,26 @@ After deployment, your services are available at:
 
 ## Managing Your Deployment
 
-### View Logs
+### View logs
 ```bash
 ssh [SSH_USER]@[DROPLET_IP] 'cd /opt/soundhaus && docker compose logs -f'
-```
-
-View specific service logs:
-```bash
 ssh [SSH_USER]@[DROPLET_IP] 'cd /opt/soundhaus && docker compose logs -f gitea'
 ssh [SSH_USER]@[DROPLET_IP] 'cd /opt/soundhaus && docker compose logs -f fastapi'
 ```
 
-### Restart Services
+If you started the stack with **`--env-file .env.compose.remote`**, run the same **`cd`** path you used and include that **`--env-file`** on **`docker compose`** commands.
+
+### Restart / stop
 ```bash
 ssh [SSH_USER]@[DROPLET_IP] 'cd /opt/soundhaus && docker compose restart'
-```
-
-### Stop Services
-```bash
 ssh [SSH_USER]@[DROPLET_IP] 'cd /opt/soundhaus && docker compose down'
 ```
 
-### Update Deployment
-After making changes to your code or configuration:
+### Update deployment
 ```bash
 ./scripts/deploy-digital-ocean.sh [DROPLET_IP] [SSH_USER]
 ```
+Or pull git on the droplet and **`compose.sh remote up -d --build`**.
 
 ### SSH into Droplet
 ```bash
@@ -222,12 +252,9 @@ Check logs for errors:
 ssh [SSH_USER]@[DROPLET_IP] 'cd /opt/soundhaus && docker compose logs'
 ```
 
-### Database Connection Issues
+### Database connection issues
 
-Verify Supabase credentials in `.env`:
-```bash
-ssh [SSH_USER]@[DROPLET_IP] 'cd /opt/soundhaus && cat .env | grep SUPABASE'
-```
+Verify Supabase-related vars in the env file the API container uses (often under **`apps/backend/`** on the droplet), not only the root **`.env`**.
 
 Test database connection from droplet:
 ```bash
