@@ -1,0 +1,3 @@
+# Ignore test run artifacts (optional; remove to commit results/logs)
+**/results/last_run.json
+**/logs/*.log
