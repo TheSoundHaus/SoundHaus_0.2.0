@@ -258,6 +258,8 @@ export default function SettingsPage() {
         return <CheckCircle size={14} className="text-green-500" />;
       case "declined":
         return <XCircle size={14} className="text-red-500" />;
+      case "expired":
+        return <XCircle size={14} className="text-yellow-500" />;
       default:
         return <Clock size={14} className="text-zinc-400" />;
     }
@@ -268,6 +270,7 @@ export default function SettingsPage() {
       pending: "bg-yellow-500/10 text-yellow-400",
       accepted: "bg-green-500/10 text-green-400",
       declined: "bg-red-500/10 text-red-400",
+      expired: "bg-yellow-500/10 text-yellow-400",
     };
     return (
       <span className={`rounded-full px-2 py-0.5 text-xs ${styles[status] ?? "bg-zinc-500/10 text-zinc-400"}`}>

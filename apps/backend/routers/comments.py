@@ -134,7 +134,7 @@ async def list_snippet_comments(
     # Batch-resolve usernames
     user_ids = list({c.user_id for c in comments})
     profiles = db.query(Profile).filter(Profile.id.in_(user_ids)).all()
-    profile_map = {p.id: p for p in profiles}
+    profile_map = {str(p.id): p for p in profiles}
 
     return {
         "success": True,

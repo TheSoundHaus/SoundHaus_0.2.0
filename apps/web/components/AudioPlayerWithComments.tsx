@@ -180,22 +180,22 @@ export default function AudioPlayerWithComments({
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
-    <div className="rounded-lg bg-zinc-900/95 backdrop-blur border border-zinc-700/50 overflow-hidden">
+    <div className="rounded-lg bg-zinc-900/95 backdrop-blur border border-zinc-700/50 overflow-visible relative">
       {/* Main player row */}
-      <div className="flex items-center gap-3 px-4 py-3">
+      <div className="flex items-center gap-3 px-4 pt-5 pb-3">
         <button
           onClick={(e) => {
             e.preventDefault();
             togglePlay();
           }}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white shadow transition-all hover:bg-sky-400"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow transition-all hover:bg-white"
         >
           {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
         </button>
 
         {/* Waveform with comment markers overlay */}
         <div
-          className={`relative flex-1 ${commentMode ? "cursor-crosshair" : "cursor-pointer"}`}
+          className={`relative flex-1 overflow-visible ${commentMode ? "cursor-crosshair" : "cursor-pointer"}`}
           onClick={commentMode ? handleWaveformClick : undefined}
         >
           <div ref={waveformRef} className="w-full" />
@@ -217,7 +217,7 @@ export default function AudioPlayerWithComments({
 
               {/* Tooltip on hover */}
               {hoveredComment === c.id && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 rounded-md bg-zinc-800 border border-zinc-600 p-2 shadow-xl z-50 pointer-events-auto">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-48 rounded-md bg-zinc-800 border border-zinc-600 p-2 shadow-xl z-50 pointer-events-auto">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-medium text-sky-400 truncate">
                       {c.username}

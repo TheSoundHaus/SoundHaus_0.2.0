@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, useCallback, useEffect } from "react";
+import { useState, useTransition, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
@@ -30,6 +30,7 @@ import {
   UserMinus,
   BookOpen,
 } from "lucide-react";
+import RemixIcon from "@/components/RemixIcon";
 import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
 import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
 import SnippetUploader from "@/components/SnippetUploader";
@@ -38,13 +39,15 @@ import GenreEditor from "@/components/GenreEditor";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import UserAvatar from "@/components/UserAvatar";
+import CloneModal from "@/components/CloneModal";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { getReadme, updateReadme } from "@/lib/api/readme";
-import { deleteRepoAction, renameRepoAction, updateDescriptionAction, updateVisibilityAction } from "@/actions/repos";
+import { deleteRepoAction, renameRepoAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
+import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
   RepoStats,
   RepoActivity,
@@ -60,6 +63,39 @@ import type {
   SnippetComment,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
+
+function RemixButton({ onClick }: { onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const swapEase = "0.4s cubic-bezier(0.34, 1.56, 0.64, 1)";
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex items-center gap-2 rounded-md bg-sky-500 px-6 py-3 font-medium text-white transition-colors hover:bg-sky-400"
+    >
+      {/* Icon slides from left to right on hover (past the text) */}
+      <span
+        style={{
+          display: "inline-flex",
+          transform: hovered ? "translateX(50px)" : "translateX(0px)",
+          transition: `transform ${swapEase}`,
+        }}
+      >
+        <RemixIcon hovered={hovered} size={18} />
+      </span>
+      {/* Text slides from right to left on hover (past where the icon was) */}
+      <span
+        style={{
+          transform: hovered ? "translateX(-26px)" : "translateX(0px)",
+          transition: `transform ${swapEase}`,
+        }}
+      >
+        Remix
+      </span>
+    </button>
+  );
+}
 
 interface RepoDetailClientProps {
   owner: string;
@@ -104,10 +140,10 @@ export default function RepoDetailClient({
   const [readmeLoading, setReadmeLoading] = useState(false);
   const [readmeSaving, setReadmeSaving] = useState(false);
   const [readmeError, setReadmeError] = useState<string | null>(null);
+  const readmeLoadedRef = useRef(false);
 
   // Settings form state
   const [newName, setNewName] = useState(repo);
-  const [description, setDescription] = useState(stats?.description ?? "");
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Commits state — deduplicate by SHA on init to guard against backend duplicates
@@ -162,9 +198,53 @@ export default function RepoDetailClient({
   }
 
   const pushes: PushActivity[] = activity?.activity ?? [];
-  const repoEvents: RepoEvent[] = events?.events ?? [];
+  const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
+
+  // Remix (clone) modal state + access control
+  const [showRemixModal, setShowRemixModal] = useState(false);
+  const [userCanRemix, setUserCanRemix] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!stats) return;
+
+    // Public repos — anyone can remix
+    if (!stats.private) {
+      setUserCanRemix(true);
+      return;
+    }
+
+    // Private repo — owner can always remix
+    if (user?.username === owner) {
+      setUserCanRemix(true);
+      return;
+    }
+
+    // Private repo — check if logged-in user is a collaborator
+    if (user) {
+      listCollaborators(owner, repo).then((res) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          const isCollab = res.data.some(
+            (c) => c.login === user.id || c.username === user.username
+          );
+          setUserCanRemix(isCollab);
+        }
+      });
+    }
+
+    return () => { cancelled = true; };
+  }, [stats, user, owner, repo]);
+
+  // Refresh timeline events from the server
+  const refreshEvents = useCallback(async () => {
+    try {
+      const res = await getRepoEvents(owner, repo);
+      if (res.success && res.data) setRepoEvents(res.data.events ?? []);
+    } catch { /* Network failure — stale data is fine */ }
+  }, [owner, repo]);
 
   // Collaborators tab state
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -194,13 +274,14 @@ export default function RepoDetailClient({
   }, [owner, repo]);
 
   useEffect(() => {
-    if (activeTab === "collaborators") {
+    if (activeTab === "collaborators" || activeTab === "overview") {
       loadCollaboratorsData();
     }
     if (activeTab === "events") {
       refreshEvents();
     }
-    if (activeTab === "about" && !readmeContent && !readmeLoading) {
+    if ((activeTab === "overview" || activeTab === "settings") && !readmeLoadedRef.current) {
+      readmeLoadedRef.current = true;
       setReadmeLoading(true);
       getReadme(owner, repo)
         .then((res) => {
@@ -211,7 +292,7 @@ export default function RepoDetailClient({
         })
         .finally(() => setReadmeLoading(false));
     }
-  }, [activeTab, loadCollaboratorsData, refreshEvents, owner, repo, readmeContent, readmeLoading]);
+  }, [activeTab, loadCollaboratorsData, refreshEvents, owner, repo]);
 
   // User search with debounce
   useEffect(() => {
@@ -312,19 +393,6 @@ export default function RepoDetailClient({
     });
   }
 
-  function handleSaveDescription(e: React.FormEvent) {
-    e.preventDefault();
-    setSettingsError(null);
-    startTransition(async () => {
-      const result = await updateDescriptionAction(owner, repo, description);
-      if (result.success) {
-        router.refresh();
-      } else {
-        setSettingsError(result.error);
-      }
-    });
-  }
-
   // Format relative time
   function timeAgo(iso: string | null | undefined): string {
     if (!iso) return "—";
@@ -394,7 +462,6 @@ export default function RepoDetailClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
-    { key: "about" as const, label: "About", icon: BookOpen },
     { key: "events" as const, label: "Timeline", icon: Activity },
     { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "settings" as const, label: "Settings", icon: Settings },
@@ -415,21 +482,13 @@ export default function RepoDetailClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
-          {stats?.description && (
-            <p className="mb-3 text-base text-zinc-400">{stats.description}</p>
-          )}
-          {stats && !stats.description && (
-            <p className="mb-3 text-lg text-zinc-400">
-              {stats.audio_snippet ? "Audio snippet available" : "No audio snippet"}
-            </p>
-          )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
               <Lock size={14} /> Private
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
-              <Download size={14} /> {cloneCount} clones
+              <Download size={14} /> {cloneCount} remixes
             </span>
           </div>
         </div>
@@ -437,15 +496,23 @@ export default function RepoDetailClient({
           <button className="rounded-md bg-zinc-100 px-6 py-3 font-medium text-zinc-900 transition-colors hover:bg-zinc-200">
             Open in Desktop
           </button>
-          <button className="rounded-md border border-zinc-700 px-6 py-3 font-medium transition-colors hover:bg-zinc-800">
-            Clone
-          </button>
+          {userCanRemix && (
+            <RemixButton onClick={() => setShowRemixModal(true)} />
+          )}
         </div>
       </div>
 
+      {/* Remix URL Modal */}
+      {showRemixModal && stats?.clone_url && (
+        <CloneModal
+          cloneUrl={stats.clone_url}
+          onClose={() => setShowRemixModal(false)}
+        />
+      )}
+
       {/* Audio Player with Comment Markers */}
       {currentSnippetUrl && (
-        <div className="mb-8">
+        <div className="mb-8" data-snippet-player>
           <AudioPlayerWithComments
             src={currentSnippetUrl}
             duration={snippet?.duration ?? undefined}
@@ -516,7 +583,7 @@ export default function RepoDetailClient({
                 <div>
                   <div className="text-2xl font-bold">{cloneCount}</div>
                   <div className="flex items-center gap-1 text-sm text-zinc-400">
-                    <Download size={12} /> Clones
+                    <Download size={12} /> Remixes
                   </div>
                 </div>
                 <div>
@@ -568,13 +635,66 @@ export default function RepoDetailClient({
                 </div>
               )}
             </div>
+
+            {/* README Preview */}
+            <div className="rounded-lg border border-zinc-800 p-6">
+              <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+                <BookOpen size={16} /> About
+              </h2>
+              {readmeLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-4 w-3/4 rounded bg-zinc-800" />
+                  <div className="h-4 w-1/2 rounded bg-zinc-800" />
+                  <div className="h-4 w-5/6 rounded bg-zinc-800" />
+                </div>
+              ) : (
+                <div className="prose prose-invert prose-zinc max-w-none">
+                  {readmeContent ? (
+                    <Markdown>{readmeContent}</Markdown>
+                  ) : (
+                    <p className="text-zinc-500 italic">
+                      No README yet. Add a description in Settings.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-8">
-            {/* Recent Clones */}
+            {/* Collaborators */}
             <div className="rounded-lg border border-zinc-800 p-6">
-              <h3 className="mb-4 text-lg font-semibold">Recent Clones</h3>
+              <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
+                <Users size={16} /> Collaborators
+              </h3>
+              {collabLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-8 w-full rounded bg-zinc-800" />
+                  <div className="h-8 w-full rounded bg-zinc-800" />
+                </div>
+              ) : collaborators.length > 0 ? (
+                <div className="space-y-3">
+                  {collaborators.map((c) => (
+                    <div key={c.login} className="flex items-center gap-3">
+                      <UserAvatar src={c.avatar_url} alt={c.display_name || c.username || c.login} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-zinc-200 truncate">
+                          {c.display_name || c.username || c.login}
+                        </div>
+                        <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-400">No collaborators yet.</p>
+              )}
+            </div>
+
+            {/* Recent Remixes */}
+            <div className="rounded-lg border border-zinc-800 p-6">
+              <h3 className="mb-4 text-lg font-semibold">Recent Remixes</h3>
               {stats && stats.recent_clones.length > 0 ? (
                 <div className="space-y-3">
                   {stats.recent_clones.map((c, i) => (
@@ -587,44 +707,11 @@ export default function RepoDetailClient({
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-zinc-400">No clones yet.</p>
+                <p className="text-sm text-zinc-400">No remixes yet.</p>
               )}
             </div>
 
-            {/* Snippet info */}
-            {snippet && (
-              <div className="rounded-lg border border-zinc-800 p-6">
-                <h3 className="mb-4 text-lg font-semibold">Audio Snippet</h3>
-                <div className="space-y-2 text-sm">
-                  {snippet.format && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Format</span>
-                      <span>{snippet.format.toUpperCase()}</span>
-                    </div>
-                  )}
-                  {snippet.duration != null && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Duration</span>
-                      <span>{Math.round(snippet.duration)}s</span>
-                    </div>
-                  )}
-                  {snippet.sample_rate != null && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Sample Rate</span>
-                      <span>{snippet.sample_rate} Hz</span>
-                    </div>
-                  )}
-                  {snippet.channels != null && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Channels</span>
-                      <span>{snippet.channels === 1 ? "Mono" : "Stereo"}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Repo Info */}
+            {/* Project Info */}
             <div className="rounded-lg border border-zinc-800 p-6">
               <h3 className="mb-4 text-lg font-semibold">Project Info</h3>
               <div className="space-y-3 text-sm">
@@ -634,6 +721,35 @@ export default function RepoDetailClient({
                   </span>
                   <span className="font-mono text-xs">{repo}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1 text-zinc-400">
+                    <User size={12} /> Owner
+                  </span>
+                  <span className="text-xs text-zinc-300">{owner}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1 text-zinc-400">
+                    <GitCommit size={12} /> Snapshots
+                  </span>
+                  <span className="text-xs text-zinc-300">{commitTotal}</span>
+                </div>
+                {genres.length > 0 && (
+                  <div className="pt-2 border-t border-zinc-800">
+                    <span className="flex items-center gap-1 text-zinc-400 mb-2">
+                      <Music size={12} /> Genres
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {genres.map((g) => (
+                        <span
+                          key={g.genre_id}
+                          className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-300"
+                        >
+                          {g.genre_name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -811,7 +927,7 @@ export default function RepoDetailClient({
 
                         {/* Diff view (arrangement visualization) */}
                         <DiffTimeline
-                          diffData={diffCache[c.sha] ?? null}
+                          diffData={diffCache[c.sha]?.diff_data ?? null}
                           commitSha={c.sha}
                           commitMsg={c.message}
                           isLoading={diffLoading === c.sha}
@@ -847,25 +963,62 @@ export default function RepoDetailClient({
           {repoEvents.length === 0 ? (
             <p className="text-zinc-400">No activity recorded yet.</p>
           ) : (
-            <div className="space-y-4">
-              {repoEvents.map((ev) => (
-                <div
-                  key={ev.id}
-                  className="flex items-start gap-4 border-b border-zinc-800 pb-4 last:border-0"
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
-                    <Activity size={16} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="mb-1 font-medium">
-                      {ev.event_type.replaceAll("_", " ")}
+            <div className="relative pl-8">
+              {/* Vertical connector line */}
+              <div className="absolute left-[15px] top-2 bottom-2 w-px bg-zinc-700" />
+
+              <div className="space-y-6">
+                {repoEvents.map((ev) => {
+                  // Event-type icon and color mapping
+                  const isCreate = ev.event_type.includes("create") || ev.event_type === "repository_created";
+                  const isDelete = ev.event_type.includes("delete");
+                  const isPush = ev.event_type.includes("push");
+                  const dotColor = isDelete
+                    ? "bg-red-500"
+                    : isCreate
+                    ? "bg-emerald-500"
+                    : isPush
+                    ? "bg-sky-500"
+                    : "bg-zinc-500";
+                  const IconComponent = isDelete
+                    ? Trash2
+                    : isCreate
+                    ? FilePlus
+                    : isPush
+                    ? GitCommit
+                    : Activity;
+
+                  return (
+                    <div key={ev.id} className="relative flex items-start gap-4">
+                      {/* Timeline dot */}
+                      <div
+                        className={`absolute -left-8 top-1 flex h-[14px] w-[14px] items-center justify-center rounded-full ${dotColor} ring-4 ring-zinc-900`}
+                      >
+                        <IconComponent size={8} className="text-white" />
+                      </div>
+
+                      {/* Avatar */}
+                      <div className="shrink-0">
+                        <UserAvatar src={null} alt={ev.actor} size={32} />
+                      </div>
+
+                      {/* Event details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <span className="font-medium text-zinc-200">{ev.actor}</span>
+                          <span className="text-sm text-zinc-400">
+                            {ev.event_type.replaceAll("_", " ")}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
+                          <Clock size={10} />
+                          {timeAgo(ev.occurred_at)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 text-sm text-zinc-400">
-                      <User size={12} /> {ev.actor} • <Clock size={12} /> {timeAgo(ev.occurred_at)}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -1115,7 +1268,7 @@ export default function RepoDetailClient({
             )}
           </div>
 
-          {/* Invitation History (accepted/declined) */}
+          {/* Invitation History (accepted/declined/expired) */}
           {repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
             <div className="rounded-lg border border-zinc-800 p-6">
               <h2 className="mb-4 text-xl font-semibold">Invitation History</h2>
@@ -1132,6 +1285,8 @@ export default function RepoDetailClient({
                           className={`flex h-9 w-9 items-center justify-center rounded-full ${
                             inv.status === "accepted"
                               ? "bg-green-500/10 text-green-500"
+                              : inv.status === "expired"
+                              ? "bg-yellow-500/10 text-yellow-500"
                               : "bg-red-500/10 text-red-500"
                           }`}
                         >
@@ -1142,7 +1297,11 @@ export default function RepoDetailClient({
                             {inv.invitee_email}
                           </div>
                           <div className="text-xs text-zinc-400">
-                            {inv.status === "accepted" ? "Accepted" : "Declined"}{" "}
+                            {inv.status === "accepted"
+                              ? "Accepted"
+                              : inv.status === "expired"
+                              ? "Expired — repo deleted"
+                              : "Declined"}{" "}
                             {inv.responded_at ? timeAgo(inv.responded_at) : ""}
                           </div>
                         </div>
@@ -1151,6 +1310,8 @@ export default function RepoDetailClient({
                         className={`rounded-full px-2 py-0.5 text-xs ${
                           inv.status === "accepted"
                             ? "bg-green-500/10 text-green-400"
+                            : inv.status === "expired"
+                            ? "bg-yellow-500/10 text-yellow-400"
                             : "bg-red-500/10 text-red-400"
                         }`}
                       >
@@ -1158,120 +1319,6 @@ export default function RepoDetailClient({
                       </span>
                     </div>
                   ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── About Tab (README) ──────────────────────────────────────── */}
-      {activeTab === "about" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">About</h2>
-
-            {/* Edit/Preview toggle (only for owner or collaborator) */}
-            {user && (
-              <div className="flex rounded-md border border-zinc-700 overflow-hidden">
-                <button
-                  onClick={() => setReadmeTab("preview")}
-                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                    readmeTab === "preview"
-                      ? "bg-zinc-700 text-white"
-                      : "text-zinc-400 hover:text-white"
-                  }`}
-                >
-                  <Eye size={14} className="mr-1.5 inline" />
-                  Preview
-                </button>
-                <button
-                  onClick={() => setReadmeTab("edit")}
-                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                    readmeTab === "edit"
-                      ? "bg-zinc-700 text-white"
-                      : "text-zinc-400 hover:text-white"
-                  }`}
-                >
-                  <FileEdit size={14} className="mr-1.5 inline" />
-                  Edit
-                </button>
-              </div>
-            )}
-          </div>
-
-          {readmeError && (
-            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {readmeError}
-            </div>
-          )}
-
-          {readmeLoading ? (
-            <div className="space-y-3 animate-pulse">
-              <div className="h-4 w-3/4 rounded bg-zinc-800" />
-              <div className="h-4 w-1/2 rounded bg-zinc-800" />
-              <div className="h-4 w-5/6 rounded bg-zinc-800" />
-              <div className="h-4 w-2/3 rounded bg-zinc-800" />
-            </div>
-          ) : readmeTab === "preview" ? (
-            /* Markdown preview */
-            <div className="prose prose-invert prose-zinc max-w-none">
-              {readmeContent ? (
-                <Markdown>{readmeContent}</Markdown>
-              ) : (
-                <p className="text-zinc-500 italic">
-                  No README yet. Switch to Edit to add a description for this project.
-                </p>
-              )}
-            </div>
-          ) : (
-            /* Edit mode */
-            <div className="space-y-4">
-              <textarea
-                value={readmeDraft}
-                onChange={(e) => setReadmeDraft(e.target.value)}
-                placeholder="Write a description for your project using Markdown..."
-                className="w-full min-h-[300px] rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-y"
-                maxLength={50000}
-              />
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">
-                  {readmeDraft.length.toLocaleString()} / 50,000 characters · Markdown supported
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setReadmeDraft(readmeContent);
-                      setReadmeTab("preview");
-                    }}
-                    className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={readmeSaving || readmeDraft === readmeContent}
-                    onClick={async () => {
-                      setReadmeSaving(true);
-                      setReadmeError(null);
-                      try {
-                        const res = await updateReadme(owner, repo, readmeDraft);
-                        if (res.success) {
-                          setReadmeContent(res.data);
-                          setReadmeTab("preview");
-                        } else {
-                          setReadmeError(res.error);
-                        }
-                      } catch {
-                        setReadmeError("Failed to save README");
-                      } finally {
-                        setReadmeSaving(false);
-                      }
-                    }}
-                    className="flex items-center gap-1.5 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
-                  >
-                    <Save size={14} />
-                    {readmeSaving ? "Saving..." : "Save"}
-                  </button>
-                </div>
               </div>
             </div>
           )}
@@ -1313,32 +1360,6 @@ export default function RepoDetailClient({
               </div>
             </form>
 
-
-            {/* 2. Description */}
-            <form onSubmit={handleSaveDescription}>
-              <label className="mb-2 block text-sm font-medium">
-                Description
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe your project…"
-                rows={3}
-                maxLength={500}
-                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none resize-none"
-              />
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-zinc-400">{description.length}/500</span>
-                <button
-                  type="submit"
-                  disabled={isPending || description === (stats?.description ?? "")}
-                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save size={14} /> Save Description
-                </button>
-              </div>
-            </form>
-
             {/* 2. Genre Selector */}
             <GenreEditor
               owner={owner}
@@ -1347,7 +1368,113 @@ export default function RepoDetailClient({
               currentGenres={stats?.genres ?? []}
             />
 
-            {/* 3. Snippet History → 4. Stem Separation (middleContent) → 5. Replace Snippet drop zone */}
+            {/* 3. README / About Editor */}
+            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                  <BookOpen size={14} /> README / About
+                </h3>
+                <div className="flex rounded-md border border-zinc-700 overflow-hidden">
+                  <button
+                    onClick={() => setReadmeTab("preview")}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      readmeTab === "preview"
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <Eye size={12} className="mr-1 inline" />
+                    Preview
+                  </button>
+                  <button
+                    onClick={() => setReadmeTab("edit")}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      readmeTab === "edit"
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <FileEdit size={12} className="mr-1 inline" />
+                    Edit
+                  </button>
+                </div>
+              </div>
+
+              {readmeError && (
+                <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                  {readmeError}
+                </div>
+              )}
+
+              {readmeLoading ? (
+                <div className="space-y-2 animate-pulse">
+                  <div className="h-3 w-3/4 rounded bg-zinc-700" />
+                  <div className="h-3 w-1/2 rounded bg-zinc-700" />
+                </div>
+              ) : readmeTab === "preview" ? (
+                <div className="prose prose-invert prose-zinc prose-sm max-w-none">
+                  {readmeContent ? (
+                    <Markdown>{readmeContent}</Markdown>
+                  ) : (
+                    <p className="text-zinc-500 italic text-sm">
+                      No README yet. Switch to Edit to add a description.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <textarea
+                    value={readmeDraft}
+                    onChange={(e) => setReadmeDraft(e.target.value)}
+                    placeholder="Write a description for your project using Markdown..."
+                    className="w-full min-h-[200px] rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-y"
+                    maxLength={50000}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-500">
+                      {readmeDraft.length.toLocaleString()} / 50,000 · Markdown supported
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setReadmeDraft(readmeContent);
+                          setReadmeTab("preview");
+                        }}
+                        className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={readmeSaving || readmeDraft === readmeContent}
+                        onClick={async () => {
+                          setReadmeSaving(true);
+                          setReadmeError(null);
+                          try {
+                            const res = await updateReadme(owner, repo, readmeDraft);
+                            if (res.success) {
+                              setReadmeContent(res.data);
+                              setReadmeTab("preview");
+                            } else {
+                              setReadmeError(res.error);
+                            }
+                          } catch {
+                            setReadmeError("Failed to save README");
+                          } finally {
+                            setReadmeSaving(false);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+                      >
+                        <Save size={12} />
+                        {readmeSaving ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 4. Snippet History → 5. Stem Separation (middleContent) → 6. Replace Snippet drop zone */}
             <SnippetUploader
               owner={owner}
               repo={repo}

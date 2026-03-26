@@ -781,6 +781,88 @@ cd apps/web && npm run build
 
 ---
 
+## Web-Desktop Integration Roadmap
+
+### What You Can Do on Web Side
+
+#### 1. Deep-Link Protocol Handler
+- Register `soundhaus://` URI scheme
+- Web "Open in SoundHaus Desktop" button generates `soundhaus://clone/{owner}/{repo}`
+- Desktop app registers as handler → auto-opens and clones
+- Implementation: Add `<a href="soundhaus://clone/...">` buttons on repo pages
+
+#### 2. Desktop Auth Token Exchange
+- Web generates a one-time auth token via `POST /api/auth/desktop-link`
+- User copies token into desktop app → desktop exchanges for session
+- Avoids password entry in desktop; already partially specced in `SOUNDHAUS.md`
+- Web side: add "Link Desktop App" page under settings with token generation UI
+
+#### 3. Shared Notification State
+- Desktop polls `GET /api/notifications/unread` periodically
+- Web writes notifications on: push events, new comments, collaboration invites
+- Both apps show same notification feed
+- Web side: create notification endpoints + creation triggers on webhook events
+
+#### 4. Real-Time Sync via WebSocket
+- `wss://yourdomain.app/ws/{repo_id}` — broadcasts push/comment events
+- Desktop connects on repo open → gets live "someone pushed" alerts
+- Web side: add WebSocket endpoint in FastAPI (`/ws/{repo_id}`), broadcast on push webhook
+
+#### 5. Diff Data Upload Contract
+- Desktop pushes enriched diff JSON to `POST /repos/{owner}/{repo}/diff` after each commit
+- Web renders it in `DiffTimeline` / `ABComparisonView`
+- Web side: ensure `diff.ts` types contract matches desktop parser output
+- Coordinate: share `apps/web/components/diff/types/diff.ts` with desktop team
+
+#### 6. File Browser / Download
+- `GET /repos/{owner}/{repo}/tree/{ref}/{path}` — list files in a commit
+- `GET /repos/{owner}/{repo}/raw/{ref}/{path}` — download individual files
+- These proxy to Gitea's API — useful for web previews
+- Web side: add file browser component to repo detail page
+
+---
+
+## Real-Time Notifications System
+
+### Architecture
+
+```
+┌─────────────┐      ┌─────────────────┐      ┌───────────────┐
+│  Gitea Push  │─────▶│  FastAPI Webhook │─────▶│ notifications │
+│  Webhook     │      │  Handler         │      │    table      │
+└─────────────┘      └────────┬────────┘      └───────┬───────┘
+                              │                        │
+                              ▼                        ▼
+                     ┌────────────┐          ┌────────────────┐
+                     │ WebSocket  │          │ GET /api/notif  │
+                     │ broadcast  │          │ (polling)       │
+                     └────────────┘          └────────────────┘
+```
+
+### Implementation Steps
+
+#### Backend
+1. **Table**: `notifications` — `id UUID, user_id UUID, type TEXT, title TEXT, body TEXT, link TEXT, read BOOLEAN, created_at TIMESTAMPTZ`
+2. **Endpoints**:
+   - `GET /api/notifications` — list user's notifications (paginated)
+   - `GET /api/notifications/unread-count` — just the count
+   - `PUT /api/notifications/{id}/read` — mark as read
+   - `PUT /api/notifications/read-all` — mark all as read
+3. **Triggers**: Create notifications when:
+   - Push to a repo you collaborate on
+   - Comment on your snippet
+   - Invitation to collaborate
+   - Fork/remix of your project
+4. **Optional WebSocket**: `FastAPI WebSocket` at `/ws/notifications/{user_id}` for real-time delivery
+
+#### Frontend
+1. **`NotificationBell.tsx`**: Bell icon in Navbar with unread count badge
+2. **Dropdown**: Shows recent notifications with links
+3. **Polling**: `useEffect` → `setInterval(30s)` → `GET /api/notifications/unread-count`
+4. **Mark as read**: Click notification → navigate + mark read
+
+---
+
 ## Definition of Done
 
 - [ ] `npm run build` passes with zero errors

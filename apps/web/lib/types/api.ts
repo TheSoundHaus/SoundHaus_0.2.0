@@ -102,6 +102,7 @@ export interface RepoStats {
   gitea_id: string;              // "owner/repo-name"
   description: string;           // Gitea repo description
   private: boolean;              // Gitea repo visibility
+  clone_url: string;
   clone_count: number;
   audio_snippet: string | null;
   genres: GenreRef[];
@@ -121,6 +122,7 @@ export interface EnrichedRepo {
   updated_at: string;            // ISO timestamp
   stars_count: number;
   clone_count: number;
+  clone_url: string;
   audio_snippet: string | null;  // CDN URL to audio file
   snippet_metadata: SnippetMetadata | null;
   genres: string[];              // array of genre name strings

@@ -14,6 +14,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Columns, Rows, Loader2 } from "lucide-react";
 import type { ProjectDiff, TrackDiff } from "./types/diff";
 import { DiffTimeline } from "./DiffTimeline";
+import { getCommitDiff } from "@/lib/api/commits";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -69,22 +70,19 @@ export function ABComparisonView({
 
             try {
                 const [baseRes, headRes] = await Promise.all([
-                    fetch(`/api/repos/${owner}/${repo}/diff/${baseSha}`),
-                    fetch(`/api/repos/${owner}/${repo}/diff/${headSha}`),
+                    getCommitDiff(owner, repo, baseSha),
+                    getCommitDiff(owner, repo, headSha),
                 ]);
 
-                if (!baseRes.ok || !headRes.ok) {
+                if (!baseRes.success || !headRes.success) {
                     throw new Error(
-                        `Failed to fetch diffs: base=${baseRes.status}, head=${headRes.status}`,
+                        `Failed to fetch diffs: base=${baseRes.success ? "ok" : baseRes.error}, head=${headRes.success ? "ok" : headRes.error}`,
                     );
                 }
 
-                const baseData = await baseRes.json();
-                const headData = await headRes.json();
-
                 if (!cancelled) {
-                    setBaseDiff(baseData as ProjectDiff);
-                    setHeadDiff(headData as ProjectDiff);
+                    setBaseDiff(baseRes.data?.diff?.diff_data ?? null);
+                    setHeadDiff(headRes.data?.diff?.diff_data ?? null);
                 }
             } catch (err) {
                 if (!cancelled) {

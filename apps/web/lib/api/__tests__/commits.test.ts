@@ -55,7 +55,12 @@ const MOCK_DIFF: AlsDiffData = {
     before_sha: null,
     diff_type: "structural",
     diff_summary: "1 change",
-    diff_data: { ok: true, changes: [] },
+    diff_data: {
+        tempo: { before: 120, after: 120 },
+        timeSignature: [4, 4],
+        totalBeats: 64,
+        tracks: [],
+    },
     created_at: "2025-07-01T12:00:00Z",
 };
 

@@ -219,7 +219,7 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
               <option value="alpha">Name (A-Z)</option>
               <option value="created">Date Created</option>
               <option value="stars">Stars</option>
-              <option value="clones">Clones</option>
+              <option value="clones">Remixes</option>
             </select>
           </div>
 
@@ -372,6 +372,7 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                         isPublic={!repo.private}
                         audioSnippet={repo.audio_snippet}
                         cloneCount={repo.clone_count}
+                        cloneUrl={repo.clone_url}
                         isStarred={repo.is_starred}
                         isOwner={repo.role === "owner"}
                         genres={repo.genres}

@@ -388,6 +388,7 @@ async def get_repo_stats(
         "gitea_id": repo_data.gitea_id,
         "description": description,
         "private": is_private,
+        "clone_url": f"{settings.gitea_public_url}/{owner}/{repo}.git",
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
@@ -565,7 +566,8 @@ async def get_enriched_repos(
     # Batch-resolve owner UUIDs → SoundHaus usernames
     owner_ids = list({r.get("owner", {}).get("login", "") for r in gitea_repos})
     profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
-    profile_map = {p.id: p.username for p in profile_rows}
+    # Profile.id is PostgreSQL UUID, but Gitea login is a plain string — cast to str
+    profile_map = {str(p.id): p.username for p in profile_rows}
 
     enriched = []
     for repo in gitea_repos:
@@ -643,16 +645,18 @@ async def update_readme(
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
 
-    # Authorization: owner or accepted collaborator
-    is_owner = repo_data.owner_id == user_id
+    # Authorization: owner or admin collaborator
+    is_owner = str(repo_data.owner_id) == str(user_id)
     is_collab = False
     if not is_owner:
+        user_email = user_res["user"]["email"]
         collab = (
             db.query(CollaboratorInvitation)
             .filter(
-                CollaboratorInvitation.repo_id == repo_id,
-                CollaboratorInvitation.invitee_id == user_id,
+                CollaboratorInvitation.repo_name == repo,
+                CollaboratorInvitation.invitee_email == user_email,
                 CollaboratorInvitation.status == "accepted",
+                CollaboratorInvitation.permission == "admin",
             )
             .first()
         )

@@ -157,6 +157,24 @@ const config: Config = {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.8' },
         },
+        'crossfade-in': {
+          '0%': { opacity: '0', backdropFilter: 'blur(0px)' },
+          '100%': { opacity: '1', backdropFilter: 'blur(12px)' },
+        },
+        'remix-slide-up': {
+          '0%': { opacity: '0', transform: 'translateY(24px) scale(0.96)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        'copy-flash': {
+          '0%': { boxShadow: '0 0 0 0 rgba(34, 197, 94, 0.6)' },
+          '50%': { boxShadow: '0 0 20px 4px rgba(34, 197, 94, 0.4)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(34, 197, 94, 0)' },
+        },
+        'checkmark-pop': {
+          '0%': { transform: 'scale(0)', opacity: '0' },
+          '50%': { transform: 'scale(1.2)' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
+        },
       },
 
       // Custom animations
@@ -165,6 +183,10 @@ const config: Config = {
         'scale-in': 'scale-in 0.15s ease-out',
         'slide-in-from-top': 'slide-in-from-top 0.2s ease-out',
         'pulse-subtle': 'pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'crossfade-in': 'crossfade-in 0.3s ease-out forwards',
+        'remix-slide-up': 'remix-slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+        'copy-flash': 'copy-flash 0.6s ease-out',
+        'checkmark-pop': 'checkmark-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
       },
 
       // Custom max-width values

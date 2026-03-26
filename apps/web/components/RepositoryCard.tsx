@@ -16,6 +16,23 @@ import {
 } from "lucide-react";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 import AudioPlayer from "@/components/AudioPlayer";
+import CloneModal from "@/components/CloneModal";
+import RemixIcon from "@/components/RemixIcon";
+
+function RemixCardButton({ count, onClick }: { count: number; onClick: (e: React.MouseEvent) => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="flex items-center gap-1 transition-colors hover:text-glass-blue"
+    >
+      <RemixIcon hovered={hovered} size={14} />
+      {count} remixes
+    </button>
+  );
+}
 
 const MiniAudioPreview = dynamic(() => import("@/components/MiniAudioPreview"), {
   ssr: false,
@@ -55,6 +72,7 @@ interface RepositoryCardProps {
   isPublic?: boolean;
   audioSnippet?: string | null;
   cloneCount: number;
+  cloneUrl?: string;
   isStarred?: boolean;
   isOwner?: boolean;
   genres?: string[];
@@ -72,6 +90,7 @@ export default function RepositoryCard({
   isPublic = true,
   audioSnippet,
   cloneCount,
+  cloneUrl,
   isStarred = false,
   isOwner = false,
   genres = [],
@@ -84,6 +103,7 @@ export default function RepositoryCard({
   const [showRenameInput, setShowRenameInput] = useState(false);
   const [renameValue, setRenameValue] = useState(title);
   const [, startTransition] = useTransition();
+  const [showRemixModal, setShowRemixModal] = useState(false);
 
   // Audio preview on hover (debounced)
   const [showPreview, setShowPreview] = useState(false);
@@ -163,8 +183,6 @@ export default function RepositoryCard({
   return (
     <Link
       href={`/repository/${id}`}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       className="group relative block rounded-card border border-white/10 bg-zinc-900 p-6 transition-all hover:border-white/20 hover:bg-zinc-800/60">
       {/* 3-dot context menu (owner only) — positioned beside the audio player */}
       {isOwner && (
@@ -271,9 +289,20 @@ export default function RepositoryCard({
         >
           <Star size={14} fill={starred ? "currentColor" : "none"} /> {starCount}
         </button>
-        <span className="flex items-center gap-1">
-          <Download size={14} /> {cloneCount} clones
-        </span>
+        {cloneUrl ? (
+          <RemixCardButton
+            count={cloneCount}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowRemixModal(true);
+            }}
+          />
+        ) : (
+          <span className="flex items-center gap-1">
+            <Download size={14} /> {cloneCount} remixes
+          </span>
+        )}
         {stats.collaborators != null && stats.collaborators > 0 && (
           <span className="flex items-center gap-1">
             <Users size={14} /> {stats.collaborators}
@@ -286,11 +315,12 @@ export default function RepositoryCard({
         )}
       </div>
 
-      {/* Mini audio preview on hover */}
-      {showPreview && audioSnippet && (
-        <div className="mt-3 rounded-lg bg-zinc-800/60 px-2 py-1">
-          <MiniAudioPreview snippetUrl={audioSnippet} />
-        </div>
+      {/* Remix URL Modal */}
+      {showRemixModal && cloneUrl && (
+        <CloneModal
+          cloneUrl={cloneUrl}
+          onClose={() => setShowRemixModal(false)}
+        />
       )}
     </Link>
   );

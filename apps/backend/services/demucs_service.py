@@ -108,11 +108,14 @@ class DemucsService:
         from demucs.apply import apply_model
         from demucs.audio import save_audio
 
+        # Force soundfile backend to avoid torchcodec dependency
+        torchaudio.set_audio_backend("soundfile")
+
         logger.info("demucs_start", model=self.model_name, input=str(input_file))
 
         model = self._get_model()
-        # Load audio — torchaudio handles WAV, MP3, FLAC, etc.
-        wav, sr = torchaudio.load(str(input_file))
+        # Load audio — soundfile handles WAV, MP3, FLAC, etc.
+        wav, sr = torchaudio.load(str(input_file), backend="soundfile")
 
         # Resample if needed (Demucs expects model.samplerate, usually 44100)
         if sr != model.samplerate:
