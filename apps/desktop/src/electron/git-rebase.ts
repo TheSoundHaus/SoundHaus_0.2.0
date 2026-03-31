@@ -91,7 +91,7 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
     // Step 2: Attempt rebase
     console.log(`[Rebase] Starting rebase onto origin/main`);
     await new Promise<void>((resolve, reject) => {
-      const rebaseCmd = `"${gitBin}" rebase origin/main`;
+      const rebaseCmd = `"${gitBin}" rebase --autostash origin/main`;
       exec(rebaseCmd, { cwd: repoPath }, (err, stdout, stderr) => {
         if (err) {
           console.error(`[Rebase] Rebase failed: ${stderr || err.message}`);
