@@ -118,6 +118,11 @@ dist/types
 # https://nextjs.org/blog/next-9-1#public-directory-support
 # public
 
+# ========================================
+# Rust / native build artifacts (Desktop semantic-diff)
+# ========================================
+apps/desktop/native/semantic-diff/target/
+
 # vuepress build output
 .vuepress/dist
 

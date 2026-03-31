@@ -287,53 +287,85 @@ function WaveformDivider({ flip = false }: { flip?: boolean }) {
     );
 }
 
-function SoundWaveDivider() {
+function AudioSpectrumDivider() {
+    const barCount = 64;
+    const barWidth = 1440 / barCount;
+
     return (
-        <div className="relative w-full h-24 overflow-hidden pointer-events-none">
-            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1440 96" preserveAspectRatio="none">
-                {/* Primary wave — slow, wide undulation */}
-                <path fill="none" stroke="rgba(167, 199, 231, 0.12)" strokeWidth="2">
+        <div className="relative w-full h-32 overflow-hidden pointer-events-none">
+            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1440 128" preserveAspectRatio="none">
+                <defs>
+                    <linearGradient id="spectrumGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(167, 199, 231, 0.25)" />
+                        <stop offset="100%" stopColor="rgba(167, 199, 231, 0)" />
+                    </linearGradient>
+                    <linearGradient id="spectrumStroke" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="rgba(167, 199, 231, 0)" />
+                        <stop offset="30%" stopColor="rgba(167, 199, 231, 0.15)" />
+                        <stop offset="50%" stopColor="rgba(167, 199, 231, 0.25)" />
+                        <stop offset="70%" stopColor="rgba(167, 199, 231, 0.15)" />
+                        <stop offset="100%" stopColor="rgba(167, 199, 231, 0)" />
+                    </linearGradient>
+                </defs>
+
+                {/* EQ bars — each with unique timing via CSS offset */}
+                {Array.from({ length: barCount }, (_, i) => {
+                    const x = i * barWidth + barWidth * 0.15;
+                    const width = barWidth * 0.7;
+                    const center = Math.abs(i - barCount / 2) / (barCount / 2);
+                    const maxH = 50 * (1 - center * 0.7) + 10;
+                    const minH = 4;
+                    const dur = 1.2 + (i % 7) * 0.25;
+                    return (
+                        <rect key={i} x={x} rx="1" width={width} fill="url(#spectrumGrad)">
+                            <animate
+                                attributeName="height"
+                                dur={`${dur}s`}
+                                repeatCount="indefinite"
+                                values={`${minH};${maxH};${minH * 1.5};${maxH * 0.6};${minH}`}
+                                begin={`${(i * 0.06) % 1.5}s`}
+                            />
+                            <animate
+                                attributeName="y"
+                                dur={`${dur}s`}
+                                repeatCount="indefinite"
+                                values={`${64 - minH / 2};${64 - maxH / 2};${64 - minH * 0.75};${64 - maxH * 0.3};${64 - minH / 2}`}
+                                begin={`${(i * 0.06) % 1.5}s`}
+                            />
+                        </rect>
+                    );
+                })}
+
+                {/* Flowing waveform overlaid on bars */}
+                <path fill="none" stroke="url(#spectrumStroke)" strokeWidth="1.5">
                     <animate
                         attributeName="d"
-                        dur="4s"
+                        dur="5s"
                         repeatCount="indefinite"
                         values="
-                            M0 48 C240 20 480 76 720 48 C960 20 1200 76 1440 48;
-                            M0 48 C240 76 480 20 720 48 C960 76 1200 20 1440 48;
-                            M0 48 C240 20 480 76 720 48 C960 20 1200 76 1440 48
+                            M0 64 C120 50 240 78 360 64 C480 50 600 78 720 64 C840 50 960 78 1080 64 C1200 50 1320 78 1440 64;
+                            M0 64 C120 78 240 50 360 64 C480 78 600 50 720 64 C840 78 960 50 1080 64 C1200 78 1320 50 1440 64;
+                            M0 64 C120 50 240 78 360 64 C480 50 600 78 720 64 C840 50 960 78 1080 64 C1200 50 1320 78 1440 64
                         "
                     />
                 </path>
-                {/* Secondary wave — faster, tighter */}
-                <path fill="none" stroke="rgba(167, 199, 231, 0.06)" strokeWidth="1.5">
+                <path fill="none" stroke="rgba(167, 199, 231, 0.06)" strokeWidth="1">
                     <animate
                         attributeName="d"
-                        dur="3s"
+                        dur="7s"
                         repeatCount="indefinite"
                         values="
-                            M0 48 C120 30 240 66 360 48 C480 30 600 66 720 48 C840 30 960 66 1080 48 C1200 30 1320 66 1440 48;
-                            M0 48 C120 66 240 30 360 48 C480 66 600 30 720 48 C840 66 960 30 1080 48 C1200 66 1320 30 1440 48;
-                            M0 48 C120 30 240 66 360 48 C480 30 600 66 720 48 C840 30 960 66 1080 48 C1200 30 1320 66 1440 48
+                            M0 64 C180 44 360 84 540 64 C720 44 900 84 1080 64 C1260 44 1440 84 1440 64;
+                            M0 64 C180 84 360 44 540 64 C720 84 900 44 1080 64 C1260 84 1440 44 1440 64;
+                            M0 64 C180 44 360 84 540 64 C720 44 900 84 1080 64 C1260 44 1440 84 1440 64
                         "
                     />
                 </path>
-                {/* Tertiary — highest frequency, barely visible */}
-                <path fill="none" stroke="rgba(167, 199, 231, 0.04)" strokeWidth="1">
-                    <animate
-                        attributeName="d"
-                        dur="2.5s"
-                        repeatCount="indefinite"
-                        values="
-                            M0 48 C60 38 120 58 180 48 C240 38 300 58 360 48 C420 38 480 58 540 48 C600 38 660 58 720 48 C780 38 840 58 900 48 C960 38 1020 58 1080 48 C1140 38 1200 58 1260 48 C1320 38 1380 58 1440 48;
-                            M0 48 C60 58 120 38 180 48 C240 58 300 38 360 48 C420 58 480 38 540 48 C600 58 660 38 720 48 C780 58 840 38 900 48 C960 58 1020 38 1080 48 C1140 58 1200 38 1260 48 C1320 58 1380 38 1440 48;
-                            M0 48 C60 38 120 58 180 48 C240 38 300 58 360 48 C420 38 480 58 540 48 C600 38 660 58 720 48 C780 38 840 58 900 48 C960 38 1020 58 1080 48 C1140 38 1200 58 1260 48 C1320 38 1380 58 1440 48
-                        "
-                    />
-                </path>
-                {/* Center pulse dot */}
-                <circle cx="720" cy="48" r="2" fill="rgba(167, 199, 231, 0.15)">
-                    <animate attributeName="r" dur="3s" repeatCount="indefinite" values="2;4;2" />
-                    <animate attributeName="opacity" dur="3s" repeatCount="indefinite" values="0.15;0.3;0.15" />
+
+                {/* Center glow pulse */}
+                <circle cx="720" cy="64" r="3" fill="rgba(167, 199, 231, 0.2)">
+                    <animate attributeName="r" dur="2.5s" repeatCount="indefinite" values="3;8;3" />
+                    <animate attributeName="opacity" dur="2.5s" repeatCount="indefinite" values="0.2;0.4;0.2" />
                 </circle>
             </svg>
         </div>
@@ -990,8 +1022,8 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── Sound Wave Divider ── */}
-            <SoundWaveDivider />
+            {/* ── Audio Spectrum Divider ── */}
+            <AudioSpectrumDivider />
 
             {/* ── Human Collaboration Philosophy ─────────── */}
             <section id="philosophy" className="relative py-32 md:py-44 px-6 overflow-hidden">
@@ -1010,22 +1042,37 @@ export default function LandingPage() {
                         </p>
                     </FadeInSection>
 
-                    {/* Philosophy cards — text with decorative accents */}
+                    {/* Philosophy cards — text with animated decorative accents */}
                     <div className="space-y-6">
                         <FadeInSection delay={100} variant="left">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                                {/* Decorative accent — concentric arcs */}
-                                <div className="absolute -right-20 -top-20 w-64 h-64 pointer-events-none opacity-[0.04]">
-                                    <svg viewBox="0 0 200 200" fill="none">
-                                        <circle cx="100" cy="100" r="40" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
-                                        <circle cx="100" cy="100" r="60" stroke="rgba(167,199,231,1)" strokeWidth="0.7"/>
-                                        <circle cx="100" cy="100" r="80" stroke="rgba(167,199,231,1)" strokeWidth="0.5"/>
-                                        <circle cx="100" cy="100" r="96" stroke="rgba(167,199,231,1)" strokeWidth="0.3"/>
+                                {/* Decorative — mixing console faders */}
+                                <div className="absolute -right-10 -top-10 w-72 h-72 pointer-events-none opacity-[0.05]">
+                                    <svg viewBox="0 0 240 240" fill="none">
+                                        {[40, 80, 120, 160, 200].map((x, i) => (
+                                            <g key={i}>
+                                                <line x1={x} y1="30" x2={x} y2="210" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
+                                                <rect x={x - 6} rx="2" width="12" height="16" fill="rgba(167,199,231,1)">
+                                                    <animate
+                                                        attributeName="y"
+                                                        dur={`${2.5 + i * 0.4}s`}
+                                                        repeatCount="indefinite"
+                                                        values={`${80 + i * 12};${130 - i * 8};${100};${80 + i * 12}`}
+                                                    />
+                                                </rect>
+                                            </g>
+                                        ))}
                                     </svg>
                                 </div>
                                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+                                    {/* Custom icon — headphones with waveform */}
                                     <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
-                                        <Users className="w-6 h-6 text-glass-blue-400" />
+                                        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+                                            <path d="M3 18V12a9 9 0 0118 0v6" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
+                                            <rect x="1" y="14" width="4" height="7" rx="1.5" fill="rgba(167,199,231,1)" />
+                                            <rect x="19" y="14" width="4" height="7" rx="1.5" fill="rgba(167,199,231,1)" />
+                                            <path d="M8 12h1l1-2 1.5 4 1.5-4 1 2h1" stroke="rgba(167,199,231,0.6)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
                                     </div>
                                     <div>
                                         <h3 className="text-2xl font-bold text-white mb-4">Real people, real music</h3>
@@ -1041,17 +1088,41 @@ export default function LandingPage() {
 
                         <FadeInSection delay={200} variant="right">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                                {/* Decorative accent — waveform lines */}
-                                <div className="absolute -left-10 top-1/2 -translate-y-1/2 w-48 h-48 pointer-events-none opacity-[0.04]">
+                                {/* Decorative — spectrum analyzer bars */}
+                                <div className="absolute -left-6 top-1/2 -translate-y-1/2 w-64 h-64 pointer-events-none opacity-[0.05]">
                                     <svg viewBox="0 0 200 200" fill="none">
-                                        <path d="M10 100 Q50 40 100 100 Q150 160 190 100" stroke="rgba(167,199,231,1)" strokeWidth="1.5"/>
-                                        <path d="M10 100 Q50 60 100 100 Q150 140 190 100" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
-                                        <path d="M10 100 Q50 80 100 100 Q150 120 190 100" stroke="rgba(167,199,231,1)" strokeWidth="0.5"/>
+                                        {Array.from({ length: 12 }, (_, i) => {
+                                            const x = 20 + i * 14;
+                                            const h = 20 + Math.sin(i * 0.8) * 40 + 30;
+                                            return (
+                                                <rect key={i} x={x} rx="1.5" width="8" fill="rgba(167,199,231,1)">
+                                                    <animate
+                                                        attributeName="height"
+                                                        dur={`${1.4 + (i % 5) * 0.3}s`}
+                                                        repeatCount="indefinite"
+                                                        values={`${h * 0.3};${h};${h * 0.5};${h * 0.8};${h * 0.3}`}
+                                                        begin={`${i * 0.1}s`}
+                                                    />
+                                                    <animate
+                                                        attributeName="y"
+                                                        dur={`${1.4 + (i % 5) * 0.3}s`}
+                                                        repeatCount="indefinite"
+                                                        values={`${100 - h * 0.15};${100 - h * 0.5};${100 - h * 0.25};${100 - h * 0.4};${100 - h * 0.15}`}
+                                                        begin={`${i * 0.1}s`}
+                                                    />
+                                                </rect>
+                                            );
+                                        })}
                                     </svg>
                                 </div>
                                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+                                    {/* Custom icon — waveform with magnifying glass */}
                                     <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
-                                        <Eye className="w-6 h-6 text-glass-blue-400" />
+                                        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+                                            <circle cx="10" cy="10" r="6" stroke="rgba(167,199,231,1)" strokeWidth="1.5" />
+                                            <line x1="14.5" y1="14.5" x2="20" y2="20" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
+                                            <path d="M6 10h1l1-2.5 1.5 5 1.5-5 1 2.5h1" stroke="rgba(167,199,231,0.8)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
                                     </div>
                                     <div>
                                         <h3 className="text-2xl font-bold text-white mb-4">Transparent by design</h3>
@@ -1068,21 +1139,38 @@ export default function LandingPage() {
 
                         <FadeInSection delay={300} variant="left">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                                {/* Decorative accent — branch lines */}
-                                <div className="absolute -right-16 -bottom-16 w-56 h-56 pointer-events-none opacity-[0.04]">
+                                {/* Decorative — soundwave fingerprint */}
+                                <div className="absolute -right-12 -bottom-12 w-64 h-64 pointer-events-none opacity-[0.05]">
                                     <svg viewBox="0 0 200 200" fill="none">
-                                        <line x1="100" y1="20" x2="100" y2="180" stroke="rgba(167,199,231,1)" strokeWidth="1.5"/>
-                                        <line x1="100" y1="70" x2="150" y2="40" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
-                                        <line x1="100" y1="130" x2="50" y2="160" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
-                                        <circle cx="100" cy="70" r="4" fill="rgba(167,199,231,1)"/>
-                                        <circle cx="150" cy="40" r="4" fill="rgba(167,199,231,1)"/>
-                                        <circle cx="100" cy="130" r="4" fill="rgba(167,199,231,1)"/>
-                                        <circle cx="50" cy="160" r="4" fill="rgba(167,199,231,1)"/>
+                                        {[30, 50, 70, 90, 110, 130, 170].map((r, i) => (
+                                            <path
+                                                key={i}
+                                                d={`M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100`}
+                                                stroke="rgba(167,199,231,1)"
+                                                strokeWidth={1.2 - i * 0.1}
+                                                strokeLinecap="round"
+                                                fill="none"
+                                            >
+                                                <animate
+                                                    attributeName="d"
+                                                    dur={`${3 + i * 0.5}s`}
+                                                    repeatCount="indefinite"
+                                                    values={`M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100;M${100 - r / 2} 100 Q100 ${100 + r / 2.5} ${100 + r / 2} 100;M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100`}
+                                                />
+                                            </path>
+                                        ))}
                                     </svg>
                                 </div>
                                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+                                    {/* Custom icon — fingerprint made of sound waves */}
                                     <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
-                                        <GitBranch className="w-6 h-6 text-glass-blue-400" />
+                                        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
+                                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10" stroke="rgba(167,199,231,0.3)" strokeWidth="1" strokeLinecap="round" />
+                                            <path d="M12 5c-3.87 0-7 3.13-7 7s3.13 7 7 7" stroke="rgba(167,199,231,0.5)" strokeWidth="1" strokeLinecap="round" />
+                                            <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4" stroke="rgba(167,199,231,0.7)" strokeWidth="1.2" strokeLinecap="round" />
+                                            <circle cx="12" cy="12" r="1.5" fill="rgba(167,199,231,1)" />
+                                            <path d="M14 12h4M12 14v4" stroke="rgba(167,199,231,0.6)" strokeWidth="1" strokeLinecap="round" />
+                                        </svg>
                                     </div>
                                     <div>
                                         <h3 className="text-2xl font-bold text-white mb-4">Unmistakably human</h3>

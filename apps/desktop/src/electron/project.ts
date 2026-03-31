@@ -49,7 +49,15 @@ function commit(repoPath: string, message?: string) {
 
 function push(repoPath: string) {
   return new Promise((resolve, reject) => {
-    const cmd = `"${gitBin}" push origin HEAD`;
+    const cmd = [
+      // If HEAD doesn't exist yet (fresh repo), create an initial commit.
+      // Using `git commit --allow-empty` avoids refspec HEAD failures and keeps the flow smooth.
+      `"${gitBin}" rev-parse --verify HEAD >/dev/null 2>&1 || (` +
+        `"${gitBin}" add . && "${gitBin}" commit --allow-empty -m "Initial snapshot"` +
+      `)`,
+      `"${gitBin}" push -u origin HEAD`,
+    ].join(' && ');
+
     exec(cmd, { cwd: repoPath }, (err, stdout, stderr) => {
       if (err) { reject(stderr); return; }
       resolve(stdout);
