@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { rebase } from './git-rebase';
 
 const platformMap: Partial<Record<NodeJS.Platform, string>> = {
   win32: 'windows',
@@ -20,14 +21,15 @@ try {
   gitBin = 'git';
 }
 
-function pull(repoPath: string) {
-  return new Promise((resolve, reject) => {
-    const cmd = `"${gitBin}" pull origin main`;
-    exec(cmd, { cwd: repoPath }, (err, stdout, stderr) => {
-      if (err) { reject(stderr); return; }
-      resolve(stdout);
-    });
-  });
+async function pull(repoPath: string) {
+  console.log(`[Project] Pull requested for: ${repoPath}`);
+  const result = await rebase(repoPath);
+  if (!result.success) {
+    console.error(`[Project] Pull failed: ${result.error}`);
+    throw new Error(result.error);
+  }
+  console.log(`[Project] Pull completed successfully`);
+  return 'Changes downloaded successfully';
 }
 
 function commit(repoPath: string, message?: string) {
