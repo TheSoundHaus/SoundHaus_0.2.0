@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld('electron', {
 	},
 	setLastProjectPath: (projectPath: string | null) => ipcRenderer.invoke('set-last-project-path', projectPath),
 	setCurrentRoute: (route: string) => ipcRenderer.invoke('set-current-route', route),
+	addRecentProject: (projectPath: string, projectName: string) => ipcRenderer.invoke('add-recent-project', projectPath, projectName),
+	getRecentProjects: (): Promise<unknown[]> => ipcRenderer.invoke('get-recent-projects'),
+	removeRecentProject: (projectPath: string) => ipcRenderer.invoke('remove-recent-project', projectPath),
 
 	getSearchMenuEntries: () => ipcRenderer.invoke('search-menu-get-entries'),
 	openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
