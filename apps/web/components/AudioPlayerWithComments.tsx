@@ -54,6 +54,21 @@ export default function AudioPlayerWithComments({
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [hoveredComment, setHoveredComment] = useState<string | null>(null);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMarkerEnter = useCallback((id: string) => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    setHoveredComment(id);
+  }, []);
+
+  const handleMarkerLeave = useCallback(() => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredComment(null);
+    }, 150);
+  }, []);
 
   // Initialize WaveSurfer
   useEffect(() => {
@@ -188,7 +203,7 @@ export default function AudioPlayerWithComments({
             e.preventDefault();
             togglePlay();
           }}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-900 shadow transition-all hover:bg-white"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow transition-all" style={{ background: 'linear-gradient(135deg, #A7C7E7, #9BBFE6, #A7C7E7)', color: '#fff' }}
         >
           {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
         </button>
@@ -204,20 +219,24 @@ export default function AudioPlayerWithComments({
           {markerPositions.map((c) => (
             <div
               key={c.id}
-              className="absolute top-0 bottom-0 w-0.5 group z-10"
-              style={{ left: `${c.pct}%` }}
-              onMouseEnter={() => setHoveredComment(c.id)}
-              onMouseLeave={() => setHoveredComment(null)}
+              className="absolute top-0 bottom-0 z-10"
+              style={{ left: `calc(${c.pct}% - 6px)`, width: '13px' }}
+              onMouseEnter={() => handleMarkerEnter(c.id)}
+              onMouseLeave={handleMarkerLeave}
             >
-              {/* Marker line */}
-              <div className="w-full h-full bg-amber-400/80 group-hover:bg-amber-300 transition-colors" />
+              {/* Marker line (centered in hit area) */}
+              <div className="absolute left-1/2 -translate-x-1/2 w-0.5 h-full bg-amber-400/80 hover:bg-amber-300 transition-colors" />
 
               {/* Marker dot at top */}
-              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-400 group-hover:bg-amber-300 ring-2 ring-zinc-900" />
+              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-zinc-900" />
 
               {/* Tooltip on hover */}
               {hoveredComment === c.id && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-48 rounded-md bg-zinc-800 border border-zinc-600 p-2 shadow-xl z-50 pointer-events-auto">
+                <div
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-48 rounded-md bg-zinc-800 border border-zinc-600 p-2 shadow-xl z-50"
+                  onMouseEnter={() => handleMarkerEnter(c.id)}
+                  onMouseLeave={handleMarkerLeave}
+                >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-medium text-sky-400 truncate">
                       {c.username}

@@ -1,6 +1,6 @@
 "use server";
 
-import type { ApiResponse } from "../types/api";
+import type { ApiResponse, PublicRepo } from "../types/api";
 import { authFetch } from "./client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -111,4 +111,29 @@ export async function getUserStats(): Promise<ApiResponse<UserStats>> {
     if (!result.success) return { success: false, error: result.error };
     if (!result.data?.stats) return { success: false, error: "Empty stats response" };
     return { success: true, data: result.data.stats };
+}
+
+// ─── GET /api/repos/user/{username} ─────────────────────────────────────────
+
+export async function getUserPublicRepos(username: string): Promise<ApiResponse<PublicRepo[]>> {
+    const baseUrl = process.env.API_URL || "http://localhost:8000";
+    try {
+        const res = await fetch(`${baseUrl}/api/repos/user/${encodeURIComponent(username)}`, {
+            cache: "no-store",
+        });
+        if (!res.ok) {
+            let errorMessage = `HTTP ${res.status}`;
+            try {
+                const body = await res.json();
+                errorMessage = body.detail ?? errorMessage;
+            } catch {
+                errorMessage = res.statusText || errorMessage;
+            }
+            return { success: false, error: errorMessage };
+        }
+        const data = await res.json();
+        return { success: true, data: data.repos ?? [] };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Network error" };
+    }
 }

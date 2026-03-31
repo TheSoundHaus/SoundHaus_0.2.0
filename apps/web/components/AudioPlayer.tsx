@@ -123,7 +123,7 @@ export default function AudioPlayer({ src, compact = false }: AudioPlayerProps) 
   // Full Mode
   return (
     <div
-      className="flex items-center gap-3 rounded-lg bg-clash-dark/95 backdrop-blur border border-clash-gold/20 px-4 py-3"
+      className="flex items-center gap-3 rounded-lg bg-zinc-900/95 backdrop-blur border border-zinc-700/50 px-4 py-3"
       onClick={(e) => e.preventDefault()}
     >
       <button
@@ -131,14 +131,15 @@ export default function AudioPlayer({ src, compact = false }: AudioPlayerProps) 
           e.preventDefault();
           togglePlay();
         }}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-clash-gold text-clash-dark shadow transition-all hover:bg-clash-goldBorder"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow transition-all"
+        style={{ background: 'linear-gradient(135deg, #A7C7E7, #9BBFE6, #A7C7E7)', color: '#fff' }}
       >
         {playing ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
       </button>
 
       <div ref={waveformRef} className="flex-1 cursor-pointer" />
 
-      <span className="shrink-0 font-mono text-sm text-clash-light">
+      <span className="shrink-0 font-mono text-sm text-zinc-400">
         {fmt(currentTime)} / {fmt(duration)}
       </span>
 
@@ -147,7 +148,7 @@ export default function AudioPlayer({ src, compact = false }: AudioPlayerProps) 
           e.preventDefault();
           toggleMute();
         }}
-        className="text-clash-light transition-colors hover:text-clash-gold"
+        className="text-zinc-400 transition-colors hover:text-white"
       >
         {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
       </button>
