@@ -4,7 +4,7 @@ import { useProjectActions } from './useProjectActions'
 import { useProjectGitActions } from './useProjectGitActions'
 
 export function useMenuActions() {
-    const { handleAbletonImport, handleExistingProject } = useProjectActions()
+    const { handleAbletonImport } = useProjectActions()
     const { runPull, runCommit, runPush } = useProjectGitActions()
     const navigate = useNavigate()
     const location = useLocation()
@@ -33,7 +33,7 @@ export function useMenuActions() {
                 handleAbletonImport();
                 break;
             case 'import-soundhaus':
-                handleExistingProject();
+                navigate('/home', { state: { openProjectDialog: true } });
                 break;
             case 'view-home':
                 navigate('/home');
@@ -74,7 +74,7 @@ export function useMenuActions() {
                 }
                 break;
         }
-    }, [handleAbletonImport, handleExistingProject, navigate, runPull, runCommit, runPush]);
+    }, [handleAbletonImport, navigate, runPull, runCommit, runPush]);
 
     // Report current route to main process so it can enable/disable menu items.
     // Include location.key so same-path navigations with new state still re-sync.
