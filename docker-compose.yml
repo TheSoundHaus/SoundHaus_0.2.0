@@ -123,6 +123,22 @@ services:
       gitea_db:
         condition: service_healthy
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks: [appnet]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   fastapi:
     build:
       context: ./apps/backend
@@ -135,6 +151,8 @@ services:
       gitea:
         condition: service_started
       token-broker:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -179,6 +197,8 @@ services:
     depends_on:
       fastapi:
         condition: service_started
+      redis:
+        condition: service_healthy
     volumes:
       - ./apps/backend:/app
       - ./workers:/workers
@@ -233,4 +253,6 @@ services:
 
 volumes:
   gitea_pgdata:
+    driver: local
+  redis_data:
     driver: local
