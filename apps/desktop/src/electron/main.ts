@@ -8,6 +8,7 @@ import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
+import { recentProjectsManager } from './recentProjectsManager';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -337,6 +338,35 @@ ipcMain.handle('set-current-route', async(_event: IpcMainInvokeEvent, route: str
   updateMenuForRoute(route);
 });
 
+ipcMain.handle('add-recent-project', async(_event: IpcMainInvokeEvent, projectPath: string, projectName: string) => {
+  if (typeof projectPath !== 'string' || typeof projectName !== 'string') return;
+  try {
+    await recentProjectsManager.addProject(projectPath, projectName);
+  } catch (error) {
+    console.error('[add-recent-project] Error:', error);
+    // Don't throw - this is a non-critical operation
+  }
+});
+
+ipcMain.handle('get-recent-projects', async(_event: IpcMainInvokeEvent) => {
+  try {
+    return await recentProjectsManager.getAllProjects();
+  } catch (error) {
+    console.error('[get-recent-projects] Error:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('remove-recent-project', async(_event: IpcMainInvokeEvent, projectPath: string) => {
+  if (typeof projectPath !== 'string') return;
+  try {
+    await recentProjectsManager.removeProject(projectPath);
+  } catch (error) {
+    console.error('[remove-recent-project] Error:', error);
+    // Don't throw - this is a non-critical operation
+  }
+});
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -356,7 +386,7 @@ app.whenReady().then(() => {
         },
         {
           id: 'import-soundhaus',
-          label: 'Import SoundHaus Project',
+          label: 'Open SoundHaus Project',
           click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-soundhaus')
         },
         {
