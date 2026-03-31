@@ -345,16 +345,25 @@ async def get_public_repos(
         subq = base.subquery()
         query = query.filter(RepoData.gitea_id.in_(subq))
 
+    all_repos = query.all()
+
+    # Batch-resolve owner UUIDs → SoundHaus usernames
+    owner_ids = list({r.gitea_id.split("/", 1)[0] for r in all_repos if "/" in r.gitea_id})
+    profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
+    profile_map = {str(p.id): p.username for p in profile_rows}
+
     svc = RepoService()
     result = []
-    for repo in query:
+    for repo in all_repos:
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
+            owner_username = profile_map.get(owner, owner)
             gitea_data = svc.get_repo_contents(owner, repo_name)
 
             repo_info = {
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
+                "owner_username": owner_username,
                 "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
@@ -381,8 +390,11 @@ async def get_public_repos(
             result.append(repo_info)
         except Exception as e:
             logger.warning("get_public_repos", gitea_id=repo.gitea_id, error=str(e))
+            owner_id = repo.gitea_id.split("/", 1)[0] if "/" in repo.gitea_id else repo.gitea_id
             result.append({
                 "gitea_id": repo.gitea_id,
+                "owner": owner_id,
+                "owner_username": profile_map.get(owner_id, owner_id),
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
                 "snippet_metadata": {
@@ -406,8 +418,14 @@ async def get_user_public_repos(
     username: str,
     db: Session = Depends(get_db),
 ):
-    """Get all public repos owned by a specific user (no auth required)."""
-    prefix = f"{username}/"
+    """Get all public repos owned by a specific user (no auth required).
+    Accepts either a Supabase UUID or a SoundHaus username."""
+    # Try to resolve username → UUID so we can match gitea_id
+    profile = db.query(Profile).filter(Profile.username == username).first()
+    owner_id = str(profile.id) if profile else username
+    owner_username = profile.username if profile else username
+
+    prefix = f"{owner_id}/"
     repos = db.query(RepoData).filter(RepoData.gitea_id.like(f"{prefix}%")).all()
 
     svc = RepoService()
@@ -420,6 +438,7 @@ async def get_user_public_repos(
             repo_info = {
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
+                "owner_username": owner_username,
                 "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
@@ -486,9 +505,14 @@ async def get_repo_stats(
     except Exception:
         pass  # Non-critical: description/privacy are cosmetic
 
+    # Resolve owner UUID → username
+    owner_profile = db.query(Profile).filter(Profile.id == owner).first()
+    owner_username = owner_profile.username if owner_profile else owner
+
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
+        "owner_username": owner_username,
         "description": description,
         "private": is_private,
         "clone_url": f"{settings.gitea_public_url}/{owner}/{repo}.git",

@@ -202,6 +202,7 @@ export default function RepoDetailClient({
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
+  const ownerDisplayName = stats?.owner_username || owner;
 
   // Remix (clone) modal state + access control
   const [showRemixModal, setShowRemixModal] = useState(false);
@@ -726,7 +727,7 @@ export default function RepoDetailClient({
                   <span className="flex items-center gap-1 text-zinc-400">
                     <User size={12} /> Owner
                   </span>
-                  <span className="text-xs text-zinc-300">{owner}</span>
+                  <span className="text-xs text-zinc-300">{ownerDisplayName}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1 text-zinc-400">

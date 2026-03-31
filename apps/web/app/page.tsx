@@ -287,32 +287,55 @@ function WaveformDivider({ flip = false }: { flip?: boolean }) {
     );
 }
 
-function EQBarsDivider() {
+function SoundWaveDivider() {
     return (
-        <div className="relative w-full h-20 flex items-end justify-center gap-[2px] overflow-hidden pointer-events-none">
-            {Array.from({ length: 120 }).map((_, i) => {
-                const h = 15 + Math.sin(i * 0.25) * 35 + Math.cos(i * 0.6) * 20 + Math.sin(i * 0.12) * 15;
-                const delay = (i * 0.04).toFixed(2);
-                const hue = 200 + (i / 120) * 30;
-                return (
-                    <div
-                        key={i}
-                        className="rounded-t-full"
-                        style={{
-                            flex: "1 1 0",
-                            height: `${Math.max(h, 6)}%`,
-                            background: `linear-gradient(to top, hsla(${hue}, 45%, 70%, 0.25), hsla(${hue}, 45%, 70%, 0.05))`,
-                            animation: `eqPulse ${1.8 + (i % 4) * 0.4}s ease-in-out ${delay}s infinite`,
-                        }}
+        <div className="relative w-full h-24 overflow-hidden pointer-events-none">
+            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1440 96" preserveAspectRatio="none">
+                {/* Primary wave — slow, wide undulation */}
+                <path fill="none" stroke="rgba(167, 199, 231, 0.12)" strokeWidth="2">
+                    <animate
+                        attributeName="d"
+                        dur="4s"
+                        repeatCount="indefinite"
+                        values="
+                            M0 48 C240 20 480 76 720 48 C960 20 1200 76 1440 48;
+                            M0 48 C240 76 480 20 720 48 C960 76 1200 20 1440 48;
+                            M0 48 C240 20 480 76 720 48 C960 20 1200 76 1440 48
+                        "
                     />
-                );
-            })}
-            <style jsx>{`
-                @keyframes eqPulse {
-                    0%, 100% { transform: scaleY(1); opacity: 1; }
-                    50% { transform: scaleY(0.3); opacity: 0.5; }
-                }
-            `}</style>
+                </path>
+                {/* Secondary wave — faster, tighter */}
+                <path fill="none" stroke="rgba(167, 199, 231, 0.06)" strokeWidth="1.5">
+                    <animate
+                        attributeName="d"
+                        dur="3s"
+                        repeatCount="indefinite"
+                        values="
+                            M0 48 C120 30 240 66 360 48 C480 30 600 66 720 48 C840 30 960 66 1080 48 C1200 30 1320 66 1440 48;
+                            M0 48 C120 66 240 30 360 48 C480 66 600 30 720 48 C840 66 960 30 1080 48 C1200 66 1320 30 1440 48;
+                            M0 48 C120 30 240 66 360 48 C480 30 600 66 720 48 C840 30 960 66 1080 48 C1200 30 1320 66 1440 48
+                        "
+                    />
+                </path>
+                {/* Tertiary — highest frequency, barely visible */}
+                <path fill="none" stroke="rgba(167, 199, 231, 0.04)" strokeWidth="1">
+                    <animate
+                        attributeName="d"
+                        dur="2.5s"
+                        repeatCount="indefinite"
+                        values="
+                            M0 48 C60 38 120 58 180 48 C240 38 300 58 360 48 C420 38 480 58 540 48 C600 38 660 58 720 48 C780 38 840 58 900 48 C960 38 1020 58 1080 48 C1140 38 1200 58 1260 48 C1320 38 1380 58 1440 48;
+                            M0 48 C60 58 120 38 180 48 C240 58 300 38 360 48 C420 58 480 38 540 48 C600 58 660 38 720 48 C780 58 840 38 900 48 C960 58 1020 38 1080 48 C1140 58 1200 38 1260 48 C1320 58 1380 38 1440 48;
+                            M0 48 C60 38 120 58 180 48 C240 38 300 58 360 48 C420 38 480 58 540 48 C600 38 660 58 720 48 C780 38 840 58 900 48 C960 38 1020 58 1080 48 C1140 38 1200 58 1260 48 C1320 38 1380 58 1440 48
+                        "
+                    />
+                </path>
+                {/* Center pulse dot */}
+                <circle cx="720" cy="48" r="2" fill="rgba(167, 199, 231, 0.15)">
+                    <animate attributeName="r" dur="3s" repeatCount="indefinite" values="2;4;2" />
+                    <animate attributeName="opacity" dur="3s" repeatCount="indefinite" values="0.15;0.3;0.15" />
+                </circle>
+            </svg>
         </div>
     );
 }
@@ -967,8 +990,8 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── EQ Bars Divider ── */}
-            <EQBarsDivider />
+            {/* ── Sound Wave Divider ── */}
+            <SoundWaveDivider />
 
             {/* ── Human Collaboration Philosophy ─────────── */}
             <section id="philosophy" className="relative py-32 md:py-44 px-6 overflow-hidden">
@@ -987,95 +1010,93 @@ export default function LandingPage() {
                         </p>
                     </FadeInSection>
 
-                    {/* Row 1: Image left, text right */}
-                    <FadeInSection delay={100} variant="left">
-                        <div className="grid md:grid-cols-2 gap-0 rounded-2xl border border-white/[0.06] overflow-hidden mb-8 transition-shadow duration-700 hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                            <div className="relative h-72 md:h-auto overflow-hidden">
-                                <img
-                                    src="https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?w=800&q=80&auto=format"
-                                    alt="Music producer working at a mixing desk in a studio"
-                                    className="absolute inset-0 w-full h-full object-cover"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-zinc-950/80 hidden md:block" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 to-transparent md:hidden" />
-                            </div>
-                            <div className="bg-zinc-900/70 backdrop-blur-sm p-8 md:p-10 flex flex-col justify-center">
-                                <div className="w-10 h-10 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-5">
-                                    <Users className="w-5 h-5 text-glass-blue-400" />
+                    {/* Philosophy cards — text with decorative accents */}
+                    <div className="space-y-6">
+                        <FadeInSection delay={100} variant="left">
+                            <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
+                                {/* Decorative accent — concentric arcs */}
+                                <div className="absolute -right-20 -top-20 w-64 h-64 pointer-events-none opacity-[0.04]">
+                                    <svg viewBox="0 0 200 200" fill="none">
+                                        <circle cx="100" cy="100" r="40" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
+                                        <circle cx="100" cy="100" r="60" stroke="rgba(167,199,231,1)" strokeWidth="0.7"/>
+                                        <circle cx="100" cy="100" r="80" stroke="rgba(167,199,231,1)" strokeWidth="0.5"/>
+                                        <circle cx="100" cy="100" r="96" stroke="rgba(167,199,231,1)" strokeWidth="0.3"/>
+                                    </svg>
                                 </div>
-                                <h3 className="text-2xl font-bold text-white mb-4">Real people, real music</h3>
-                                <p className="text-base text-zinc-400 leading-relaxed font-light">
-                                    We believe the best music comes from real people — producers, engineers, and
-                                    artists — working together, sharing ideas, and pushing each other creatively.
-                                    Our platform is built to amplify human talent, not replace it.
-                                </p>
-                            </div>
-                        </div>
-                    </FadeInSection>
-
-                    {/* Pull quote */}
-                    <FadeInSection delay={150} variant="scale">
-                        <div className="my-12 md:my-16 text-center px-4">
-                            <blockquote className="text-2xl md:text-4xl font-bold tracking-tight text-white leading-snug">
-                                &ldquo;We&apos;re not interested in generating beats<br className="hidden md:block" /> with a prompt.&rdquo;
-                            </blockquote>
-                            <div className="mt-4 h-px w-16 mx-auto bg-glass-blue-400/40" />
-                        </div>
-                    </FadeInSection>
-
-                    {/* Row 2: Text left, image right */}
-                    <FadeInSection delay={200} variant="right">
-                        <div className="grid md:grid-cols-2 gap-0 rounded-2xl border border-white/[0.06] overflow-hidden mb-8 transition-shadow duration-700 hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                            <div className="bg-zinc-900/70 backdrop-blur-sm p-8 md:p-10 flex flex-col justify-center order-2 md:order-1">
-                                <div className="w-10 h-10 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-5">
-                                    <Eye className="w-5 h-5 text-glass-blue-400" />
+                                <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+                                    <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
+                                        <Users className="w-6 h-6 text-glass-blue-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-2xl font-bold text-white mb-4">Real people, real music</h3>
+                                        <p className="text-base text-zinc-400 leading-relaxed font-light max-w-2xl">
+                                            We believe the best music comes from real people — producers, engineers, and
+                                            artists — working together, sharing ideas, and pushing each other creatively.
+                                            Our platform is built to amplify human talent, not replace it.
+                                        </p>
+                                    </div>
                                 </div>
-                                <h3 className="text-2xl font-bold text-white mb-4">Transparent by design</h3>
-                                <p className="text-base text-zinc-400 leading-relaxed font-light">
-                                    Every feature in SoundHaus — from version control to visual diffs to stem
-                                    separation — exists to make collaboration between real musicians easier and
-                                    more transparent. We give you the tools to iterate on your own ideas, hear exactly
-                                    what your collaborator changed, and build something genuinely yours.
-                                </p>
                             </div>
-                            <div className="relative h-72 md:h-auto overflow-hidden order-1 md:order-2">
-                                <img
-                                    src="https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800&q=80&auto=format"
-                                    alt="Musician playing piano in warm studio lighting"
-                                    className="absolute inset-0 w-full h-full object-cover"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-l from-transparent to-zinc-950/80 hidden md:block" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 to-transparent md:hidden" />
-                            </div>
-                        </div>
-                    </FadeInSection>
+                        </FadeInSection>
 
-                    {/* Row 3: Image left, text right */}
-                    <FadeInSection delay={300} variant="left">
-                        <div className="grid md:grid-cols-2 gap-0 rounded-2xl border border-white/[0.06] overflow-hidden transition-shadow duration-700 hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                            <div className="relative h-72 md:h-auto overflow-hidden">
-                                <img
-                                    src="https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80&auto=format"
-                                    alt="Live band performing together on stage"
-                                    className="absolute inset-0 w-full h-full object-cover"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-zinc-950/80 hidden md:block" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 to-transparent md:hidden" />
-                            </div>
-                            <div className="bg-zinc-900/70 backdrop-blur-sm p-8 md:p-10 flex flex-col justify-center">
-                                <div className="w-10 h-10 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-5">
-                                    <GitBranch className="w-5 h-5 text-glass-blue-400" />
+                        <FadeInSection delay={200} variant="right">
+                            <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
+                                {/* Decorative accent — waveform lines */}
+                                <div className="absolute -left-10 top-1/2 -translate-y-1/2 w-48 h-48 pointer-events-none opacity-[0.04]">
+                                    <svg viewBox="0 0 200 200" fill="none">
+                                        <path d="M10 100 Q50 40 100 100 Q150 160 190 100" stroke="rgba(167,199,231,1)" strokeWidth="1.5"/>
+                                        <path d="M10 100 Q50 60 100 100 Q150 140 190 100" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
+                                        <path d="M10 100 Q50 80 100 100 Q150 120 190 100" stroke="rgba(167,199,231,1)" strokeWidth="0.5"/>
+                                    </svg>
                                 </div>
-                                <h3 className="text-2xl font-bold text-white mb-4">Unmistakably human</h3>
-                                <p className="text-base text-zinc-400 leading-relaxed font-light">
-                                    SoundHaus is where authenticity matters. Where credit is tracked in the commit
-                                    history, not lost in a chain of anonymous exports. Where a drummer in Berlin and
-                                    a vocalist in LA can trade stems across time zones without losing context.
-                                    The future of music is collaborative — and it should be unmistakably human.
-                                </p>
+                                <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+                                    <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
+                                        <Eye className="w-6 h-6 text-glass-blue-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-2xl font-bold text-white mb-4">Transparent by design</h3>
+                                        <p className="text-base text-zinc-400 leading-relaxed font-light max-w-2xl">
+                                            Every feature in SoundHaus — from version control to visual diffs to stem
+                                            separation — exists to make collaboration between real musicians easier and
+                                            more transparent. We give you the tools to iterate on your own ideas, hear exactly
+                                            what your collaborator changed, and build something genuinely yours.
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </FadeInSection>
+                        </FadeInSection>
+
+                        <FadeInSection delay={300} variant="left">
+                            <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
+                                {/* Decorative accent — branch lines */}
+                                <div className="absolute -right-16 -bottom-16 w-56 h-56 pointer-events-none opacity-[0.04]">
+                                    <svg viewBox="0 0 200 200" fill="none">
+                                        <line x1="100" y1="20" x2="100" y2="180" stroke="rgba(167,199,231,1)" strokeWidth="1.5"/>
+                                        <line x1="100" y1="70" x2="150" y2="40" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
+                                        <line x1="100" y1="130" x2="50" y2="160" stroke="rgba(167,199,231,1)" strokeWidth="1"/>
+                                        <circle cx="100" cy="70" r="4" fill="rgba(167,199,231,1)"/>
+                                        <circle cx="150" cy="40" r="4" fill="rgba(167,199,231,1)"/>
+                                        <circle cx="100" cy="130" r="4" fill="rgba(167,199,231,1)"/>
+                                        <circle cx="50" cy="160" r="4" fill="rgba(167,199,231,1)"/>
+                                    </svg>
+                                </div>
+                                <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+                                    <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
+                                        <GitBranch className="w-6 h-6 text-glass-blue-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-2xl font-bold text-white mb-4">Unmistakably human</h3>
+                                        <p className="text-base text-zinc-400 leading-relaxed font-light max-w-2xl">
+                                            SoundHaus is where authenticity matters. Where credit is tracked in the commit
+                                            history, not lost in a chain of anonymous exports. Where a drummer in Berlin and
+                                            a vocalist in LA can trade stems across time zones without losing context.
+                                            The future of music is collaborative — and it should be unmistakably human.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </FadeInSection>
+                    </div>
                 </div>
             </section>
 
@@ -1207,7 +1228,7 @@ export default function LandingPage() {
                     <div className="flex items-center gap-2.5 text-zinc-500">
                         <Waves className="w-5 h-5 text-glass-blue-400" />
                         <span className="font-semibold text-zinc-300">SoundHaus</span>
-                        <span className="text-xs">
+                        <span className="text-xs" suppressHydrationWarning>
                             &copy; {new Date().getFullYear()}
                         </span>
                     </div>

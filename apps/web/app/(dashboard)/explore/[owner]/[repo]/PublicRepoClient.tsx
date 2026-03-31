@@ -89,6 +89,7 @@ export default function PublicRepoClient({
   const pushes: PushActivity[] = activity?.activity ?? [];
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
+  const displayName = stats?.owner_username || owner;
 
   function timeAgo(iso: string | null | undefined): string {
     if (!iso) return "—";
@@ -193,7 +194,7 @@ export default function PublicRepoClient({
           Explore
         </Link>
         <span>/</span>
-        <Link href={`/profile/${owner}`} className="text-zinc-200 hover:text-glass-blue transition-colors">{owner}</Link>
+        <Link href={`/profile/${displayName}`} className="text-zinc-200 hover:text-glass-blue transition-colors">{displayName}</Link>
         <span>/</span>
         <span className="text-zinc-200">{repo}</span>
       </div>
@@ -202,7 +203,7 @@ export default function PublicRepoClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-1 text-3xl font-bold">{repo}</h1>
-          <p className="text-sm text-zinc-400">by <Link href={`/profile/${owner}`} className="text-zinc-300 hover:text-glass-blue transition-colors">{owner}</Link></p>
+          <p className="text-sm text-zinc-400">by <Link href={`/profile/${displayName}`} className="text-zinc-300 hover:text-glass-blue transition-colors">{displayName}</Link></p>
         </div>
       </div>
 
@@ -371,7 +372,7 @@ export default function PublicRepoClient({
                   <span className="flex items-center gap-1 text-zinc-400">
                     <User size={12} /> Owner
                   </span>
-                  <Link href={`/profile/${owner}`} className="text-xs text-zinc-300 hover:text-glass-blue transition-colors">{owner}</Link>
+                  <Link href={`/profile/${displayName}`} className="text-xs text-zinc-300 hover:text-glass-blue transition-colors">{displayName}</Link>
                 </div>
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1 text-zinc-400">

@@ -270,7 +270,7 @@ export default function RepositoryCard({
           className="text-zinc-300 hover:text-glass-blue-400 transition-colors cursor-pointer"
         >{author}</span>
         <span className="mx-2 text-zinc-600">&middot;</span>
-        {formattedDate}
+        <span suppressHydrationWarning>{formattedDate}</span>
       </p>
 
       {/* Genre tags */}
