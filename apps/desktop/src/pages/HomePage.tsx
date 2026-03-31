@@ -1,10 +1,11 @@
 import { useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useProjectActions } from '../hooks/useProjectActions'
 import OpenProjectDialog from '../components/OpenProjectDialog'
 
 const HomePage = () => {
     const location = useLocation()
+    const navigate = useNavigate()
     const { 
         handleProjectClone, 
         handleServerExplore, 
@@ -16,12 +17,13 @@ const HomePage = () => {
         setIsOpenDialogVisible,
     } = useProjectActions()
 
-    // Open dialog if triggered from menu
+    // Open dialog if triggered from menu, then clear state to prevent re-opening on back
     useEffect(() => {
-        if ((location.state as any)?.openProjectDialog) {
+        if ((location.state as { openProjectDialog?: boolean })?.openProjectDialog) {
             setIsOpenDialogVisible(true)
+            navigate(location.pathname, { replace: true, state: {} })
         }
-    }, [location.state])
+    }, [location.state, navigate])
 
     return(
         <div>

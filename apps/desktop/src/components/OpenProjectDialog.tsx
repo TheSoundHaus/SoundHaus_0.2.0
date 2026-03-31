@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { RecentProject } from '../types/index'
 
 interface OpenProjectDialogProps {
   isOpen: boolean
   onClose: () => void
-  onSelectProject: (projectPath: string) => Promise<void>
-  onOpenFromFilepath: () => Promise<void>
+  onSelectProject: (projectPath: string) => Promise<boolean>
+  onOpenFromFilepath: () => Promise<boolean>
 }
 
 const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
@@ -17,8 +17,9 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
-  // Load recent projects when dialog opens
+  // Load recent projects when dialog opens and manage focus
   useEffect(() => {
     if (!isOpen) return
 
@@ -26,7 +27,7 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
       try {
         const projects = await window.electron?.getRecentProjects()
         if (projects) {
-          setRecentProjects(projects)
+          setRecentProjects(projects as RecentProject[])
         }
       } catch (error) {
         console.error('Failed to load recent projects:', error)
@@ -35,7 +36,22 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
     loadProjects()
     setSelectedPath(null)
+
+    // Focus dialog for keyboard accessibility
+    dialogRef.current?.focus()
   }, [isOpen])
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !loading) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, loading, onClose])
 
   const handleSelectProject = (projectPath: string) => {
     setSelectedPath(projectPath)
@@ -45,9 +61,7 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
     e.stopPropagation()
     try {
       await window.electron?.removeRecentProject(projectPath)
-      // Remove from local state
-      setRecentProjects(recentProjects.filter(p => p.path !== projectPath))
-      // Clear selection if this was the selected project
+      setRecentProjects(prev => prev.filter(p => p.path !== projectPath))
       if (selectedPath === projectPath) {
         setSelectedPath(null)
       }
@@ -61,10 +75,12 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
     setLoading(true)
     try {
-      await onSelectProject(selectedPath)
-      onClose()
+      const success = await onSelectProject(selectedPath)
+      if (success) {
+        onClose()
+      }
     } catch (error) {
-      alert(`Failed to open project:\n${error}`)
+      alert(`Failed to open project:\n${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setLoading(false)
     }
@@ -73,8 +89,10 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   const handleOpenFromFilepath = async () => {
     setLoading(true)
     try {
-      await onOpenFromFilepath()
-      onClose()
+      const success = await onOpenFromFilepath()
+      if (success) {
+        onClose()
+      }
     } catch (error) {
       console.warn('Filepath picker cancelled or failed')
     } finally {
@@ -86,8 +104,16 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
   return (
     <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.dialog} onClick={(e) => e.stopPropagation()}>
-        <h2 style={styles.title}>Open SoundHaus Project</h2>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="open-project-dialog-title"
+        tabIndex={-1}
+        style={styles.dialog}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="open-project-dialog-title" style={styles.title}>Open SoundHaus Project</h2>
 
         {/* Recent Projects List */}
         <div style={styles.section}>
