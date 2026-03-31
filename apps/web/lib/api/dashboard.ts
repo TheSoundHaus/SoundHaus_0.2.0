@@ -116,7 +116,10 @@ export async function getDashboardData(): Promise<{
 
         const commitResults = await Promise.all(
             recentRepos.map((repo) => {
-                const [owner, repoName] = repo.full_name.split("/");
+                const parts = repo.full_name.split("/");
+                const owner = parts[0] ?? "";
+                const repoName = parts[1] ?? "";
+                if (!owner || !repoName) return null;
                 return getCommits(owner, repoName, 1, 1).catch(() => null);
             })
         );

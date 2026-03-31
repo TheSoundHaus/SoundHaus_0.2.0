@@ -726,6 +726,7 @@ function LandingNavbar() {
                     {[
                         { label: "Features", href: "#features" },
                         { label: "How It Works", href: "#how-it-works" },
+                        { label: "Our Philosophy", href: "#philosophy" },
                         { label: "Demo", href: "#demo" },
                         { label: "Get Started", href: "#download" },
                     ].map((link) => (
@@ -872,9 +873,6 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── EQ Bars Divider ── */}
-            <EQBarsDivider />
-
             {/* ── Features ───────────────────────────────── */}
             <section id="features" className="relative py-32 md:py-40 px-6">
                 <FloatingParticles count={15} />
@@ -958,7 +956,61 @@ export default function LandingPage() {
             {/* ── EQ Bars Divider ── */}
             <EQBarsDivider />
 
-            {/* ── Demo Carousel ──────────────────────────── */}
+            {/* ── Human Collaboration Philosophy ─────────── */}
+            <section id="philosophy" className="relative py-32 md:py-40 px-6">
+                <FloatingParticles count={10} color="140, 180, 220" />
+                {/* Soft center glow */}
+                <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 50% 45% at 50% 50%, rgba(167, 199, 231, 0.03) 0%, transparent 70%)" }} aria-hidden />
+
+                <div className="mx-auto max-w-4xl relative z-10">
+                    <FadeInSection className="text-center mb-16">
+                        <p className="text-xs font-medium tracking-[0.3em] uppercase text-glass-blue-400 mb-4">Our Philosophy</p>
+                        <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-5">
+                            Built for humans,<br className="hidden sm:block" /> not algorithms
+                        </h2>
+                    </FadeInSection>
+
+                    <div className="space-y-10">
+                        <FadeInSection delay={100}>
+                            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-10">
+                                <p className="text-base md:text-lg text-zinc-400 leading-relaxed font-light">
+                                    In a world where AI-generated content is becoming the norm, SoundHaus takes a
+                                    different stand. We believe the best music comes from real people — producers,
+                                    engineers, and artists — working together, sharing ideas, and pushing each
+                                    other creatively. Our platform is built to amplify human talent, not replace it.
+                                </p>
+                            </div>
+                        </FadeInSection>
+
+                        <FadeInSection delay={200}>
+                            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-10">
+                                <p className="text-base md:text-lg text-zinc-400 leading-relaxed font-light">
+                                    Every feature in SoundHaus — from version control to visual diffs to stem
+                                    separation — exists to make collaboration between real musicians easier and
+                                    more transparent. We&apos;re not interested in generating beats with a prompt. We&apos;re
+                                    interested in giving you the tools to iterate on your own ideas, hear exactly
+                                    what your collaborator changed, and build something genuinely yours.
+                                </p>
+                            </div>
+                        </FadeInSection>
+
+                        <FadeInSection delay={300}>
+                            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-10">
+                                <p className="text-base md:text-lg text-zinc-400 leading-relaxed font-light">
+                                    SoundHaus is a platform where authenticity matters. Where credit is tracked in
+                                    the commit history, not lost in a chain of anonymous exports. Where async
+                                    collaboration means a drummer in Berlin and a vocalist in LA can trade stems
+                                    across time zones without losing context. The future of music is collaborative —
+                                    and it should be unmistakably human.
+                                </p>
+                            </div>
+                        </FadeInSection>
+                    </div>
+                </div>
+            </section>
+
+            {/* ── Waveform Divider ── */}
+            <WaveformDivider />
             <section id="demo" className="relative py-32 md:py-40 px-6">
                 <FloatingParticles count={12} color="130, 160, 210" />
                 <div className="mx-auto max-w-5xl relative z-10">
@@ -1093,6 +1145,7 @@ export default function LandingPage() {
                     <div className="flex items-center gap-8 text-xs text-zinc-600">
                         <a href="#features" className="hover:text-zinc-300 transition-colors no-underline">Features</a>
                         <a href="#how-it-works" className="hover:text-zinc-300 transition-colors no-underline">How It Works</a>
+                        <a href="#philosophy" className="hover:text-zinc-300 transition-colors no-underline">Our Philosophy</a>
                         <a href="#demo" className="hover:text-zinc-300 transition-colors no-underline">Demo</a>
                         <a href="#download" className="hover:text-zinc-300 transition-colors no-underline">Get Started</a>
                         <Link href="/login" className="hover:text-zinc-300 transition-colors no-underline">Log In</Link>
