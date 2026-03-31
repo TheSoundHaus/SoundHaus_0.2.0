@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
-import './env';
+import { desktopEnv } from './env';
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
 import { gitBin, pull, commit, push } from "./project";
@@ -350,6 +350,79 @@ ipcMain.handle('get-allowed-clone-remote', async(_event: IpcMainInvokeEvent) => 
 
 ipcMain.handle('set-allowed-clone-remote', async(_event: IpcMainInvokeEvent, remote: string) => {
   return await setAllowedCloneRemote(remote);
+});
+
+ipcMain.handle('auto-login', async () => {
+  const token = await getSoundHausCredentials();
+  if (!token) return { success: false, reason: 'no-token' };
+
+  const existingGiteaToken = await getGiteaCredentials();
+  const url = `${desktopEnv.supabasePublicUrl}/api/desktop/credentials`;
+  const headers: Record<string, string> = { Authorization: `token ${token}` };
+  if (existingGiteaToken) headers['X-Cached-Gitea-Token'] = existingGiteaToken;
+
+  try {
+    const res = await fetch(url, { method: 'GET', headers });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      return { success: false, reason: 'invalid-token', status: res.status, body: body.slice(0, 300) };
+    }
+    const data = await res.json() as Record<string, any>;
+    if (!existingGiteaToken || existingGiteaToken !== data.token) {
+      await setGiteaCredentials(data.token);
+    }
+    if (data.gitea_url) await setAllowedCloneRemote(data.gitea_url);
+    return { success: true };
+  } catch (err) {
+    return { success: false, reason: 'fetch-error', error: String(err) };
+  }
+});
+
+ipcMain.handle('manual-login', async (_event: IpcMainInvokeEvent, email: string, password: string) => {
+  const base = desktopEnv.supabasePublicUrl;
+  try {
+    const loginRes = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!loginRes.ok) {
+      const body = await loginRes.text().catch(() => '');
+      return { success: false, reason: 'login-failed', status: loginRes.status, body: body.slice(0, 300) };
+    }
+    const loginData = await loginRes.json() as Record<string, any>;
+    const accessToken: string | undefined = loginData.session?.access_token;
+    if (!accessToken) return { success: false, reason: 'no-access-token' };
+
+    const patRes = await fetch(`${base}/api/auth/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ token_name: 'Gitea Token', expires_in_days: 90 }),
+    });
+    if (!patRes.ok) {
+      const body = await patRes.text().catch(() => '');
+      return { success: false, reason: 'pat-failed', status: patRes.status, body: body.slice(0, 300) };
+    }
+    const patData = await patRes.json() as Record<string, any>;
+    const pat: string = patData.token;
+    await setSoundHausCredentials(pat);
+
+    const credRes = await fetch(`${base}/api/desktop/credentials`, {
+      method: 'GET',
+      headers: { Authorization: `token ${pat}` },
+    });
+    if (credRes.ok) {
+      const credData = await credRes.json() as Record<string, any>;
+      if (credData.token) await setGiteaCredentials(credData.token);
+      if (credData.gitea_url) await setAllowedCloneRemote(credData.gitea_url);
+    } else {
+      console.warn('[manual-login] Desktop credentials fetch failed:', credRes.status);
+    }
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, reason: 'fetch-error', error: String(err) };
+  }
 });
 
 ipcMain.handle('set-last-project-path', async(_event: IpcMainInvokeEvent, projectPath: string | null) => {
