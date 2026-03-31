@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import styles from './ProjectPage.module.css'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
-import { useProjectGitActions } from '../hooks/useProjectGitActions'
+import { useProjectGitActions, GitError } from '../hooks/useProjectGitActions'
 import electronAPI from '../services/electronAPI';
 
 const ProjectPage = () => {
@@ -54,10 +54,17 @@ const ProjectPage = () => {
         if(!selectedProject) return
         try {
             const result = await runPull(selectedProject)
-            alert(`Pull complete:\n${result}`)
+            alert(`Download complete!\n${result}`)
             await handleRefreshChanges()
         } catch(error) {
-            alert(`Pull failed:\n${error}`)
+            const gitError = error as GitError
+            if (gitError?.type === 'conflict') {
+                alert(`Unable to download changes.\n\nYour work has conflicts with recent changes from your collaborators. Please contact your team to resolve this.`)
+            } else if (gitError?.type === 'network') {
+                alert(`Unable to connect.\n\nPlease check your internet connection and try again.`)
+            } else {
+                alert(`Download failed:\n${gitError?.message ?? error}`)
+            }
         }
     }
 

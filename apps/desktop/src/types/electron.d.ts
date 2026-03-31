@@ -29,6 +29,8 @@ declare global {
       setGiteaCredentials: (token: string) => Promise<string>
       getAllowedCloneRemote: () => Promise<string | null>
       setAllowedCloneRemote: (remote: string) => Promise<string>
+      autoLogin: () => Promise<{ success: boolean; reason?: string; status?: number; body?: string; error?: string }>
+      manualLogin: (email: string, password: string) => Promise<{ success: boolean; reason?: string; status?: number; body?: string; error?: string }>
     }
     electron?: {
       showProjectSetup: () => Promise<ProjectSetupData | null>

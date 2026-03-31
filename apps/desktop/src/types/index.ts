@@ -15,6 +15,14 @@ export interface GitService {
   pushRepo: (repoPath: string) => Promise<string>
 }
 
+export interface LoginResult {
+  success: boolean
+  reason?: string
+  status?: number
+  body?: string
+  error?: string
+}
+
 export interface PatService {
   getSoundHausCredentials: () => Promise<string | null>
   setSoundHausCredentials: (token: string) => Promise<string>
@@ -22,6 +30,8 @@ export interface PatService {
   setGiteaCredentials: (token: string) => Promise<string>
   getAllowedCloneRemote: () => Promise<string | null>
   setAllowedCloneRemote: (remote: string) => Promise<string>
+  autoLogin: () => Promise<LoginResult>
+  manualLogin: (email: string, password: string) => Promise<LoginResult>
 }
 
 export interface GitFileChange {
