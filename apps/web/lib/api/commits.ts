@@ -5,7 +5,8 @@
  */
 
 import type { ApiResponse } from "../types/api";
-
+import type { ProjectDiff } from "@/components/diff/types/diff";
+import { authFetch } from "./client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,8 @@ export interface AlsDiffData {
     before_sha: string | null;
     diff_type: string;
     diff_summary: string | null;
-    diff_data: Record<string, unknown>;
+    /** The ProjectDiff JSON blob stored by the backend. */
+    diff_data: ProjectDiff;
     created_at: string;
 }
 
@@ -58,7 +60,8 @@ export async function getCommits(
         `/repos/${_owner}/${_repo}/commits?page=${_page}&limit=${_limit}`
     );
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data! };
+    if (!result.data) return { success: false, error: "Empty commits response" };
+    return { success: true, data: result.data };
 }
 
 /** Fetches full metadata for a single commit by SHA. */
@@ -71,7 +74,8 @@ export async function getCommitDetail(
         `/repos/${_owner}/${_repo}/commits/${_sha}`
     );
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data! };
+    if (!result.data) return { success: false, error: "Empty commit detail response" };
+    return { success: true, data: result.data };
 }
 
 /** Fetches the ALS semantic diff for a specific commit SHA. */

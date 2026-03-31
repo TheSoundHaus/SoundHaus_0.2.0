@@ -20,7 +20,7 @@
  *   note summaries (count, velocity range, pitch range) in tooltips.
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
     GitCommit,
     Volume2,
@@ -319,15 +319,90 @@ function TrackLabel({ track }: { track: DiffTrack }) {
     );
 }
 
+/**
+ * Seeded PRNG — deterministic waveform shapes per clip name.
+ * Based on a simple mulberry32 generator.
+ */
+function seedRandom(str: string): () => number {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+        h = Math.imul(31, h) + str.charCodeAt(i);
+    }
+    return () => {
+        h |= 0;
+        h = (h + 0x6d2b79f5) | 0;
+        let t = Math.imul(h ^ (h >>> 15), 1 | h);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+/** Mini canvas waveform drawn inside audio clip blocks. */
+function MiniWaveform({
+    clipName,
+    changeType,
+}: {
+    clipName: string;
+    changeType: "added" | "modified" | "removed";
+}) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        const w = canvas.offsetWidth;
+        const h = canvas.offsetHeight;
+        canvas.width = w * 2; // retina
+        canvas.height = h * 2;
+        ctx.scale(2, 2);
+
+        const centerY = h / 2;
+        const rand = seedRandom(clipName);
+
+        // Color per change type
+        const colorMap: Record<string, string> = {
+            added: "rgba(52, 211, 153, 0.7)",
+            modified: "rgba(167, 199, 231, 0.65)",
+            removed: "rgba(251, 113, 133, 0.6)",
+        };
+        ctx.fillStyle = colorMap[changeType] ?? "rgba(161,161,170,0.5)";
+
+        // Generate smooth waveform bars
+        const barCount = Math.max(12, Math.floor(w / 3));
+        const barW = w / barCount;
+        let prevAmp = 0.3;
+        for (let i = 0; i < barCount; i++) {
+            // Smooth amplitude with some randomness
+            const target = 0.15 + rand() * 0.7;
+            prevAmp += (target - prevAmp) * 0.4;
+            const amp = prevAmp * (centerY - 1);
+            const x = i * barW;
+            ctx.fillRect(x, centerY - amp, Math.max(barW - 0.5, 1), amp * 2);
+        }
+    }, [clipName, changeType]);
+
+    return (
+        <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full pointer-events-none"
+        />
+    );
+}
+
 /** Single clip block on the timeline. */
 function ClipBlock({
     clip,
     totalBeats,
+    isAudio,
     onMouseEnter,
     onMouseLeave,
 }: {
     clip: DiffClip;
     totalBeats: number;
+    isAudio?: boolean;
     onMouseEnter: (e: React.MouseEvent) => void;
     onMouseLeave: () => void;
 }) {
@@ -344,7 +419,12 @@ function ClipBlock({
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
-            {widthPct > 6 ? clip.name : ""}
+            {isAudio && (
+                <MiniWaveform clipName={clip.name} changeType={clip.changeType} />
+            )}
+            {widthPct > 6 && (
+                <span className="relative z-10">{clip.name}</span>
+            )}
         </div>
     );
 }
@@ -367,6 +447,8 @@ function TimelineRow({
     ) => void;
     onClipLeave: () => void;
 }) {
+    const isAudio = track.type === "Audio";
+
     return (
         <div className="relative min-w-0 flex-1 py-1">
             {/* Hint when no clips but track has a change */}
@@ -398,6 +480,7 @@ function TimelineRow({
                     key={clip.id}
                     clip={clip}
                     totalBeats={totalBeats}
+                    isAudio={isAudio}
                     onMouseEnter={(e) => onClipHover(trackIdx, clipIdx, e)}
                     onMouseLeave={onClipLeave}
                 />
@@ -523,7 +606,9 @@ export default function DiffView({
                 {tracks.map((track, trackIdx) => (
                     <div
                         key={track.id ?? trackIdx}
-                        className="flex min-h-[36px] border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/30 transition-colors"
+                        className={`flex border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/30 transition-colors ${
+                            track.type === "Audio" ? "min-h-[48px]" : "min-h-[36px]"
+                        }`}
                     >
                         <TrackLabel track={track} />
                         <TimelineRow

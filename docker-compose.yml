@@ -104,8 +104,9 @@ services:
       - GITEA__server__SSH_PORT=2222
       - GITEA__lfs__START_SERVER=true
       - GITEA__server__HTTP_ADDR=0.0.0.0
-      - GITEA__server__SSH_DOMAIN=localhost
-      - GITEA__server__DOMAIN=localhost
+      - GITEA__server__SSH_DOMAIN=${GITEA_SSH_DOMAIN:-localhost}
+      - GITEA__server__DOMAIN=${GITEA_DOMAIN:-localhost}
+      - GITEA__server__ROOT_URL=${GITEA_ROOT_URL:-http://localhost:3000/}
       # Skip web installer - pre-configure everything
       - GITEA__security__INSTALL_LOCK=true
       - GITEA__security__SECRET_KEY=${GITEA_SECRET_KEY}
@@ -123,6 +124,22 @@ services:
       gitea_db:
         condition: service_healthy
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks: [appnet]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   fastapi:
     build:
       context: ./apps/backend
@@ -135,6 +152,8 @@ services:
       gitea:
         condition: service_started
       token-broker:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "8000:8000"
@@ -179,12 +198,14 @@ services:
     depends_on:
       fastapi:
         condition: service_started
+      redis:
+        condition: service_healthy
     volumes:
       - ./apps/backend:/app
       - ./workers:/workers
       - /app/venv
     env_file:
-      - ./apps/backend/.env
+        - ${BACKEND_ENV_FILE:-./apps/backend/.env}
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -233,4 +254,6 @@ services:
 
 volumes:
   gitea_pgdata:
+    driver: local
+  redis_data:
     driver: local

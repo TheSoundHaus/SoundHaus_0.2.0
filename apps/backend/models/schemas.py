@@ -33,6 +33,12 @@ class CreateRepoRequest(BaseModel):
     description: Optional[str] = ""
     private: bool = True
 
+class RegisterRepoRequest(BaseModel):
+    """Register a Gitea repo in the local database (used by desktop app after direct Gitea creation)."""
+    name: str
+    description: Optional[str] = ""
+    private: bool = True
+
 class UploadFileRequest(BaseModel):
     file_path: str
     content: str

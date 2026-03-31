@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import styles from './ProjectPage.module.css'
+import { ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine, Music, AlertTriangle, CheckCircle } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
@@ -11,10 +11,8 @@ const ProjectPage = () => {
     const selectedProject = (location.state as any)?.projectPath || null
 
     const [alsStruct, setAlsStruct] = useState<any | null>(null)
-    // Track Information closed by default, Changes open by default
     const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
     const [showChanges, setShowChanges] = useState<boolean>(true)
-
     const [refreshing, setRefreshing] = useState(false)
 
     const { findAndParse } = useAlsParser()
@@ -23,7 +21,7 @@ const ProjectPage = () => {
 
     const handleRefreshChanges = useCallback(async () => {
         if (!selectedProject) return
-        
+
         setRefreshing(true)
         if (typeof findAls !== 'function') {
             console.warn('findAls is not available from useElectronIPC')
@@ -40,7 +38,6 @@ const ProjectPage = () => {
                 return
             }
 
-            // Single atomic call — diffs in Rust, no temp files
             const result = await electronAPI.getChanges(alsPath)
             setAlsStruct(result)
         } catch (e) {
@@ -51,36 +48,34 @@ const ProjectPage = () => {
     }, [findAls, findAndParse, selectedProject])
 
     const handleGitPull = async () => {
-        if(!selectedProject) return
+        if (!selectedProject) return
         try {
             const result = await runPull(selectedProject)
             alert(`Pull complete:\n${result}`)
             await handleRefreshChanges()
-        } catch(error) {
+        } catch (error) {
             alert(`Pull failed:\n${error}`)
         }
     }
 
     const handleGitCommit = async () => {
-        if(!selectedProject) return
+        if (!selectedProject) return
         try {
             const result = await runCommit(selectedProject)
             alert(`Commit complete:\n${result}`)
-            // After a commit the working tree matches HEAD — show in-sync immediately
-            // without a round-trip diff (which would always return empty).
             setAlsStruct((prev: any) => prev ? { ...prev, diffStatus: 'in-sync', summary: '' } : prev)
-        } catch(error) {
+        } catch (error) {
             alert(`Commit failed:\n${error}`)
         }
     }
 
     const handleGitPush = async () => {
-        if(!selectedProject) return
+        if (!selectedProject) return
         try {
             const result = await runPush(selectedProject)
             alert(`Push complete:\n${result}`)
             await handleRefreshChanges()
-        } catch(error) {
+        } catch (error) {
             alert(`Push failed:\n${error}`)
         }
     }
@@ -98,136 +93,155 @@ const ProjectPage = () => {
         }
 
         window.addEventListener('soundhaus:project-refresh-request', onRefreshRequest)
-
-        return () => {
-            window.removeEventListener('soundhaus:project-refresh-request', onRefreshRequest)
-        }
+        return () => window.removeEventListener('soundhaus:project-refresh-request', onRefreshRequest)
     }, [handleRefreshChanges, selectedProject])
 
-    return(
-        <div className={styles.container}>
-            <div className={styles.left}>
-                {/* Track Information dropdown - exact block requested */}
-                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
+    const projectName = selectedProject?.split(/[\\/]/).pop() || 'Project'
+
+    return (
+        <div className="flex w-full h-screen bg-bg-primary text-text-primary overflow-hidden animate-fade-in">
+            {/* Left panel — track info + changes */}
+            <div className="flex-1 flex flex-col overflow-y-auto p-5 space-y-3">
+                {/* Project title */}
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10">
+                        <Music className="w-4 h-4 text-accent" />
+                    </div>
+                    <div>
+                        <h1 className="text-lg font-semibold text-text-primary truncate">{projectName}</h1>
+                        <p className="text-xs text-text-tertiary truncate max-w-xs">{selectedProject}</p>
+                    </div>
+                </div>
+
+                {/* Track Information */}
+                <div className="rounded-xl border border-border-default overflow-hidden">
                     <button
                         onClick={() => setShowTrackInfo(s => !s)}
                         aria-expanded={showTrackInfo}
-                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer' }}
+                        className="w-full flex items-center justify-between px-4 py-3 bg-bg-elevated
+                                   text-sm font-medium text-text-secondary hover:bg-bg-tertiary/60
+                                   transition-colors duration-200 cursor-pointer"
                     >
-                        Track Information <span style={{ float: 'right' }}>{showTrackInfo ? '▾' : '▸'}</span>
+                        <span className="flex items-center gap-2">
+                            {showTrackInfo ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            Track Information
+                        </span>
                     </button>
                     {showTrackInfo && (
-                        <div style={{ padding: 12, background: '#fff' }}>
+                        <div className="p-4 bg-bg-secondary border-t border-border-subtle">
                             {alsStruct == null ? (
-                                <div>
-                                    <p>No ALS loaded</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No ALS loaded</p>
                             ) : alsStruct.ok === false ? (
-                                <div className={styles.error}>
-                                    <p>{alsStruct.reason ?? 'An error occurred'}</p>
+                                <div className="flex items-center gap-2 text-sm text-error">
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    <span>{alsStruct.reason ?? 'An error occurred'}</span>
                                 </div>
                             ) : alsStruct.project?.Tracks ? (
-                                <div>
-                                    <div style={{ display: 'grid', gap: '8px' }}>
-                                        {alsStruct.project.Tracks.map((track: any, i: number) => (
-                                            <div key={i} className={styles.changeItem}>
-                                                <strong>{track.EffectiveName || 'Unnamed Track'}</strong>
-                                                <div style={{ fontSize: '0.9em', color: '#666' }}>
-                                                    Type: {track.Type} | ID: {track.Id}
-                                                    {track.UserName && ` | User: ${track.UserName}`}
-                                                </div>
+                                <div className="space-y-2">
+                                    {alsStruct.project.Tracks.map((track: any, i: number) => (
+                                        <div key={i} className="px-3 py-2.5 rounded-lg bg-bg-primary/60 border border-border-subtle">
+                                            <div className="text-sm font-medium text-text-primary">
+                                                {track.EffectiveName || 'Unnamed Track'}
                                             </div>
-                                        ))}
-                                    </div>
+                                            <div className="text-xs text-text-tertiary mt-0.5">
+                                                {track.Type} · ID {track.Id}
+                                                {track.UserName && ` · ${track.UserName}`}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             ) : (
-                                <div>
-                                    <p>No tracks found</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No tracks found</p>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* Changes dropdown - exact block requested */}
-                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
-                    <button
-                        onClick={() => setShowChanges(s => !s)}
-                        aria-expanded={showChanges}
-                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                    >
-                        <span>Changes <span style={{ marginLeft: '8px' }}>{showChanges ? '▾' : '▸'}</span></span>
-                        <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                handleRefreshChanges()
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    handleRefreshChanges()
-                                }
-                            }}
-                            aria-disabled={refreshing}
-                            style={{ 
-                                padding: '4px 8px', 
-                                fontSize: '12px', 
-                                background: '#fff', 
-                                border: '1px solid #ccc', 
-                                borderRadius: '4px', 
-                                cursor: refreshing ? 'wait' : 'pointer',
-                                opacity: refreshing ? 0.6 : 1,
-                                userSelect: 'none'
-                            }}
+                {/* Changes */}
+                <div className="rounded-xl border border-border-default overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-bg-elevated">
+                        <button
+                            onClick={() => setShowChanges(s => !s)}
+                            aria-expanded={showChanges}
+                            className="flex items-center gap-2 text-sm font-medium text-text-secondary
+                                       hover:text-text-primary transition-colors duration-200 cursor-pointer"
+                        >
+                            {showChanges ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            Changes
+                        </button>
+                        <button
+                            onClick={handleRefreshChanges}
+                            disabled={refreshing}
+                            className="flex items-center justify-center w-7 h-7 rounded-lg
+                                       text-text-tertiary hover:text-accent hover:bg-accent/10
+                                       disabled:opacity-40 disabled:cursor-not-allowed
+                                       transition-all duration-200 cursor-pointer"
                             title="Compare with remote HEAD"
                         >
-                            {refreshing ? '⟳' : '↻'}
-                        </span>
-                    </button>
+                            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin-slow' : ''}`} />
+                        </button>
+                    </div>
                     {showChanges && (
-                        <div style={{ padding: 12, background: '#fff' }}>
+                        <div className="p-4 bg-bg-secondary border-t border-border-subtle">
                             {alsStruct == null ? (
-                                <div>
-                                    <p>No ALS loaded</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No ALS loaded</p>
                             ) : alsStruct.ok === false ? (
-                                <div className={styles.error}>
-                                    <p>{alsStruct.reason ?? 'An error occurred'}</p>
+                                <div className="flex items-center gap-2 text-sm text-error">
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    <span>{alsStruct.reason ?? 'An error occurred'}</span>
                                 </div>
                             ) : alsStruct.baselineStatus === 'no-commits' ? (
-                                <div>
-                                    <p style={{ color: '#888' }}>No snapshots yet — this will be the initial snapshot.</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No snapshots yet — this will be the initial snapshot.</p>
                             ) : alsStruct.diffStatus === 'in-sync' ? (
-                                <div>
-                                    <p style={{ color: '#4caf50' }}>✓ In sync with last snapshot</p>
+                                <div className="flex items-center gap-2 text-sm text-success">
+                                    <CheckCircle className="w-4 h-4" />
+                                    <span>In sync with last snapshot</span>
                                 </div>
                             ) : alsStruct.diffStatus === 'has-changes' ? (
-                                <div>
-                                    <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
-                                        {alsStruct.summary.split('\n').map((line: string, i: number) => (
-                                            <div key={i} style={{ marginBottom: '4px' }}>{line}</div>
-                                        ))}
-                                    </div>
+                                <div className="diff-panel rounded-lg p-3">
+                                    {alsStruct.summary.split('\n').map((line: string, i: number) => (
+                                        <div key={i} className="text-sm text-text-secondary py-0.5 font-mono">{line}</div>
+                                    ))}
                                 </div>
                             ) : (
-                                <div>
-                                    <p style={{ color: '#888' }}>Press ↻ to compare with last snapshot</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">Press ↻ to compare with last snapshot</p>
                             )}
                         </div>
                     )}
                 </div>
             </div>
-            <div className={styles.right}>
-                <div className={styles.buttons}>
-                    <button onClick={handleGitPull}>Download Changes from Server</button>
-                    <button onClick={handleGitCommit}>Save Changes in Snapshot</button>
-                    <button onClick={handleGitPush}>Upload Changes to Server</button>
-                </div>
+
+            {/* Right panel — git actions */}
+            <div className="w-56 shrink-0 flex flex-col gap-2.5 p-5 border-l border-border-subtle bg-bg-secondary/50">
+                <h2 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-1">Actions</h2>
+                <button
+                    onClick={handleGitPull}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               bg-bg-elevated border border-border-default text-text-primary
+                               hover:border-accent/30 hover:bg-bg-tertiary/60
+                               transition-all duration-200 cursor-pointer"
+                >
+                    <ArrowDownToLine className="w-4 h-4 text-accent" />
+                    Pull Changes
+                </button>
+                <button
+                    onClick={handleGitCommit}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               btn-brand transition-all duration-200 cursor-pointer"
+                >
+                    <Save className="w-4 h-4" />
+                    Save Snapshot
+                </button>
+                <button
+                    onClick={handleGitPush}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               bg-bg-elevated border border-border-default text-text-primary
+                               hover:border-accent/30 hover:bg-bg-tertiary/60
+                               transition-all duration-200 cursor-pointer"
+                >
+                    <ArrowUpFromLine className="w-4 h-4 text-accent" />
+                    Push Changes
+                </button>
             </div>
         </div>
     )

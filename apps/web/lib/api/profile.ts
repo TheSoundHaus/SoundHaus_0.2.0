@@ -1,6 +1,6 @@
 "use server";
 
-import type { ApiResponse } from "../types/api";
+import type { ApiResponse, PublicRepo } from "../types/api";
 import { authFetch } from "./client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -30,7 +30,8 @@ export interface PublicProfile {
 export async function getProfile(): Promise<ApiResponse<UserProfile>> {
     const result = await authFetch<{ profile: UserProfile }>("/api/auth/profile");
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data!.profile };
+    if (!result.data?.profile) return { success: false, error: "Empty profile response" };
+    return { success: true, data: result.data.profile };
 }
 
 // ─── PUT /api/auth/profile ──────────────────────────────────────────────────
@@ -43,7 +44,8 @@ export async function updateProfile(
         body: JSON.stringify(updates),
     });
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data!.profile };
+    if (!result.data?.profile) return { success: false, error: "Empty profile response" };
+    return { success: true, data: result.data.profile };
 }
 
 // ─── POST /api/auth/profile/avatar ──────────────────────────────────────────
@@ -55,7 +57,8 @@ export async function uploadAvatar(formData: FormData): Promise<ApiResponse<{ av
         // Do NOT set Content-Type — authFetch skips it for FormData
     });
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: { avatar_url: result.data!.avatar_url } };
+    if (!result.data?.avatar_url) return { success: false, error: "No avatar URL returned" };
+    return { success: true, data: { avatar_url: result.data.avatar_url } };
 }
 
 // ─── DELETE /api/auth/profile/avatar ────────────────────────────────────────
@@ -106,5 +109,31 @@ export interface UserStats {
 export async function getUserStats(): Promise<ApiResponse<UserStats>> {
     const result = await authFetch<{ stats: UserStats }>("/api/auth/profile/stats");
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data!.stats };
+    if (!result.data?.stats) return { success: false, error: "Empty stats response" };
+    return { success: true, data: result.data.stats };
+}
+
+// ─── GET /api/repos/user/{username} ─────────────────────────────────────────
+
+export async function getUserPublicRepos(username: string): Promise<ApiResponse<PublicRepo[]>> {
+    const baseUrl = process.env.API_URL || "http://localhost:8000";
+    try {
+        const res = await fetch(`${baseUrl}/api/repos/user/${encodeURIComponent(username)}`, {
+            cache: "no-store",
+        });
+        if (!res.ok) {
+            let errorMessage = `HTTP ${res.status}`;
+            try {
+                const body = await res.json();
+                errorMessage = body.detail ?? errorMessage;
+            } catch {
+                errorMessage = res.statusText || errorMessage;
+            }
+            return { success: false, error: errorMessage };
+        }
+        const data = await res.json();
+        return { success: true, data: data.repos ?? [] };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Network error" };
+    }
 }

@@ -75,6 +75,7 @@ function createWindow() {
     const mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    backgroundColor: '#18181B',
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
     },
@@ -116,12 +117,51 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
     return null;
   }
   try {
-    const entries = await fs.promises.readdir(folderPath, { withFileTypes:  true });
-    for(const ent of entries) {
-      if(ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
-        return path.join(folderPath, ent.name);
+    const findFirstAls = async (root: string, maxDepth = 6): Promise<string | null> => {
+      // Breadth-first search for the first .als under root.
+      // Skips common irrelevant / huge directories.
+      const skipDirs = new Set([
+        '.git',
+        '.soundhaus',
+        'node_modules',
+        '.next',
+        'dist',
+        'build',
+        'target',
+      ]);
+
+      type QueueItem = { dir: string; depth: number };
+      const queue: QueueItem[] = [{ dir: root, depth: 0 }];
+
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        let entries: fs.Dirent[];
+        try {
+          entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+
+        // Prefer files in the current folder first.
+        for (const ent of entries) {
+          if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+            return path.join(current.dir, ent.name);
+          }
+        }
+
+        // Then enqueue subfolders (bounded by maxDepth).
+        if (current.depth >= maxDepth) continue;
+        for (const ent of entries) {
+          if (!ent.isDirectory()) continue;
+          if (skipDirs.has(ent.name)) continue;
+          queue.push({ dir: path.join(current.dir, ent.name), depth: current.depth + 1 });
+        }
       }
-    }
+
+      return null;
+    };
+
+    return await findFirstAls(folderPath);
   }
   catch(e) {
     // Ignore errors
@@ -168,16 +208,50 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
   let commitMessage: string | undefined;
   let alsPath: string | undefined;
   try {
-    // Find the ALS file in the repo
+    const findFirstAls = async (root: string, maxDepth = 6): Promise<string | null> => {
+      const skipDirs = new Set([
+        '.git',
+        '.soundhaus',
+        'node_modules',
+        '.next',
+        'dist',
+        'build',
+        'target',
+      ]);
+      type QueueItem = { dir: string; depth: number };
+      const queue: QueueItem[] = [{ dir: root, depth: 0 }];
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        let entries: fs.Dirent[];
+        try {
+          entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const ent of entries) {
+          if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+            return path.join(current.dir, ent.name);
+          }
+        }
+        if (current.depth >= maxDepth) continue;
+        for (const ent of entries) {
+          if (!ent.isDirectory()) continue;
+          if (skipDirs.has(ent.name)) continue;
+          queue.push({ dir: path.join(current.dir, ent.name), depth: current.depth + 1 });
+        }
+      }
+      return null;
+    };
+
+    // Find the ALS file in the repo (can be nested)
     // TODO: Revamp file selection — the ALS session name is currently derived by
     // auto-discovering the first .als file in the project folder. In a future ticket,
     // the user will select a specific ALS file directly; all naming decisions
     // (e.g. .soundhaus/{als_session_name}/) will be based on that explicit selection.
-    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
-    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    alsPath = await findFirstAls(repoPath);
 
-    if (alsFile) {
-      alsPath = path.join(repoPath, alsFile.name);
+    if (alsPath) {
+      const alsFileName = path.basename(alsPath);
 
       // Check if HEAD exists — no commit message generation on first commit
       try {
@@ -197,7 +271,7 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
       } catch (e) {
         // No HEAD yet, or no snapshot in HEAD (first commit / legacy repo)
         console.warn('[commit-changes] Falling back to initial snapshot message:', e);
-        commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
+        commitMessage = `Initial snapshot: ${alsFileName.replace(/\.als$/i, '')}`;
       }
 
       // Write the Minimal Project Description snapshot before committing so

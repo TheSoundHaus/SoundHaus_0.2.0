@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # === Webhook ===
     webhook_base_url: str = Field(default="http://localhost:8000", description="Base URL for webhook callbacks")
     
+    # === Redis ===
+    redis_url: str = Field(default="redis://redis:6379/0", description="Redis connection URL")
+    
     @field_validator("environment")
     @classmethod
     def validate_environment(cls, v: str) -> str:

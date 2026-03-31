@@ -11,49 +11,32 @@ import UserAvatar from "@/components/UserAvatar";
 import type { SentInvitation } from "@/lib/types/api";
 import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail } from "lucide-react";
 
-/**
- * User Profile Page - Profile settings, account, stats, and invitation management
- * API Calls:
- * - GET /api/auth/profile (via UserProvider context)
- * - PUT /api/auth/profile (update display_name, bio)
- * - POST /api/auth/profile/avatar (upload avatar)
- * - DELETE /api/auth/profile/avatar (remove avatar)
- * - GET /invitations/sent (all invitations sent by user)
- * - DELETE /invitations/{id} (cancel pending invitation)
- * - Logout (revokes session token)
- */
 export default function SettingsPage() {
   const { user, loading: userLoading, refreshUser } = useUser();
   const [activeTab, setActiveTab] = useState<"profile" | "account" | "invitations" | "stats">(
     "profile"
   );
 
-  // Profile form state
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // Avatar state
   const [avatarUploading, setAvatarUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Invitations state
   const [sentInvitations, setSentInvitations] = useState<SentInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  // Visibility toggle state
   const [visibilityDialogOpen, setVisibilityDialogOpen] = useState(false);
   const [pendingVisibility, setPendingVisibility] = useState<boolean | null>(null);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
 
-  // Password reset state
   const [resetSending, setResetSending] = useState(false);
   const [resetMessage, setResetMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // Statistics state
   const [stats, setStats] = useState<{
     total_repos: number;
     total_commits: number;
@@ -64,7 +47,6 @@ export default function SettingsPage() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
 
-  // Populate form when user data loads
   useEffect(() => {
     if (user) {
       setDisplayName(user.display_name || "");
@@ -135,7 +117,6 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Client-side validation
     if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
       setProfileMessage({ type: "error", text: "Only JPEG, PNG, WebP, or GIF images allowed." });
       return;
@@ -159,7 +140,6 @@ export default function SettingsPage() {
       setProfileMessage({ type: "error", text: result.error });
     }
     setAvatarUploading(false);
-    // Reset file input
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -194,7 +174,6 @@ export default function SettingsPage() {
     }
   }, [activeTab, loadInvitations]);
 
-  // Load stats when tab is active
   useEffect(() => {
     if (activeTab === "stats" && !stats && !statsLoading) {
       setStatsLoading(true);
@@ -221,7 +200,6 @@ export default function SettingsPage() {
     setCancellingId(null);
   };
 
-  // Format storage size from KB
   function formatStorageSize(kb: number): string {
     if (kb < 1024) return `${kb} KB`;
     const mb = kb / 1024;
@@ -230,9 +208,8 @@ export default function SettingsPage() {
     return `${gb.toFixed(2)} GB`;
   }
 
-  // Format relative time
   function timeAgo(iso: string | null | undefined): string {
-    if (!iso) return "—";
+    if (!iso) return "\u2014";
     try {
       const d = new Date(iso);
       const now = new Date();
@@ -246,7 +223,7 @@ export default function SettingsPage() {
       if (days < 30) return `${days}d ago`;
       return d.toLocaleDateString();
     } catch {
-      return iso ?? "—";
+      return iso ?? "\u2014";
     }
   }
 
@@ -258,19 +235,22 @@ export default function SettingsPage() {
         return <CheckCircle size={14} className="text-green-500" />;
       case "declined":
         return <XCircle size={14} className="text-red-500" />;
+      case "expired":
+        return <XCircle size={14} className="text-yellow-500" />;
       default:
-        return <Clock size={14} className="text-zinc-400" />;
+        return <Clock size={14} className="text-zinc-500" />;
     }
   };
 
   const statusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      pending: "bg-yellow-500/10 text-yellow-400",
-      accepted: "bg-green-500/10 text-green-400",
-      declined: "bg-red-500/10 text-red-400",
+      pending: "bg-yellow-900/30 text-yellow-400",
+      accepted: "bg-green-900/30 text-green-400",
+      declined: "bg-red-900/30 text-red-400",
+      expired: "bg-yellow-900/30 text-yellow-400",
     };
     return (
-      <span className={`rounded-full px-2 py-0.5 text-xs ${styles[status] ?? "bg-zinc-500/10 text-zinc-400"}`}>
+      <span className={`rounded-full px-2 py-0.5 text-xs ${styles[status] ?? "bg-zinc-800 text-zinc-400"}`}>
         {status}
       </span>
     );
@@ -293,7 +273,7 @@ export default function SettingsPage() {
                 onClick={() => setActiveTab("profile")}
                 className={`rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
                   activeTab === "profile"
-                    ? "bg-zinc-800 text-zinc-100"
+                    ? "bg-zinc-800 text-glass-blue-400"
                     : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
                 }`}
               >
@@ -303,7 +283,7 @@ export default function SettingsPage() {
                 onClick={() => setActiveTab("account")}
                 className={`rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
                   activeTab === "account"
-                    ? "bg-zinc-800 text-zinc-100"
+                    ? "bg-zinc-800 text-glass-blue-400"
                     : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
                 }`}
               >
@@ -313,7 +293,7 @@ export default function SettingsPage() {
                 onClick={() => setActiveTab("invitations")}
                 className={`rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
                   activeTab === "invitations"
-                    ? "bg-zinc-800 text-zinc-100"
+                    ? "bg-zinc-800 text-glass-blue-400"
                     : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
                 }`}
               >
@@ -323,7 +303,7 @@ export default function SettingsPage() {
                 onClick={() => setActiveTab("stats")}
                 className={`rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
                   activeTab === "stats"
-                    ? "bg-zinc-800 text-zinc-100"
+                    ? "bg-zinc-800 text-glass-blue-400"
                     : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
                 }`}
               >
@@ -335,13 +315,13 @@ export default function SettingsPage() {
           {/* Content Area */}
           <div className="lg:col-span-3">
             {activeTab === "profile" && (
-              <div className="rounded-lg border border-zinc-800 p-8">
-                <h2 className="mb-6 text-2xl font-semibold">Profile Settings</h2>
+              <div className="rounded-xl border border-zinc-800 p-8">
+                <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Profile Settings</h2>
 
                 {userLoading ? (
                   <div className="flex items-center gap-3 text-sm text-zinc-400">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
-                    Loading profile…
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-400" />
+                    Loading profile...
                   </div>
                 ) : (
                   <div className="space-y-6">
@@ -353,7 +333,6 @@ export default function SettingsPage() {
                           alt={user?.display_name || user?.username || "Avatar"}
                           size={80}
                         />
-                        {/* Upload overlay */}
                         <button
                           onClick={() => fileInputRef.current?.click()}
                           disabled={avatarUploading}
@@ -375,12 +354,12 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-zinc-200">Profile Picture</p>
-                        <p className="text-xs text-zinc-400 mb-2">JPEG, PNG, WebP, or GIF. Max 2 MB.</p>
+                        <p className="text-xs text-zinc-500 mb-2">JPEG, PNG, WebP, or GIF. Max 2 MB.</p>
                         <div className="flex gap-2">
                           <button
                             onClick={() => fileInputRef.current?.click()}
                             disabled={avatarUploading}
-                            className="rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50"
+                            className="rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50"
                           >
                             Upload
                           </button>
@@ -388,7 +367,7 @@ export default function SettingsPage() {
                             <button
                               onClick={handleAvatarDelete}
                               disabled={avatarUploading}
-                              className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                              className="flex items-center gap-1 rounded border border-red-800/50 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/20 disabled:opacity-50"
                             >
                               <Trash2 size={12} /> Remove
                             </button>
@@ -402,8 +381,8 @@ export default function SettingsPage() {
                       <div
                         className={`rounded-md border px-4 py-3 text-sm ${
                           profileMessage.type === "success"
-                            ? "border-green-500/30 bg-green-500/10 text-green-400"
-                            : "border-red-500/30 bg-red-500/10 text-red-400"
+                            ? "border-green-800/50 bg-green-900/20 text-green-400"
+                            : "border-red-800/50 bg-red-900/20 text-red-400"
                         }`}
                       >
                         {profileMessage.text}
@@ -411,7 +390,7 @@ export default function SettingsPage() {
                     )}
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium">
+                      <label className="mb-2 block text-sm font-medium text-zinc-100">
                         Display Name
                       </label>
                       <input
@@ -420,35 +399,35 @@ export default function SettingsPage() {
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
                         maxLength={100}
-                        className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 focus:border-zinc-500 focus:outline-none"
+                        className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
                       />
                     </div>
                     <div>
-                      <label className="mb-2 block text-sm font-medium">Bio</label>
+                      <label className="mb-2 block text-sm font-medium text-zinc-100">Bio</label>
                       <textarea
                         placeholder="Tell us about yourself"
                         value={bio}
                         onChange={(e) => setBio(e.target.value)}
                         rows={4}
                         maxLength={500}
-                        className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 focus:border-zinc-500 focus:outline-none"
+                        className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
                       />
-                      <p className="mt-1 text-right text-xs text-zinc-400">
+                      <p className="mt-1 text-right text-xs text-zinc-500">
                         {bio.length}/500
                       </p>
                     </div>
 
                     {/* Profile Visibility Toggle */}
-                    <div className="rounded-md border border-zinc-700 p-4">
+                    <div className="rounded-md border border-zinc-800 p-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           {user?.is_public ? (
-                            <Globe size={18} className="text-green-400" />
+                            <Globe size={18} className="text-green-500" />
                           ) : (
-                            <Lock size={18} className="text-zinc-400" />
+                            <Lock size={18} className="text-zinc-500" />
                           )}
                           <div>
-                            <p className="text-sm font-medium">
+                            <p className="text-sm font-medium text-zinc-100">
                               Profile Visibility
                             </p>
                             <p className="text-xs text-zinc-500">
@@ -460,7 +439,7 @@ export default function SettingsPage() {
                           type="button"
                           onClick={() => handleVisibilityToggle(!user?.is_public)}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            user?.is_public ? "bg-green-500" : "bg-zinc-600"
+                            user?.is_public ? "bg-green-500" : "bg-zinc-700"
                           }`}
                         >
                           <span
@@ -475,9 +454,9 @@ export default function SettingsPage() {
                     <button
                       onClick={handleProfileSave}
                       disabled={profileSaving}
-                      className="rounded-md bg-zinc-100 px-6 py-3 font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-wait"
+                      className="btn btn-primary rounded-md px-6 py-3 font-medium disabled:opacity-50 disabled:cursor-wait"
                     >
-                      {profileSaving ? "Saving…" : "Save Changes"}
+                      {profileSaving ? "Saving..." : "Save Changes"}
                     </button>
                   </div>
                 )}
@@ -485,23 +464,22 @@ export default function SettingsPage() {
             )}
 
             {activeTab === "account" && (
-              <div className="rounded-lg border border-zinc-800 p-8">
-                <h2 className="mb-6 text-2xl font-semibold">Account Settings</h2>
+              <div className="rounded-xl border border-zinc-800 p-8">
+                <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Account Settings</h2>
                 <div className="space-y-6">
                   <div>
-                    <label className="mb-2 block text-sm font-medium">
+                    <label className="mb-2 block text-sm font-medium text-zinc-100">
                       Email Address
                     </label>
                     <input
                       type="email"
                       value={user?.email || ""}
                       disabled
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-800/50 px-4 py-2 text-zinc-500 cursor-not-allowed"
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-500 cursor-not-allowed"
                     />
                   </div>
-                  {/* Password Reset via Email */}
                   <div>
-                    <label className="mb-2 block text-sm font-medium">
+                    <label className="mb-2 block text-sm font-medium text-zinc-100">
                       Password
                     </label>
                     <p className="mb-3 text-sm text-zinc-400">
@@ -511,8 +489,8 @@ export default function SettingsPage() {
                       <div
                         className={`mb-3 rounded-md border px-4 py-3 text-sm ${
                           resetMessage.type === "success"
-                            ? "border-green-500/30 bg-green-500/10 text-green-400"
-                            : "border-red-500/30 bg-red-500/10 text-red-400"
+                            ? "border-green-800/50 bg-green-900/20 text-green-400"
+                            : "border-red-800/50 bg-red-900/20 text-red-400"
                         }`}
                       >
                         {resetMessage.text}
@@ -521,10 +499,10 @@ export default function SettingsPage() {
                     <button
                       onClick={handlePasswordReset}
                       disabled={resetSending}
-                      className="flex items-center gap-2 rounded-md border border-zinc-600 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-wait"
+                      className="flex items-center gap-2 rounded-md border border-zinc-700 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-wait"
                     >
                       <Mail size={14} />
-                      {resetSending ? "Sending…" : "Send Password Reset Email"}
+                      {resetSending ? "Sending..." : "Send Password Reset Email"}
                     </button>
                   </div>
                   <div className="flex gap-4 pt-2 border-t border-zinc-800">
@@ -539,8 +517,8 @@ export default function SettingsPage() {
             )}
 
             {activeTab === "invitations" && (
-              <div className="rounded-lg border border-zinc-800 p-8">
-                <h2 className="mb-6 text-2xl font-semibold flex items-center gap-2">
+              <div className="rounded-xl border border-zinc-800 p-8">
+                <h2 className="mb-6 text-2xl font-semibold text-zinc-100 flex items-center gap-2">
                   <Send size={20} /> Sent Invitations
                 </h2>
                 <p className="mb-6 text-sm text-zinc-400">
@@ -548,13 +526,13 @@ export default function SettingsPage() {
                 </p>
 
                 {invitationsError && (
-                  <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                  <div className="mb-4 rounded-md border border-red-800/50 bg-red-900/20 px-4 py-3 text-sm text-red-400">
                     {invitationsError}
                   </div>
                 )}
 
                 {invitationsLoading ? (
-                  <p className="text-sm text-zinc-400">Loading invitations…</p>
+                  <p className="text-sm text-zinc-400">Loading invitations...</p>
                 ) : sentInvitations.length === 0 ? (
                   <p className="text-sm text-zinc-400">
                     You haven&apos;t sent any invitations yet. Go to a project&apos;s Collaborators tab to invite users.
@@ -564,24 +542,24 @@ export default function SettingsPage() {
                     {sentInvitations.map((inv) => (
                       <div
                         key={inv.id}
-                        className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                        className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-700">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800">
                             {statusIcon(inv.status)}
                           </div>
                           <div>
                             <div className="text-sm font-medium text-zinc-200">
                               {inv.invitee_email}
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-zinc-400">
+                            <div className="flex items-center gap-2 text-xs text-zinc-500">
                               {inv.repo_name && (
-                                <span className="text-glass-cyan-500">{inv.repo_name}</span>
+                                <span className="text-glass-blue-400">{inv.repo_name}</span>
                               )}
-                              <span>· {inv.permission} access</span>
-                              <span>· Sent {timeAgo(inv.created_at)}</span>
+                              <span>&middot; {inv.permission} access</span>
+                              <span>&middot; Sent {timeAgo(inv.created_at)}</span>
                               {inv.responded_at && (
-                                <span>· Responded {timeAgo(inv.responded_at)}</span>
+                                <span>&middot; Responded {timeAgo(inv.responded_at)}</span>
                               )}
                             </div>
                           </div>
@@ -592,7 +570,7 @@ export default function SettingsPage() {
                             <button
                               onClick={() => handleCancelInvite(inv.id)}
                               disabled={cancellingId === inv.id}
-                              className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                              className="flex items-center gap-1 rounded border border-red-800/50 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/20 disabled:opacity-50"
                             >
                               <X size={11} /> Cancel
                             </button>
@@ -607,42 +585,42 @@ export default function SettingsPage() {
 
             {activeTab === "stats" && (
               <div className="space-y-6">
-                <div className="rounded-lg border border-zinc-800 p-8">
-                  <h2 className="mb-6 text-2xl font-semibold">Your Statistics</h2>
+                <div className="rounded-xl border border-zinc-800 p-8">
+                  <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Your Statistics</h2>
 
                   {statsError && (
-                    <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                    <div className="mb-4 rounded-md border border-red-800/50 bg-red-900/20 px-4 py-3 text-sm text-red-400">
                       {statsError}
                     </div>
                   )}
 
                   {statsLoading ? (
-                    <div className="flex items-center gap-3 text-sm text-zinc-500">
-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
-                      Loading statistics…
+                    <div className="flex items-center gap-3 text-sm text-zinc-400">
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-400" />
+                      Loading statistics...
                     </div>
                   ) : (
                     <div className="grid gap-6 md:grid-cols-2">
-                      <div className="rounded-lg bg-zinc-800 p-6">
-                        <div className="mb-2 text-3xl font-bold">
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                        <div className="mb-2 text-3xl font-bold text-glass-blue-400">
                           {stats?.total_repos ?? 0}
                         </div>
                         <div className="text-sm text-zinc-400">Total Projects</div>
                       </div>
-                      <div className="rounded-lg bg-zinc-800 p-6">
-                        <div className="mb-2 text-3xl font-bold">
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                        <div className="mb-2 text-3xl font-bold text-emerald-400">
                           {stats?.total_commits ?? 0}
                         </div>
                         <div className="text-sm text-zinc-400">Total Commits</div>
                       </div>
-                      <div className="rounded-lg bg-zinc-800 p-6">
-                        <div className="mb-2 text-3xl font-bold">
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                        <div className="mb-2 text-3xl font-bold text-amber-400">
                           {stats?.collaborations ?? 0}
                         </div>
                         <div className="text-sm text-zinc-400">Collaborations</div>
                       </div>
-                      <div className="rounded-lg bg-zinc-800 p-6">
-                        <div className="mb-2 text-3xl font-bold">
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                        <div className="mb-2 text-3xl font-bold text-glass-cyan-500">
                           {stats ? formatStorageSize(stats.total_size_kb) : "0 B"}
                         </div>
                         <div className="text-sm text-zinc-400">Storage Used</div>
@@ -651,8 +629,8 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                <div className="rounded-lg border border-zinc-800 p-8">
-                  <h3 className="mb-4 text-xl font-semibold">Overview</h3>
+                <div className="rounded-xl border border-zinc-800 p-8">
+                  <h3 className="mb-4 text-xl font-semibold text-zinc-100">Overview</h3>
                   {stats ? (
                     <div className="space-y-3 text-sm text-zinc-400">
                       <div className="flex justify-between border-b border-zinc-800 pb-2">
@@ -678,7 +656,7 @@ export default function SettingsPage() {
                     </div>
                   ) : (
                     <p className="text-sm text-zinc-500">
-                      {statsLoading ? "Loading…" : "No data available yet."}
+                      {statsLoading ? "Loading..." : "No data available yet."}
                     </p>
                   )}
                 </div>
@@ -690,17 +668,17 @@ export default function SettingsPage() {
       {/* Visibility Confirmation Dialog */}
       {visibilityDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="mx-4 w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold">
+          <div className="mx-4 w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-800 p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-zinc-100">
               {pendingVisibility ? "Make Profile Public?" : "Make Profile Private?"}
             </h3>
 
             {pendingVisibility ? (
               <div className="mb-6 space-y-3 text-sm text-zinc-400">
                 <div className="flex items-start gap-3">
-                  <Globe size={16} className="mt-0.5 shrink-0 text-green-400" />
+                  <Globe size={16} className="mt-0.5 shrink-0 text-green-500" />
                   <p>
-                    <strong className="text-zinc-200">Public</strong> — Anyone can view
+                    <strong className="text-zinc-200">Public</strong> &mdash; Anyone can view
                     your profile, bio, and avatar. Your username will be discoverable
                     by other SoundHaus users.
                   </p>
@@ -709,9 +687,9 @@ export default function SettingsPage() {
             ) : (
               <div className="mb-6 space-y-3 text-sm text-zinc-400">
                 <div className="flex items-start gap-3">
-                  <Lock size={16} className="mt-0.5 shrink-0 text-zinc-400" />
+                  <Lock size={16} className="mt-0.5 shrink-0 text-zinc-500" />
                   <p>
-                    <strong className="text-zinc-200">Private</strong> — Your profile
+                    <strong className="text-zinc-200">Private</strong> &mdash; Your profile
                     page will not be visible to others. Collaborators can still see
                     your username within shared projects.
                   </p>
@@ -725,16 +703,16 @@ export default function SettingsPage() {
                   setVisibilityDialogOpen(false);
                   setPendingVisibility(null);
                 }}
-                className="rounded-md border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+                className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmVisibilityChange}
                 disabled={visibilitySaving}
-                className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+                className="btn btn-primary rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"
               >
-                {visibilitySaving ? "Saving…" : "Confirm"}
+                {visibilitySaving ? "Saving..." : "Confirm"}
               </button>
             </div>
           </div>

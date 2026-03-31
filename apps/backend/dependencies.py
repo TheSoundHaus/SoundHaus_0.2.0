@@ -57,6 +57,7 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[settings.rate_limit_default],
     enabled=settings.rate_limit_enabled,
+    storage_uri=settings.redis_url,
 )
 
 # User-based limiter (for authenticated endpoints)
@@ -64,6 +65,7 @@ user_limiter = Limiter(
     key_func=get_user_or_ip,
     default_limits=[settings.rate_limit_default],
     enabled=settings.rate_limit_enabled,
+    storage_uri=settings.redis_url,
 )
 # SlowAPI may override `enabled` from RATELIMIT_* / Starlette Config; keep pydantic as source of truth.
 limiter.enabled = settings.rate_limit_enabled
