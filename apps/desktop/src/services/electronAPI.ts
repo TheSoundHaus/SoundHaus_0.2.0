@@ -49,6 +49,22 @@ const electronAPI = {
             return Promise.resolve(null)
         }
         return window.electronAPI.getChanges(alsPath)
+    },
+
+    getCommitHistory: (repoPath: string): Promise<any[]> => {
+        if(!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve([])
+        }
+        return window.electronAPI.getCommitHistory(repoPath)
+    },
+
+    getCommitDiff: (repoPath: string, commitHash: string, alsPath: string): Promise<any> => {
+        if(!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve(null)
+        }
+        return window.electronAPI.getCommitDiff(repoPath, commitHash, alsPath)
     }
 }
 

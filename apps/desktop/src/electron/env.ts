@@ -1,5 +1,5 @@
-import * as dotenv from 'dotenv';
 import * as path from 'path';
+const dotenv = require('dotenv');
 
 // Load desktop env vars for Electron main-process modules.
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });

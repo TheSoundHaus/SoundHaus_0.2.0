@@ -5,9 +5,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	chooseFolder: (): Promise<string | null> => ipcRenderer.invoke('choose-folder'),
     hasGitFile: (folderPath: string): Promise<boolean> => ipcRenderer.invoke('check-git', folderPath),
 	getAlsContent: (alsPath: string): Promise<string | null> => ipcRenderer.invoke('get-als-content', alsPath),
-	getAlsStruct: (alsPath: string): Promise<any> => ipcRenderer.invoke('find-instrument-changes', alsPath),
+	getAlsStruct: (alsPath: string): Promise<any> => ipcRenderer.invoke('get-als-content', alsPath),
 	findAls: (folderPath: string) => ipcRenderer.invoke('find-als', folderPath),
 	getChanges: (alsPath: string): Promise<any> => ipcRenderer.invoke('get-changes', alsPath),
+	getCommitHistory: (repoPath: string): Promise<any[]> => ipcRenderer.invoke('get-commit-history', repoPath),
+	getCommitDiff: (repoPath: string, commitHash: string, alsPath: string): Promise<any> => ipcRenderer.invoke('get-commit-diff', repoPath, commitHash, alsPath),
 });
 
 contextBridge.exposeInMainWorld('gitService', {

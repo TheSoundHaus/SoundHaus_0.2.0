@@ -13,7 +13,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
+import { parseAls, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
 // Without this, setup can launch the app at the wrong time and shortcut creation may fail.
@@ -339,19 +339,7 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
 
     // Build a flat summary string for the Changes panel
     // TODO (Phase 5): move this formatting into Rust via generate_commit_message / format_changes_summary export
-    const summaryLines: string[] = [];
-    for (const change of (report.changes || [])) {
-      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
-      let line = `${prefix}${change.type}: ${change.label}`;
-      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
-      summaryLines.push(line);
-
-      for (const child of (change.children || [])) {
-        let childLine = `  ${child.action}: ${child.type} - ${child.label}`;
-        if (child.from && child.to) childLine += ` (${child.from} \u2192 ${child.to})`;
-        summaryLines.push(childLine);
-      }
-    }
+    const summaryLines = buildTextSummary(report.changes || []);
 
     // Map tracks to legacy field names for the Track Information panel
     const legacyTracks = (report.project?.tracks || []).map((t: any) => ({
@@ -373,6 +361,85 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
 });
+
+ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath: string): Promise<CommitMeta[]> => {
+  try {
+    const { stdout } = await execFileP(
+      gitBin,
+      ['-C', repoPath, 'log', '--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s', '-n', '50'],
+      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 }
+    );
+
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [hash, shortHash, author, timestamp, subject] = line.split('\x1f');
+        return {
+          hash,
+          shortHash,
+          author,
+          timestamp,
+          subject,
+        };
+      })
+      .filter((item) => item.hash && item.subject);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: string, commitHash: string, alsPath: string) => {
+  try {
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    const { stdout: currentSnapshot } = await execFileP(
+      gitBin,
+      ['-C', repoPath, 'show', `${commitHash}:${snapshotRelPath}`],
+      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+    );
+
+    let parentSnapshot = '{}';
+    try {
+      const { stdout: parentCommit } = await execFileP(
+        gitBin,
+        ['-C', repoPath, 'rev-parse', `${commitHash}^`],
+        { encoding: 'utf8' }
+      );
+      const parentHash = parentCommit.trim();
+      const { stdout: parentRaw } = await execFileP(
+        gitBin,
+        ['-C', repoPath, 'show', `${parentHash}:${snapshotRelPath}`],
+        { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+      );
+      parentSnapshot = parentRaw;
+    } catch {
+      parentSnapshot = '{"schema_version":1,"tracks":[]}';
+    }
+
+    // Get the full semantic diff from Rust (including track/device/clip structure)
+    const rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
+    const report = JSON.parse(rawJson);
+    const summaryLines = buildTextSummary(report.changes || []);
+
+    const oldProject = JSON.parse(parentSnapshot);
+    const newProject = JSON.parse(currentSnapshot);
+    const noteDiff = buildNoteDiff(oldProject, newProject);
+
+    return {
+      ok: true,
+      summary: summaryLines.length > 0 ? summaryLines.join('\n') : 'No semantic changes detected',
+      noteDiff,
+    };
+  } catch (e: any) {
+    return {
+      ok: false,
+      reason: e && e.message ? e.message : String(e),
+    };
+  }
+});
+
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
   return await getSoundHausCredentials();
 })

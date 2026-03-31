@@ -5,6 +5,8 @@ export interface ElectronAPI {
   findAls: (folderPath: string) => Promise<string | null>
   getAlsContent: (alsPath: string) => Promise<any>
   getChanges: (alsPath: string) => Promise<any>
+  getCommitHistory: (repoPath: string) => Promise<any[]>
+  getCommitDiff: (repoPath: string, commitHash: string, alsPath: string) => Promise<any>
 }
 
 export interface GitService {
