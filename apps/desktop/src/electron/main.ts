@@ -95,6 +95,31 @@ function updateMenuForRoute(route: string) {
 
 const execFileP = promisify(execFile);
 
+/**
+ * Find the first .als file in a directory, parse it, and write/overwrite
+ * .soundhaus/{sessionName}/snapshot.json.  Returns the alsPath on success
+ * or null when no ALS exists or the write fails (non-fatal).
+ */
+async function refreshSnapshot(repoPath: string): Promise<{ alsPath: string | null; error?: string }> {
+  try {
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    if (!alsFile) return { alsPath: null };
+
+    const alsPath = path.join(repoPath, alsFile.name);
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
+    await fs.promises.mkdir(snapshotDir, { recursive: true });
+    const snapshotJson = await parseAls(alsPath);
+    await fs.promises.writeFile(path.join(snapshotDir, 'snapshot.json'), snapshotJson, 'utf8');
+    return { alsPath };
+  } catch (err: any) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn('[refreshSnapshot] Failed:', msg);
+    return { alsPath: null, error: msg };
+  }
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
     width: 800,
@@ -188,7 +213,17 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
 });
 
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  return await pull(repoPath);
+  const pullResult = await pull(repoPath);
+
+  // Regenerate snapshot so changelog baseline matches the newly pulled ALS.
+  const snap = await refreshSnapshot(repoPath);
+  if (snap.error) {
+    console.warn('[pull-repo] Post-pull snapshot refresh failed (non-fatal):', snap.error);
+  } else if (snap.alsPath) {
+    console.log('[pull-repo] Snapshot refreshed for', path.basename(snap.alsPath, '.als'));
+  }
+
+  return pullResult;
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
@@ -211,15 +246,22 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
       try {
         await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
 
-        // Use the committed snapshot.json to diff against the current ALS file.
-        // This avoids touching the LFS-tracked ALS blob entirely.
+        // Diff current ALS against local snapshot (refreshed after pull/commit).
+        // Falls back to HEAD copy when no working-tree file exists.
         const sessionName = path.basename(alsPath, '.als');
         const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-        const { stdout: snapshotRaw } = await execFileP(
-          gitBin,
-          ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`],
-          { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 }
-        );
+        const snapshotAbsPath = path.join(repoPath, snapshotRelPath);
+        let snapshotRaw: string;
+        try {
+          snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
+        } catch {
+          const { stdout } = await execFileP(
+            gitBin,
+            ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`],
+            { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 }
+          );
+          snapshotRaw = stdout;
+        }
         const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
         commitMessage = await generateCommitMessage(rawJson);
       } catch (e) {
@@ -228,18 +270,10 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
         commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
       }
 
-      // Write the Minimal Project Description snapshot before committing so
-      // git add . stages it alongside the .als file.
-      // Path: .soundhaus/{als_session_name}/snapshot.json
-      try {
-        const sessionName = path.basename(alsPath, '.als');
-        const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
-        await fs.promises.mkdir(snapshotDir, { recursive: true });
-        const snapshotJson = await parseAls(alsPath);
-        await fs.promises.writeFile(path.join(snapshotDir, 'snapshot.json'), snapshotJson, 'utf8');
-      } catch (snapshotErr) {
-        // Non-fatal — commit proceeds without the snapshot if something goes wrong
-        console.warn('[commit-changes] Failed to write snapshot:', snapshotErr);
+      // Write snapshot before committing so git add . stages it alongside the .als file.
+      const snapResult = await refreshSnapshot(repoPath);
+      if (snapResult.error) {
+        console.warn('[commit-changes] Snapshot refresh failed (non-fatal):', snapResult.error);
       }
     }
   } catch (e) {
@@ -281,14 +315,23 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
       return { ok: true, baselineStatus: 'no-commits', summary, project: { Tracks: legacyTracks } };
     }
 
-    // Diff from the committed snapshot.json — avoids touching the LFS-tracked ALS blob.
+    // Diff current ALS against the local snapshot.json on disk (refreshed after
+    // every pull and commit).  Falls back to the committed HEAD copy when no
+    // working-tree file exists yet.
     const sessionName = path.basename(alsPath, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-    const { stdout: snapshotRaw } = await execFileP(
-      gitBin,
-      ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`],
-      { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
-    );
+    const snapshotAbsPath = path.join(repoRoot, snapshotRelPath);
+    let snapshotRaw: string;
+    try {
+      snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
+    } catch {
+      const { stdout } = await execFileP(
+        gitBin,
+        ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`],
+        { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+      );
+      snapshotRaw = stdout;
+    }
     const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
     const report = JSON.parse(rawJson);
 
