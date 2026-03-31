@@ -917,6 +917,7 @@ def seed():
             print(f"   ℹ️  Profile already exists (id={profile.id})")
 
         # ── REPO_ID is based on Supabase UUID (matches Gitea username) ─────
+        user_id = str(profile.id)
         REPO_ID = f"{user_id}/{TEST_REPO}"
 
         # ── 2a. Create Gitea repo (if not exists) ──────────────────────────
