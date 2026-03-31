@@ -53,7 +53,7 @@ export function useProjectGitActions() {
         } catch (error) {
             const parsedError = parseGitError(error)
             setPullError(parsedError)
-            throw error
+            throw parsedError
         } finally {
             setIsPulling(false)
         }

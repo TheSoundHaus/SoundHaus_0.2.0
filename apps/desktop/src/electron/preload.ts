@@ -25,8 +25,8 @@ contextBridge.exposeInMainWorld('patService', {
 	setGiteaCredentials: (token: string): Promise<string> => ipcRenderer.invoke('set-gitea-credentials', token),
 	getAllowedCloneRemote: (): Promise<string | null> => ipcRenderer.invoke('get-allowed-clone-remote'),
 	setAllowedCloneRemote: (remote: string): Promise<string> => ipcRenderer.invoke('set-allowed-clone-remote', remote),
-	autoLogin: (): Promise<any> => ipcRenderer.invoke('auto-login'),
-	manualLogin: (email: string, password: string): Promise<any> => ipcRenderer.invoke('manual-login', email, password),
+	autoLogin: (): Promise<unknown> => ipcRenderer.invoke('auto-login'),
+	manualLogin: (email: string, password: string): Promise<unknown> => ipcRenderer.invoke('manual-login', email, password),
 });
 
 contextBridge.exposeInMainWorld('electron', {
