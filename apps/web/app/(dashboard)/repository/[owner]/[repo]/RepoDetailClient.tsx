@@ -36,6 +36,7 @@ import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/l
 import SnippetUploader from "@/components/SnippetUploader";
 import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
+import ThumbnailSettings from "@/components/ThumbnailSettings";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import UserAvatar from "@/components/UserAvatar";
@@ -72,7 +73,7 @@ function RemixButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="flex items-center gap-2 rounded-md bg-sky-500 px-6 py-3 font-medium text-white transition-colors hover:bg-sky-400"
+      className="btn btn-primary"
     >
       {/* Icon slides from left to right on hover (past the text) */}
       <span
@@ -493,7 +494,7 @@ export default function RepoDetailClient({
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="rounded-md bg-zinc-100 px-6 py-3 font-medium text-zinc-900 transition-colors hover:bg-zinc-200">
+          <button className="btn btn-primary">
             Open in Desktop
           </button>
           {userCanRemix && (
@@ -932,6 +933,8 @@ export default function RepoDetailClient({
                           commitMsg={c.message}
                           isLoading={diffLoading === c.sha}
                           error={diffError && expandedSha === c.sha ? diffError : null}
+                          repoOwner={owner}
+                          repoName={repo}
                         />
                       </div>
                     )}
@@ -1366,6 +1369,14 @@ export default function RepoDetailClient({
               repo={repo}
               allGenres={allGenres}
               currentGenres={stats?.genres ?? []}
+            />
+
+            {/* 2.5. Thumbnail Settings */}
+            <ThumbnailSettings
+              owner={owner}
+              repo={repo}
+              initialUrl={stats?.thumbnail_url ?? null}
+              initialType={stats?.thumbnail_type ?? null}
             />
 
             {/* 3. README / About Editor */}

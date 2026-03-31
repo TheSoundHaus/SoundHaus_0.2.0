@@ -147,3 +147,54 @@ export async function updateRepoDescription(
     if (!result.data?.repo) return { success: false, error: "No repo returned from update" };
     return { success: true, data: result.data.repo };
 }
+
+// PUT /repos/{owner}/{repo}/thumbnail — set YouTube URL thumbnail
+export async function setThumbnailUrl(
+    owner: string,
+    repo: string,
+    type: "youtube" | "image",
+    url: string,
+): Promise<ApiResponse<{ thumbnail_url: string; thumbnail_type: string }>> {
+    const result = await authFetch<{ thumbnail_url: string; thumbnail_type: string }>(
+        `/repos/${owner}/${repo}/thumbnail`,
+        {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, url }),
+        },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}
+
+// POST /repos/{owner}/{repo}/thumbnail/upload — upload image thumbnail
+export async function uploadThumbnail(
+    owner: string,
+    repo: string,
+    file: File,
+): Promise<ApiResponse<{ thumbnail_url: string; thumbnail_type: string }>> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const result = await authFetch<{ thumbnail_url: string; thumbnail_type: string }>(
+        `/repos/${owner}/${repo}/thumbnail/upload`,
+        {
+            method: "POST",
+            body: formData,
+        },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}
+
+// DELETE /repos/{owner}/{repo}/thumbnail — remove thumbnail
+export async function deleteThumbnail(
+    owner: string,
+    repo: string,
+): Promise<ApiResponse<{ message: string }>> {
+    const result = await authFetch<{ message: string }>(
+        `/repos/${owner}/${repo}/thumbnail`,
+        { method: "DELETE" },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}

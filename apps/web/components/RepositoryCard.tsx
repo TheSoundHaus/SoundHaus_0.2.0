@@ -19,6 +19,40 @@ import AudioPlayer from "@/components/AudioPlayer";
 import CloneModal from "@/components/CloneModal";
 import RemixIcon from "@/components/RemixIcon";
 
+function extractYouTubeId(url: string): string | null {
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w\-]{11})/);
+  return m ? m[1] : null;
+}
+
+function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
+  const [hovered, setHovered] = useState(false);
+  const videoId = extractYouTubeId(url);
+  if (!videoId) return null;
+
+  return (
+    <div
+      className="relative w-full h-40 rounded-card overflow-hidden cursor-pointer"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {hovered ? (
+        <iframe
+          src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&modestbranding=1`}
+          className="absolute inset-0 w-full h-full"
+          allow="autoplay"
+          title={title}
+        />
+      ) : (
+        <img
+          src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
+          alt={title}
+          className="w-full h-full object-cover"
+        />
+      )}
+    </div>
+  );
+}
+
 function RemixCardButton({ count, onClick }: { count: number; onClick: (e: React.MouseEvent) => void }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -71,6 +105,8 @@ interface RepositoryCardProps {
   };
   isPublic?: boolean;
   audioSnippet?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnailType?: "image" | "youtube" | null;
   cloneCount: number;
   cloneUrl?: string;
   isStarred?: boolean;
@@ -89,6 +125,8 @@ export default function RepositoryCard({
   stats,
   isPublic = true,
   audioSnippet,
+  thumbnailUrl,
+  thumbnailType,
   cloneCount,
   cloneUrl,
   isStarred = false,
@@ -216,8 +254,20 @@ export default function RepositoryCard({
         </div>
       )}
 
-{/* Audio snippet or thumbnail placeholder */}
-      {audioSnippet ? (
+{/* Thumbnail / Audio snippet */}
+      {thumbnailUrl && thumbnailType === "image" ? (
+        <div className="mb-4 pr-6 overflow-hidden rounded-card">
+          <img
+            src={thumbnailUrl}
+            alt={`${title} thumbnail`}
+            className="w-full h-40 object-cover rounded-card"
+          />
+        </div>
+      ) : thumbnailUrl && thumbnailType === "youtube" ? (
+        <div className="mb-4 pr-6">
+          <YouTubeHoverEmbed url={thumbnailUrl} title={title} />
+        </div>
+      ) : audioSnippet ? (
         <div className="mb-4 pr-6">
           <AudioPlayer src={audioSnippet} compact />
         </div>
@@ -262,7 +312,10 @@ export default function RepositoryCard({
       )}
 
       <p className="mb-3 text-sm text-muted">
-        By {author} • {formattedDate}
+        By <span
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/profile/${author}`; }}
+          className="text-zinc-300 hover:text-glass-blue transition-colors cursor-pointer"
+        >{author}</span> • {formattedDate}
       </p>
 
       {/* Genre tags */}

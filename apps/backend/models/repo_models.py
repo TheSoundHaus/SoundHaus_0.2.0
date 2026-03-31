@@ -53,6 +53,11 @@ class RepoData(Base):
     # Markdown README content for the repo "About" tab
     readme_content = Column(Text, nullable=True, default=None)
     
+    # Thumbnail for repository card display
+    # thumbnail_type: "image" or "youtube"
+    thumbnail_url = Column(String(500), nullable=True)
+    thumbnail_type = Column(String(20), nullable=True)  # "image" or "youtube"
+    
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too
     clone_events = relationship(

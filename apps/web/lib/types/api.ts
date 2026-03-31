@@ -78,6 +78,8 @@ export interface PublicRepo {
   audio_snippet: string | null;  // CDN URL to audio file, null if no snippet
   snippet_metadata: SnippetMetadata | null;
   genres: string[];              // array of genre name strings
+  thumbnail_url: string | null;
+  thumbnail_type: "image" | "youtube" | null;
   // Optionally populated from Gitea (may be missing if Gitea unreachable)
   description?: string;
   stars?: number;
@@ -105,6 +107,8 @@ export interface RepoStats {
   clone_url: string;
   clone_count: number;
   audio_snippet: string | null;
+  thumbnail_url: string | null;
+  thumbnail_type: "image" | "youtube" | null;
   genres: GenreRef[];
   recent_clones: RecentClone[];
 }
@@ -126,6 +130,8 @@ export interface EnrichedRepo {
   audio_snippet: string | null;  // CDN URL to audio file
   snippet_metadata: SnippetMetadata | null;
   genres: string[];              // array of genre name strings
+  thumbnail_url: string | null;
+  thumbnail_type: "image" | "youtube" | null;
   is_starred: boolean;
   role: "owner" | "collaborator"; // whether user owns or collaborates on the repo
 }

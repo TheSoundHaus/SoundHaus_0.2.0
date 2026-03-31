@@ -193,7 +193,7 @@ export default function PublicRepoClient({
           Explore
         </Link>
         <span>/</span>
-        <span className="text-zinc-200">{owner}</span>
+        <Link href={`/profile/${owner}`} className="text-zinc-200 hover:text-glass-blue transition-colors">{owner}</Link>
         <span>/</span>
         <span className="text-zinc-200">{repo}</span>
       </div>
@@ -202,7 +202,7 @@ export default function PublicRepoClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-1 text-3xl font-bold">{repo}</h1>
-          <p className="text-sm text-zinc-400">by {owner}</p>
+          <p className="text-sm text-zinc-400">by <Link href={`/profile/${owner}`} className="text-zinc-300 hover:text-glass-blue transition-colors">{owner}</Link></p>
         </div>
       </div>
 
@@ -341,15 +341,15 @@ export default function PublicRepoClient({
               ) : collaborators.length > 0 ? (
                 <div className="space-y-3">
                   {collaborators.map((c) => (
-                    <div key={c.login} className="flex items-center gap-3">
+                    <Link key={c.login} href={`/profile/${c.username || c.login}`} className="flex items-center gap-3 hover:bg-zinc-800/50 rounded-md p-1 -m-1 transition-colors">
                       <UserAvatar src={c.avatar_url} alt={c.display_name || c.username || c.login} size={28} />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-zinc-200 truncate">
+                        <div className="text-sm font-medium text-zinc-200 truncate hover:text-glass-blue transition-colors">
                           {c.display_name || c.username || c.login}
                         </div>
                         <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                 </div>
               ) : (
@@ -371,7 +371,7 @@ export default function PublicRepoClient({
                   <span className="flex items-center gap-1 text-zinc-400">
                     <User size={12} /> Owner
                   </span>
-                  <span className="text-xs text-zinc-300">{owner}</span>
+                  <Link href={`/profile/${owner}`} className="text-xs text-zinc-300 hover:text-glass-blue transition-colors">{owner}</Link>
                 </div>
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1 text-zinc-400">

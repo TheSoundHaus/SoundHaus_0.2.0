@@ -3,7 +3,7 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -317,6 +317,8 @@ async def get_public_repos(
                 } if repo.audio_snippet else None,
                 "genres": [g.genre_name for g in repo.genres],
                 "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
+                "thumbnail_url": repo.thumbnail_url,
+                "thumbnail_type": repo.thumbnail_type,
             }
 
             if gitea_data.get("success"):
@@ -343,6 +345,57 @@ async def get_public_repos(
                 "genres": [g.genre_name for g in repo.genres],
                 "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
             })
+
+    return {"success": True, "repos": result}
+
+
+@router.get("/repos/user/{username}")
+@limiter.limit("60/minute")
+async def get_user_public_repos(
+    request: Request,
+    username: str,
+    db: Session = Depends(get_db),
+):
+    """Get all public repos owned by a specific user (no auth required)."""
+    prefix = f"{username}/"
+    repos = db.query(RepoData).filter(RepoData.gitea_id.like(f"{prefix}%")).all()
+
+    svc = RepoService()
+    result = []
+    for repo in repos:
+        try:
+            owner, repo_name = repo.gitea_id.split("/", 1)
+            gitea_data = svc.get_repo_contents(owner, repo_name)
+
+            repo_info = {
+                "gitea_id": repo.gitea_id,
+                "owner": owner,
+                "repo_name": repo_name,
+                "clone_count": repo.clone_count,
+                "audio_snippet": repo.audio_snippet,
+                "snippet_metadata": {
+                    "duration": repo.snippet_duration,
+                    "file_size": repo.snippet_file_size,
+                    "format": repo.snippet_format,
+                    "sample_rate": repo.snippet_sample_rate,
+                    "channels": repo.snippet_channels,
+                } if repo.audio_snippet else None,
+                "genres": [g.genre_name for g in repo.genres],
+                "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
+                "thumbnail_url": repo.thumbnail_url,
+                "thumbnail_type": repo.thumbnail_type,
+            }
+
+            if gitea_data.get("success"):
+                contents = gitea_data.get("contents", {})
+                if isinstance(contents, list) and len(contents) > 0:
+                    repo_info["description"] = contents[0].get("repository", {}).get("description", "")
+                    repo_info["stars"] = contents[0].get("repository", {}).get("stars_count", 0)
+                    repo_info["updated_at"] = contents[0].get("repository", {}).get("updated_at", "")
+
+            result.append(repo_info)
+        except Exception as e:
+            logger.warning("get_user_public_repos", gitea_id=repo.gitea_id, error=str(e))
 
     return {"success": True, "repos": result}
 
@@ -391,6 +444,8 @@ async def get_repo_stats(
         "clone_url": f"{settings.gitea_public_url}/{owner}/{repo}.git",
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
+        "thumbnail_url": repo_data.thumbnail_url,
+        "thumbnail_type": repo_data.thumbnail_type,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
         "recent_clones": [
             {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
@@ -596,6 +651,8 @@ async def get_enriched_repos(
                 "channels": rd.snippet_channels,
             } if rd and rd.audio_snippet else None,
             "genres": [g.genre_name for g in rd.genres] if rd else [],
+            "thumbnail_url": rd.thumbnail_url if rd else None,
+            "thumbnail_type": rd.thumbnail_type if rd else None,
             "is_starred": full_name in starred_ids,
             "role": "owner" if repo.get("id") in owned_ids else "collaborator",
         })
@@ -676,3 +733,171 @@ async def update_readme(
     logger.info("update_readme", repo_id=repo_id, user_id=user_id, length=len(content))
 
     return {"success": True, "readme_content": repo_data.readme_content}
+
+
+# ── Thumbnail ────────────────────────────────────────────────────────────────
+
+MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024  # 5 MB
+
+@router.put("/repos/{owner}/{repo}/thumbnail")
+@user_limiter.limit("20/minute")
+async def update_thumbnail(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Set or update the repository thumbnail. Accepts JSON with either
+    a YouTube URL or a base64-encoded image."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in")
+
+    user_id = user_res["user"]["id"]
+    if str(user_id) != str(owner):
+        raise HTTPException(status_code=403, detail="Not your repo")
+
+    repo_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    body = await request.json()
+    thumb_type = body.get("type")  # "youtube" or "image"
+    thumb_url = body.get("url")    # YouTube URL or Supabase image URL
+
+    if thumb_type not in ("youtube", "image"):
+        raise HTTPException(status_code=400, detail="type must be 'youtube' or 'image'")
+
+    if thumb_type == "youtube":
+        # Validate it looks like a YouTube URL
+        if not thumb_url or not isinstance(thumb_url, str):
+            raise HTTPException(status_code=400, detail="url is required for youtube thumbnail")
+        import re
+        yt_pattern = re.compile(
+            r'^https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)[\w\-]{11}'
+        )
+        if not yt_pattern.match(thumb_url):
+            raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+        repo_data.thumbnail_url = thumb_url
+        repo_data.thumbnail_type = "youtube"
+
+    elif thumb_type == "image":
+        if not thumb_url or not isinstance(thumb_url, str):
+            raise HTTPException(status_code=400, detail="url is required for image thumbnail")
+        # URL should be from Supabase storage
+        repo_data.thumbnail_url = thumb_url
+        repo_data.thumbnail_type = "image"
+
+    db.commit()
+    logger.info("thumbnail_updated", repo_id=repo_id, type=thumb_type)
+
+    return {
+        "success": True,
+        "thumbnail_url": repo_data.thumbnail_url,
+        "thumbnail_type": repo_data.thumbnail_type,
+    }
+
+
+@router.post("/repos/{owner}/{repo}/thumbnail/upload")
+@user_limiter.limit("10/minute")
+async def upload_thumbnail_image(
+    request: Request,
+    owner: str,
+    repo: str,
+    file: UploadFile = File(...),
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Upload an image file as the repository thumbnail."""
+    from services.snippet_service import snippet_service
+
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in")
+
+    user_id = user_res["user"]["id"]
+    if str(user_id) != str(owner):
+        raise HTTPException(status_code=403, detail="Not your repo")
+
+    repo_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    # Validate content type
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid image type '{file.content_type}'. Allowed: JPEG, PNG, WebP, GIF"
+        )
+
+    content = await file.read()
+    if len(content) > MAX_THUMBNAIL_SIZE:
+        raise HTTPException(status_code=400, detail="Thumbnail must be under 5 MB")
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    # Upload to Supabase Storage in the same bucket as snippets
+    from pathlib import Path
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    storage_path = f"{owner}/{repo}/thumbnail{ext}"
+
+    supabase = snippet_service.supabase
+    bucket = snippet_service.bucket_name
+
+    supabase.storage.from_(bucket).upload(
+        path=storage_path,
+        file=content,
+        file_options={
+            "content-type": file.content_type,
+            "upsert": "true",
+        },
+    )
+
+    public_url = supabase.storage.from_(bucket).get_public_url(storage_path)
+
+    repo_data.thumbnail_url = public_url
+    repo_data.thumbnail_type = "image"
+    db.commit()
+
+    logger.info("thumbnail_image_uploaded", repo_id=repo_id, url=public_url)
+
+    return {
+        "success": True,
+        "thumbnail_url": public_url,
+        "thumbnail_type": "image",
+    }
+
+
+@router.delete("/repos/{owner}/{repo}/thumbnail")
+@user_limiter.limit("20/minute")
+async def delete_thumbnail(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Remove the repository thumbnail."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in")
+
+    user_id = user_res["user"]["id"]
+    if str(user_id) != str(owner):
+        raise HTTPException(status_code=403, detail="Not your repo")
+
+    repo_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    repo_data.thumbnail_url = None
+    repo_data.thumbnail_type = None
+    db.commit()
+
+    logger.info("thumbnail_deleted", repo_id=repo_id)
+    return {"success": True, "message": "Thumbnail removed"}
