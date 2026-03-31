@@ -14,4 +14,5 @@ function requireEnv(name: string): string {
 
 export const desktopEnv = {
     giteaPublicUrl: requireEnv('GITEA_PUBLIC_URL').replace(/\/$/, ''),
+    supabasePublicUrl: process.env['VITE_SUPABASE_PUBLIC_URL']?.replace(/\/$/, '') ?? '',
 };
