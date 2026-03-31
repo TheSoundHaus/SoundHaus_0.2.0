@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, useRef, useCallback } from "react";
-import dynamic from "next/dynamic";
+import { useState, useTransition } from "react";
 import {
   Star,
   Music,
@@ -21,7 +20,7 @@ import RemixIcon from "@/components/RemixIcon";
 
 function extractYouTubeId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w\-]{11})/);
-  return m ? m[1] : null;
+  return m ? m[1] ?? null : null;
 }
 
 function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
@@ -67,10 +66,6 @@ function RemixCardButton({ count, onClick }: { count: number; onClick: (e: React
     </button>
   );
 }
-
-const MiniAudioPreview = dynamic(() => import("@/components/MiniAudioPreview"), {
-  ssr: false,
-});
 
 /**
  * RepositoryCard Component - Displays repository overview information
@@ -142,23 +137,6 @@ export default function RepositoryCard({
   const [renameValue, setRenameValue] = useState(title);
   const [, startTransition] = useTransition();
   const [showRemixModal, setShowRemixModal] = useState(false);
-
-  // Audio preview on hover (debounced)
-  const [showPreview, setShowPreview] = useState(false);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleMouseEnter = useCallback(() => {
-    if (!audioSnippet) return;
-    hoverTimerRef.current = setTimeout(() => setShowPreview(true), 300);
-  }, [audioSnippet]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    setShowPreview(false);
-  }, []);
 
   function handleStar(e: React.MouseEvent) {
     e.preventDefault();

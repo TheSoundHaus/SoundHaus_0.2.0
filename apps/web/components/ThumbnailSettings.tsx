@@ -15,7 +15,7 @@ function extractYouTubeId(url: string): string | null {
   const m = url.match(
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w\-]{11})/,
   );
-  return m ? m[1] : null;
+  return m ? m[1] ?? null : null;
 }
 
 export default function ThumbnailSettings({
@@ -41,7 +41,7 @@ export default function ThumbnailSettings({
     if (res.success && res.data) {
       setThumbUrl(res.data.thumbnail_url);
       setThumbType("image");
-    } else {
+    } else if (!res.success) {
       setError(res.error ?? "Upload failed");
     }
   }
@@ -55,7 +55,7 @@ export default function ThumbnailSettings({
     if (res.success && res.data) {
       setThumbUrl(res.data.thumbnail_url);
       setThumbType("youtube");
-    } else {
+    } else if (!res.success) {
       setError(res.error ?? "Failed to set YouTube thumbnail");
     }
   }

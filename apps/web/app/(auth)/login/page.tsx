@@ -6,7 +6,8 @@ import { Waves } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 /**
- * Animated EQ visualizer canvas for the login image panel
+ * Animated canvas visualizer — sole visual on the login right panel
+ * Draws floating particles, a central waveform, EQ bars, and expanding pulse rings
  */
 function LoginVisualizer() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -32,14 +33,14 @@ function LoginVisualizer() {
         resize();
         window.addEventListener("resize", resize);
 
-        // Particles
-        const particles = Array.from({ length: 30 }).map(() => ({
+        // Particles — more of them since this is the primary visual now
+        const particles = Array.from({ length: 50 }).map(() => ({
             x: Math.random(),
             y: Math.random(),
-            size: 0.5 + Math.random() * 2,
-            speedX: (Math.random() - 0.5) * 0.0004,
-            speedY: -0.0002 - Math.random() * 0.0004,
-            alpha: 0.04 + Math.random() * 0.08,
+            size: 0.5 + Math.random() * 2.5,
+            speedX: (Math.random() - 0.5) * 0.0005,
+            speedY: -0.0002 - Math.random() * 0.0005,
+            alpha: 0.06 + Math.random() * 0.12,
             phase: Math.random() * Math.PI * 2,
         }));
 
@@ -58,7 +59,7 @@ function LoginVisualizer() {
                 const wobble = Math.sin(time * 0.01 + p.phase) * 0.003;
                 const px = (p.x + wobble) * w;
                 const py = p.y * h;
-                const flickerAlpha = p.alpha + Math.sin(time * 0.02 + p.phase) * 0.03;
+                const flickerAlpha = p.alpha + Math.sin(time * 0.02 + p.phase) * 0.04;
 
                 ctx.beginPath();
                 ctx.arc(px, py, p.size, 0, Math.PI * 2);
@@ -66,31 +67,47 @@ function LoginVisualizer() {
                 ctx.fill();
             });
 
+            // Central waveform line
+            const cy = h * 0.45;
+            ctx.beginPath();
+            for (let x = 0; x <= w; x += 2) {
+                const norm = x / w;
+                const amp = Math.sin(norm * Math.PI) * h * 0.08; // bell-curve envelope
+                const wave = Math.sin(time * 0.02 + norm * 12) * amp
+                           + Math.sin(time * 0.015 + norm * 8) * amp * 0.4;
+                const y = cy + wave;
+                if (x === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = "rgba(167, 199, 231, 0.12)";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
             // EQ bars along the bottom
             const barCount = 60;
             const barWidth = w / barCount;
-            const maxBarHeight = h * 0.25;
+            const maxBarHeight = h * 0.22;
             for (let i = 0; i < barCount; i++) {
                 const freq1 = Math.sin(time * 0.02 + i * 0.2) * 0.5 + 0.5;
                 const freq2 = Math.cos(time * 0.015 + i * 0.35) * 0.3 + 0.5;
                 const barH = (freq1 * 0.6 + freq2 * 0.4) * maxBarHeight;
 
                 const x = i * barWidth;
-                const alpha = 0.06 + freq1 * 0.06;
+                const alpha = 0.08 + freq1 * 0.08;
                 ctx.fillStyle = `rgba(167, 199, 231, ${alpha})`;
                 ctx.fillRect(x, h - barH, barWidth - 1, barH);
             }
 
-            // Pulse ring
+            // Pulse rings — expanding outward from center
             const cx = w * 0.5;
-            const cy = h * 0.45;
-            for (let r = 0; r < 3; r++) {
-                const radius = 60 + r * 50 + Math.sin(time * 0.015 + r * 1.5) * 20;
-                const alpha = 0.04 + Math.sin(time * 0.012 + r * 2) * 0.02;
+            const cyr = h * 0.42;
+            for (let r = 0; r < 4; r++) {
+                const radius = 50 + r * 55 + Math.sin(time * 0.012 + r * 1.8) * 25;
+                const alpha = 0.05 + Math.sin(time * 0.01 + r * 2.2) * 0.03;
                 ctx.beginPath();
-                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                ctx.arc(cx, cyr, radius, 0, Math.PI * 2);
                 ctx.strokeStyle = `rgba(167, 199, 231, ${Math.max(alpha, 0)})`;
-                ctx.lineWidth = 1;
+                ctx.lineWidth = 0.8;
                 ctx.stroke();
             }
 
@@ -111,7 +128,7 @@ function LoginVisualizer() {
 /**
  * Login Page - Studio-grade aesthetic
  * Left: sign-in form with clean zinc design
- * Right: blurred studio photography with glass overlay + animated visualizer
+ * Right: animated canvas visualizer (particles, waveform, EQ bars, pulse rings)
  */
 export default function LoginPage() {
     return (
@@ -171,34 +188,32 @@ export default function LoginPage() {
                 </div>
             </div>
 
-            {/* Right Content Container - Studio Image + Animated Visualizer */}
+            {/* Right Content Container - Animated Visualizer Panel */}
             <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
-                {/* Studio photograph background with blur */}
-                <div
-                    className="absolute inset-0 bg-cover bg-center"
-                    style={{
-                        backgroundImage: 'url("https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&w=1920&q=80")',
-                        filter: "blur(2px) brightness(0.35)",
-                    }}
-                />
+                {/* Dark gradient background */}
+                <div className="absolute inset-0 bg-gradient-to-br from-zinc-950 via-zinc-900/80 to-zinc-950" />
 
-                {/* Gradient overlay for depth */}
-                <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/60 to-transparent" />
+                {/* Gradient blend into left panel */}
+                <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-transparent to-transparent w-1/3" />
 
-                {/* Animated visualizer overlay */}
+                {/* Animated visualizer — primary visual */}
                 <LoginVisualizer />
 
-                {/* Bottom branding on image side */}
+                {/* Accent glow — top right */}
+                <div className="absolute top-1/4 right-1/4 w-[350px] h-[350px]
+                              bg-glass-blue/6 rounded-full blur-[120px] pointer-events-none" />
+
+                {/* Secondary glow — bottom left */}
+                <div className="absolute bottom-1/4 left-1/6 w-[250px] h-[250px]
+                              bg-glass-blue/4 rounded-full blur-[100px] pointer-events-none" />
+
+                {/* Bottom branding */}
                 <div className="absolute bottom-8 left-8 right-8 z-10">
-                    <p className="text-zinc-400 text-sm leading-relaxed max-w-sm">
+                    <p className="text-zinc-500 text-sm leading-relaxed max-w-sm">
                         Collaboration built for music producers.
                         Version, share, and remix — see every note that changed.
                     </p>
                 </div>
-
-                {/* Subtle glass-blue accent glow */}
-                <div className="absolute top-1/3 right-1/4 w-[400px] h-[400px]
-                              bg-glass-blue/8 rounded-full blur-[100px]" />
             </div>
         </div>
     );

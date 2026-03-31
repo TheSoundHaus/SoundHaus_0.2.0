@@ -3,7 +3,6 @@ import { promisify } from 'util';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
 import { getAllowedCloneRemote, getGiteaCredentials } from './login';
-import { desktopEnv } from './env';
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
@@ -19,17 +18,7 @@ const platformMap: Partial<Record<NodeJS.Platform, string>> = {
 
 const platformDir = platformMap[process.platform] || process.platform;
 const envGit = process.env.SOUNDHAUS_GIT_BIN;
-const giteaApiBaseUrl = desktopEnv.giteaPublicUrl;
 let gitBin: string;
-
-function getGiteaApiRequestOptions(): { protocol: string; hostname: string; port: number } {
-    const parsed = new URL(giteaApiBaseUrl);
-    return {
-        protocol: parsed.protocol,
-        hostname: parsed.hostname,
-        port: parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80,
-    };
-}
 
 // Try to use bundled git, but fall back to system git if it fails
 if (envGit) {
@@ -223,7 +212,6 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         // Step 4: Create remote repository via HTTP request
         console.log('[init] Step 4: Making HTTP request to create repository...');
         const remoteURL = await new Promise<string>((resolve, reject) => {
-            const giteaRequestTarget = getGiteaApiRequestOptions();
             const reqOptions = {
                 hostname: 'localhost',
                 port: 3000,

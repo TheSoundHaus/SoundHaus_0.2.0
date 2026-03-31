@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import styles from './ProjectPage.module.css'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
@@ -105,8 +104,8 @@ const ProjectPage = () => {
     }, [handleRefreshChanges, selectedProject])
 
     return(
-        <div className={styles.container}>
-            <div className={styles.left}>
+        <div className="project-container">
+            <div className="project-left">
                 {/* Track Information dropdown - exact block requested */}
                 <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
                     <button
@@ -123,14 +122,14 @@ const ProjectPage = () => {
                                     <p>No ALS loaded</p>
                                 </div>
                             ) : alsStruct.ok === false ? (
-                                <div className={styles.error}>
+                                <div className="project-error">
                                     <p>{alsStruct.reason ?? 'An error occurred'}</p>
                                 </div>
                             ) : alsStruct.project?.Tracks ? (
                                 <div>
                                     <div style={{ display: 'grid', gap: '8px' }}>
                                         {alsStruct.project.Tracks.map((track: any, i: number) => (
-                                            <div key={i} className={styles.changeItem}>
+                                            <div key={i} className="project-change-item">
                                                 <strong>{track.EffectiveName || 'Unnamed Track'}</strong>
                                                 <div style={{ fontSize: '0.9em', color: '#666' }}>
                                                     Type: {track.Type} | ID: {track.Id}
@@ -194,7 +193,7 @@ const ProjectPage = () => {
                                     <p>No ALS loaded</p>
                                 </div>
                             ) : alsStruct.ok === false ? (
-                                <div className={styles.error}>
+                                <div className="project-error">
                                     <p>{alsStruct.reason ?? 'An error occurred'}</p>
                                 </div>
                             ) : alsStruct.baselineStatus === 'no-commits' ? (
@@ -222,8 +221,8 @@ const ProjectPage = () => {
                     )}
                 </div>
             </div>
-            <div className={styles.right}>
-                <div className={styles.buttons}>
+            <div className="project-right">
+                <div className="project-buttons">
                     <button onClick={handleGitPull}>Download Changes from Server</button>
                     <button onClick={handleGitCommit}>Save Changes in Snapshot</button>
                     <button onClick={handleGitPush}>Upload Changes to Server</button>

@@ -205,7 +205,7 @@ HOME=/root
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_PUB_KEY=<anon-key>
 SUPABASE_SERVICE_KEY=<service-key>
-SUPABASE_JWT_SECRET=<jwt-secret>
+
 DATABASE_URL=postgresql://postgres:<pass>@db.xxxx.supabase.co:5432/postgres
 
 GITEA_URL=http://gitea:3000

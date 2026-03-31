@@ -193,9 +193,10 @@ export default function StemPlayer({
     const allWs = Object.values(wsMapRef.current);
     if (allWs.length < 2) return;
     const ref = allWs[0];
+    if (!ref) return;
     const pos = ref.getCurrentTime() / ref.getDuration();
     for (let i = 1; i < allWs.length; i++) {
-      allWs[i].seekTo(pos);
+      allWs[i]?.seekTo(pos);
     }
   }, []);
 
