@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useUser } from "@/lib/context/UserContext";
-import { mockExploreRepos, type MockExploreRepository } from "@/lib/mockData/repositories";
+import { getPublicRepos } from "@/lib/api/repos";
+import type { PublicRepo } from "@/lib/types/api";
 
 /**
  * Explore Page - GitHub-inspired three-column layout
@@ -10,25 +11,46 @@ import { mockExploreRepos, type MockExploreRepository } from "@/lib/mockData/rep
  * Center (50%): Repository feed with search and filters
  * Right: Trending repositories sidebar
  *
- * API Call: Get Top N Repos (returns array of repo overviews)
- * Currently using mock data from lib/mockData/repositories.ts
+ * API Call: GET /repos/public → returns array of public project overviews
  */
 export default function ExplorePage() {
   const { user, loading } = useUser();
   const [sortBy, setSortBy] = useState<"top" | "recent" | "trending">("top");
   const [searchQuery, setSearchQuery] = useState("");
+  const [repos, setRepos] = useState<PublicRepo[]>([]);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch public repos from backend
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchRepos() {
+      setReposLoading(true);
+      setError(null);
+      const result = await getPublicRepos();
+      if (cancelled) return;
+      if (result.success) {
+        setRepos(result.data);
+      } else {
+        setError(result.error);
+      }
+      setReposLoading(false);
+    }
+    fetchRepos();
+    return () => { cancelled = true; };
+  }, []);
 
   // Filter and sort repositories
   const filteredAndSortedRepos = useMemo(() => {
-    let filtered = mockExploreRepos;
+    let filtered = repos;
 
     // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
         (repo) =>
-          repo.title.toLowerCase().includes(query) ||
-          repo.author.toLowerCase().includes(query)
+          repo.repo_name.toLowerCase().includes(query) ||
+          repo.owner.toLowerCase().includes(query)
       );
     }
 
@@ -36,37 +58,37 @@ export default function ExplorePage() {
     const sorted = [...filtered];
     switch (sortBy) {
       case "top":
-        sorted.sort((a, b) => (b.stats.stars || 0) - (a.stats.stars || 0));
+        sorted.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
         break;
       case "recent":
         sorted.sort(
           (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+            new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime()
         );
         break;
       case "trending":
         // Trending: combination of stars and recency
         sorted.sort((a, b) => {
           const aScore =
-            (a.stats.stars || 0) *
-            (1 + 1 / (Date.now() - new Date(a.updatedAt).getTime()));
+            (a.stars ?? 0) *
+            (1 + 1 / (Date.now() - new Date(a.updated_at ?? 0).getTime()));
           const bScore =
-            (b.stats.stars || 0) *
-            (1 + 1 / (Date.now() - new Date(b.updatedAt).getTime()));
+            (b.stars ?? 0) *
+            (1 + 1 / (Date.now() - new Date(b.updated_at ?? 0).getTime()));
           return bScore - aScore;
         });
         break;
     }
 
     return sorted;
-  }, [sortBy, searchQuery]);
+  }, [repos, sortBy, searchQuery]);
 
   // Get top 5 trending repos (by stars)
   const trendingRepos = useMemo(() => {
-    return [...mockExploreRepos]
-      .sort((a, b) => (b.stats.stars || 0) - (a.stats.stars || 0))
+    return [...repos]
+      .sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
       .slice(0, 5);
-  }, []);
+  }, [repos]);
 
   // Format relative time
   const formatRelativeTime = (isoString: string): string => {
@@ -197,7 +219,30 @@ export default function ExplorePage() {
 
           {/* Repository Cards */}
           <div className="space-y-4">
-            {filteredAndSortedRepos.length === 0 ? (
+            {reposLoading ? (
+              <div className="text-center py-12 text-zinc-500">
+                <div className="w-8 h-8 mx-auto mb-4 border-2 border-zinc-700 border-t-glass-blue-400 rounded-full animate-spin" />
+                <p className="text-lg">Loading projects...</p>
+              </div>
+            ) : error ? (
+              <div className="text-center py-12 text-zinc-500">
+                <svg
+                  className="w-12 h-12 mx-auto mb-4 text-zinc-700"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  />
+                </svg>
+                <p className="text-lg">Failed to load projects</p>
+                <p className="text-sm mt-1 text-zinc-600">{error}</p>
+              </div>
+            ) : filteredAndSortedRepos.length === 0 ? (
               <div className="text-center py-12 text-zinc-500">
                 <svg
                   className="w-12 h-12 mx-auto mb-4 text-zinc-700"
@@ -218,44 +263,63 @@ export default function ExplorePage() {
             ) : (
               filteredAndSortedRepos.map((repo) => (
                 <article
-                  key={repo.id}
+                  key={repo.gitea_id}
                   className="group relative rounded-lg border border-zinc-800/60 bg-gradient-to-br from-zinc-900/90 to-zinc-900/50 overflow-hidden backdrop-blur-sm transition-all duration-500 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_40px_rgba(167,199,231,0.15)] cursor-pointer"
                 >
                   {/* Thumbnail */}
                   <div className="relative h-48 overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-black">
-                    {/* Waveform-inspired pattern overlay */}
-                    <div className="absolute inset-0 opacity-30">
-                      <svg
-                        className="w-full h-full"
-                        viewBox="0 0 400 200"
-                        preserveAspectRatio="none"
-                      >
-                        <path
-                          d="M0 100 Q100 50 200 100 T400 100"
-                          fill="none"
-                          stroke="url(#waveGradient)"
-                          strokeWidth="2"
+                    {repo.thumbnail_url ? (
+                      repo.thumbnail_type === "image" ? (
+                        <img
+                          src={repo.thumbnail_url}
+                          alt={repo.repo_name}
+                          className="w-full h-full object-cover"
                         />
-                        <path
-                          d="M0 100 Q100 150 200 100 T400 100"
-                          fill="none"
-                          stroke="url(#waveGradient)"
-                          strokeWidth="2"
+                      ) : (
+                        <iframe
+                          src={repo.thumbnail_url.replace("watch?v=", "embed/")}
+                          className="w-full h-full"
+                          allow="autoplay; encrypted-media"
+                          allowFullScreen
                         />
-                        <defs>
-                          <linearGradient
-                            id="waveGradient"
-                            x1="0%"
-                            y1="0%"
-                            x2="100%"
-                            y2="0%"
+                      )
+                    ) : (
+                      <>
+                        {/* Waveform-inspired pattern overlay */}
+                        <div className="absolute inset-0 opacity-30">
+                          <svg
+                            className="w-full h-full"
+                            viewBox="0 0 400 200"
+                            preserveAspectRatio="none"
                           >
-                            <stop offset="0%" stopColor="#A7C7E7" />
-                            <stop offset="100%" stopColor="#7099C3" />
-                          </linearGradient>
-                        </defs>
-                      </svg>
-                    </div>
+                            <path
+                              d="M0 100 Q100 50 200 100 T400 100"
+                              fill="none"
+                              stroke="url(#waveGradient)"
+                              strokeWidth="2"
+                            />
+                            <path
+                              d="M0 100 Q100 150 200 100 T400 100"
+                              fill="none"
+                              stroke="url(#waveGradient)"
+                              strokeWidth="2"
+                            />
+                            <defs>
+                              <linearGradient
+                                id="waveGradient"
+                                x1="0%"
+                                y1="0%"
+                                x2="100%"
+                                y2="0%"
+                              >
+                                <stop offset="0%" stopColor="#A7C7E7" />
+                                <stop offset="100%" stopColor="#7099C3" />
+                              </linearGradient>
+                            </defs>
+                          </svg>
+                        </div>
+                      </>
+                    )}
                     {/* Electric glow texture */}
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(167,199,231,0.1),transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                   </div>
@@ -264,17 +328,32 @@ export default function ExplorePage() {
                   <div className="p-5 space-y-3">
                     {/* Title */}
                     <h3 className="text-lg font-semibold text-zinc-100 group-hover:text-glass-blue-400 transition-all duration-300">
-                      {repo.title}
+                      {repo.repo_name}
                     </h3>
 
                     {/* Author and timestamp */}
                     <p className="text-sm text-zinc-400">
                       <span className="font-medium text-zinc-300">
-                        {repo.author}
+                        {repo.owner}
                       </span>
-                      <span className="mx-2">•</span>
-                      <span>Updated {formatRelativeTime(repo.updatedAt)}</span>
+                      {repo.updated_at && (
+                        <>
+                          <span className="mx-2">•</span>
+                          <span>Updated {formatRelativeTime(repo.updated_at)}</span>
+                        </>
+                      )}
                     </p>
+
+                    {/* Genres */}
+                    {repo.genres.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {repo.genres.map((genre) => (
+                          <span key={genre} className="text-[10px] text-glass-blue-400 bg-glass-blue-400/10 rounded-full px-2 py-0.5">
+                            {genre}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Stats */}
                     <div className="flex gap-4 text-sm">
@@ -282,20 +361,22 @@ export default function ExplorePage() {
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                         </svg>
-                        {repo.stats.stars || 0}
+                        {repo.stars ?? 0}
                       </span>
                       <span className="flex items-center gap-1.5 text-glass-blue-400">
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" />
+                          <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
                         </svg>
-                        {repo.stats.tracks} tracks
+                        {repo.clone_count} clones
                       </span>
-                      <span className="flex items-center gap-1.5 text-zinc-400">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
-                        </svg>
-                        {repo.stats.collaborators}
-                      </span>
+                      {repo.audio_snippet && (
+                        <span className="flex items-center gap-1.5 text-zinc-400">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" />
+                          </svg>
+                          Audio
+                        </span>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -329,7 +410,7 @@ export default function ExplorePage() {
             <div className="space-y-3">
               {trendingRepos.map((repo, index) => (
                 <div
-                  key={repo.id}
+                  key={repo.gitea_id}
                   className="group pb-3 border-b border-zinc-800/40 last:border-0 last:pb-0 hover:bg-zinc-800/30 cursor-pointer rounded px-2 -mx-2 py-2 transition-all duration-300"
                 >
                   <div className="flex items-start gap-2">
@@ -338,10 +419,10 @@ export default function ExplorePage() {
                     </span>
                     <div className="flex-1 min-w-0">
                       <h3 className="text-sm font-medium text-zinc-200 group-hover:text-glass-blue-400 transition-colors truncate">
-                        {repo.title}
+                        {repo.repo_name}
                       </h3>
                       <p className="text-xs text-zinc-500 mt-1">
-                        @{repo.author}
+                        @{repo.owner}
                       </p>
                       <div className="flex items-center gap-1 mt-1.5">
                         <svg
@@ -352,7 +433,7 @@ export default function ExplorePage() {
                           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                         </svg>
                         <span className="text-xs font-medium text-glass-cyan-500">
-                          {repo.stats.stars}
+                          {repo.stars ?? 0}
                         </span>
                       </div>
                     </div>
