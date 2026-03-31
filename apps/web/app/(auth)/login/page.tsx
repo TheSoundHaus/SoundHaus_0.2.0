@@ -3,11 +3,115 @@
 import Link from "next/link";
 import LoginForm from "@/components/LoginForm";
 import { Waves } from "lucide-react";
+import { useEffect, useRef } from "react";
+
+/**
+ * Animated EQ visualizer canvas for the login image panel
+ */
+function LoginVisualizer() {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        let animId: number;
+        let time = 0;
+
+        const resize = () => {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            canvas.style.width = `${rect.width}px`;
+            canvas.style.height = `${rect.height}px`;
+            ctx.scale(dpr, dpr);
+        };
+        resize();
+        window.addEventListener("resize", resize);
+
+        // Particles
+        const particles = Array.from({ length: 30 }).map(() => ({
+            x: Math.random(),
+            y: Math.random(),
+            size: 0.5 + Math.random() * 2,
+            speedX: (Math.random() - 0.5) * 0.0004,
+            speedY: -0.0002 - Math.random() * 0.0004,
+            alpha: 0.04 + Math.random() * 0.08,
+            phase: Math.random() * Math.PI * 2,
+        }));
+
+        const draw = () => {
+            const w = canvas.getBoundingClientRect().width;
+            const h = canvas.getBoundingClientRect().height;
+            ctx.clearRect(0, 0, w, h);
+
+            // Floating particles
+            particles.forEach((p) => {
+                p.x += p.speedX;
+                p.y += p.speedY;
+                if (p.y < -0.05) { p.y = 1.05; p.x = Math.random(); }
+                if (p.x < -0.05 || p.x > 1.05) p.x = Math.random();
+
+                const wobble = Math.sin(time * 0.01 + p.phase) * 0.003;
+                const px = (p.x + wobble) * w;
+                const py = p.y * h;
+                const flickerAlpha = p.alpha + Math.sin(time * 0.02 + p.phase) * 0.03;
+
+                ctx.beginPath();
+                ctx.arc(px, py, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(167, 199, 231, ${Math.max(flickerAlpha, 0)})`;
+                ctx.fill();
+            });
+
+            // EQ bars along the bottom
+            const barCount = 60;
+            const barWidth = w / barCount;
+            const maxBarHeight = h * 0.25;
+            for (let i = 0; i < barCount; i++) {
+                const freq1 = Math.sin(time * 0.02 + i * 0.2) * 0.5 + 0.5;
+                const freq2 = Math.cos(time * 0.015 + i * 0.35) * 0.3 + 0.5;
+                const barH = (freq1 * 0.6 + freq2 * 0.4) * maxBarHeight;
+
+                const x = i * barWidth;
+                const alpha = 0.06 + freq1 * 0.06;
+                ctx.fillStyle = `rgba(167, 199, 231, ${alpha})`;
+                ctx.fillRect(x, h - barH, barWidth - 1, barH);
+            }
+
+            // Pulse ring
+            const cx = w * 0.5;
+            const cy = h * 0.45;
+            for (let r = 0; r < 3; r++) {
+                const radius = 60 + r * 50 + Math.sin(time * 0.015 + r * 1.5) * 20;
+                const alpha = 0.04 + Math.sin(time * 0.012 + r * 2) * 0.02;
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(167, 199, 231, ${Math.max(alpha, 0)})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+
+            time++;
+            animId = requestAnimationFrame(draw);
+        };
+        draw();
+
+        return () => {
+            cancelAnimationFrame(animId);
+            window.removeEventListener("resize", resize);
+        };
+    }, []);
+
+    return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-[2]" aria-hidden />;
+}
 
 /**
  * Login Page - Studio-grade aesthetic
  * Left: sign-in form with clean zinc design
- * Right: blurred studio photography with glass overlay
+ * Right: blurred studio photography with glass overlay + animated visualizer
  */
 export default function LoginPage() {
     return (
@@ -67,7 +171,7 @@ export default function LoginPage() {
                 </div>
             </div>
 
-            {/* Right Content Container - Studio Image */}
+            {/* Right Content Container - Studio Image + Animated Visualizer */}
             <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
                 {/* Studio photograph background with blur */}
                 <div
@@ -81,11 +185,14 @@ export default function LoginPage() {
                 {/* Gradient overlay for depth */}
                 <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/60 to-transparent" />
 
+                {/* Animated visualizer overlay */}
+                <LoginVisualizer />
+
                 {/* Bottom branding on image side */}
                 <div className="absolute bottom-8 left-8 right-8 z-10">
                     <p className="text-zinc-400 text-sm leading-relaxed max-w-sm">
-                        Version control built for music producers.
-                        Push, diff, branch, and collaborate — see every note that changed.
+                        Collaboration built for music producers.
+                        Version, share, and remix — see every note that changed.
                     </p>
                 </div>
 
