@@ -4,7 +4,7 @@
  */
 
 import { authenticatedFetch } from "@/lib/utils/auth";
-import type { ApiResponse, EnrichedRepo, GiteaRepo } from "@/lib/types/api";
+import type { ApiResponse, EnrichedRepo, GiteaRepo, SearchReposResponse } from "@/lib/types/api";
 
 /**
  * Get all repositories for the authenticated user (enriched with SoundHaus data)
@@ -24,6 +24,43 @@ export async function getEnrichedRepos(): Promise<ApiResponse<EnrichedRepo[]>> {
 
     const data = await response.json();
     return { success: true, data: data.repos || [] };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Network error",
+    };
+  }
+}
+
+/**
+ * Search public repositories
+ * Backend endpoint: GET /repos/search
+ */
+export async function searchPublicRepos(
+  query: string,
+  sort: string = "stars",
+  limit: number = 20,
+  offset: number = 0,
+): Promise<ApiResponse<SearchReposResponse>> {
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      sort,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const response = await authenticatedFetch(`/repos/search?${params}`);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: errorData.detail || errorData.message || `Search failed: ${response.statusText}`,
+      };
+    }
+
+    const data = await response.json();
+    return { success: true, data };
   } catch (error) {
     return {
       success: false,
