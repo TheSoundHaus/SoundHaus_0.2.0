@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -32,15 +32,14 @@ interface RebaseResult {
  */
 function parseConflictingFiles(repoPath: string): Promise<string[]> {
   return new Promise((resolve) => {
-    const statusCmd = `"${gitBin}" status --porcelain`;
-    exec(statusCmd, { cwd: repoPath }, (err, stdout) => {
+    execFile(gitBin, ['status', '--porcelain'], { cwd: repoPath }, (err, stdout) => {
       if (!stdout) {
         resolve([]);
         return;
       }
 
-      // Lines starting with "UU", "AA", "DD", "UD", "DU" indicate conflicts
-      const conflictStatuses = /^(UU|AA|DD|UD|DU) /;
+      // Lines starting with any unmerged status code indicate conflicts
+      const conflictStatuses = /^(UU|AA|DD|UD|DU|UA|AU) /;
       const conflictingFiles = stdout
         .split('\n')
         .filter((line) => conflictStatuses.test(line))
@@ -57,8 +56,7 @@ function parseConflictingFiles(repoPath: string): Promise<string[]> {
  */
 function abortRebase(repoPath: string): Promise<void> {
   return new Promise((resolve) => {
-    const cmd = `"${gitBin}" rebase --abort`;
-    exec(cmd, { cwd: repoPath }, () => {
+    execFile(gitBin, ['rebase', '--abort'], { cwd: repoPath }, () => {
       // Ignore errors, rebase might not be in progress
       resolve();
     });
@@ -76,8 +74,7 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
     // Step 1: Fetch from remote
     console.log(`[Rebase] Starting fetch from origin/main in ${repoPath}`);
     await new Promise<void>((resolve, reject) => {
-      const fetchCmd = `"${gitBin}" fetch origin main`;
-      exec(fetchCmd, { cwd: repoPath }, (err, stdout, stderr) => {
+      execFile(gitBin, ['fetch', 'origin', 'main'], { cwd: repoPath }, (err, stdout, stderr) => {
         if (err) {
           console.error(`[Rebase] Fetch failed: ${stderr || err.message}`);
           reject(new Error(`Fetch failed: ${stderr || err.message}`));
@@ -91,8 +88,7 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
     // Step 2: Attempt rebase
     console.log(`[Rebase] Starting rebase onto origin/main`);
     await new Promise<void>((resolve, reject) => {
-      const rebaseCmd = `"${gitBin}" rebase --autostash origin/main`;
-      exec(rebaseCmd, { cwd: repoPath }, (err, stdout, stderr) => {
+      execFile(gitBin, ['rebase', '--autostash', 'origin/main'], { cwd: repoPath }, (err, stdout, stderr) => {
         if (err) {
           console.error(`[Rebase] Rebase failed: ${stderr || err.message}`);
           reject(new Error(`Rebase failed: ${stderr || err.message}`));
