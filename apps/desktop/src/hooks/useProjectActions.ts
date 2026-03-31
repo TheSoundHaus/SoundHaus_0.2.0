@@ -30,20 +30,22 @@ export function useProjectActions() {
     /**
      * Open a SoundHaus project directly (assumed to be already git-enabled)
      */
-    const openSoundHausProject = async (projectPath: string): Promise<void> => {
+    const openSoundHausProject = async (projectPath: string): Promise<boolean> => {
         try {
             const git = await hasGitFile(projectPath);
             if (!git) {
                 alert(`This is not a valid SoundHaus project (no git repository found):\n${projectPath}`);
-                return;
+                return false;
             }
 
             const projectName = getProjectName(projectPath);
             await window.electron?.setLastProjectPath(projectPath);
             await trackRecentProject(projectPath, projectName);
             navigate('/project', { state: { projectPath } });
+            return true;
         } catch (error) {
-            alert(`Failed to open project:\n${error}`);
+            alert(`Failed to open project:\n${error instanceof Error ? error.message : String(error)}`);
+            return false;
         }
     }
 
@@ -105,15 +107,16 @@ export function useProjectActions() {
         setIsOpenDialogVisible(true);
     }
 
-    const handleSelectFromDialog = async (projectPath: string): Promise<void> => {
-        await openSoundHausProject(projectPath);
+    const handleSelectFromDialog = async (projectPath: string): Promise<boolean> => {
+        return await openSoundHausProject(projectPath);
     }
 
-    const handleOpenFromFilepath = async (): Promise<void> => {
+    const handleOpenFromFilepath = async (): Promise<boolean> => {
         const folder = await chooseFolder();
         if (folder) {
-            await openSoundHausProject(folder);
+            return await openSoundHausProject(folder);
         }
+        return false;
     }
 
     const handleExistingProject = async () => {
