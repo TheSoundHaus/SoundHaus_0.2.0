@@ -3,10 +3,12 @@ import { promisify } from 'util';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
 import { getAllowedCloneRemote, getGiteaCredentials, getSoundHausCredentials } from './login';
+import { desktopEnv } from './env';
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
 import * as http from 'http';
+import * as https from 'https';
 
 const execAsync = promisify(exec);
 
@@ -19,6 +21,26 @@ const platformMap: Partial<Record<NodeJS.Platform, string>> = {
 const platformDir = platformMap[process.platform] || process.platform;
 const envGit = process.env.SOUNDHAUS_GIT_BIN;
 let gitBin: string;
+
+function parseUrlTarget(baseUrl: string): { protocol: string; hostname: string; port: number } {
+    const parsed = new URL(baseUrl);
+    return {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80,
+    };
+}
+
+function makeRequest(baseUrl: string, options: http.RequestOptions): { reqFn: typeof http.request; reqOptions: http.RequestOptions } {
+    const target = parseUrlTarget(baseUrl);
+    const merged: http.RequestOptions = {
+        ...options,
+        hostname: target.hostname,
+        port: target.port,
+    };
+    const reqFn = target.protocol === 'https:' ? https.request : http.request;
+    return { reqFn, reqOptions: merged };
+}
 
 // Try to use bundled git, but fall back to system git if it fails
 if (envGit) {
@@ -211,10 +233,9 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
 
         // Step 4: Create remote repository via HTTP request
         console.log('[init] Step 4: Making HTTP request to create repository...');
+        console.log('[init] Gitea URL:', desktopEnv.giteaPublicUrl);
         const remoteURL = await new Promise<string>((resolve, reject) => {
-            const reqOptions = {
-                hostname: 'localhost',
-                port: 3000,
+            const { reqFn, reqOptions } = makeRequest(desktopEnv.giteaPublicUrl, {
                 path: '/api/v1/user/repos',
                 method: 'POST',
                 headers: {
@@ -223,9 +244,9 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
                     'Accept': 'application/json',
                     'Content-Length': Buffer.byteLength(payload)
                 }
-            };
+            });
 
-            const req = http.request(reqOptions, (res) => {
+            const req = reqFn(reqOptions, (res) => {
                 let data = '';
                 console.log('[init] HTTP Response status:', res.statusCode);
                 
@@ -270,6 +291,7 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
 
         // Step 4.5: Register repo in the SoundHaus database
         console.log('[init] Step 4.5: Registering repo in SoundHaus database...');
+        console.log('[init] API URL:', desktopEnv.soundhausApiUrl);
         const supabaseToken = await getSoundHausCredentials();
         if (supabaseToken) {
             try {
@@ -278,10 +300,8 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
                     description: finalDescription,
                     private: isPrivate,
                 });
-                await new Promise<void>((resolve, reject) => {
-                    const registerOptions = {
-                        hostname: 'localhost',
-                        port: 8000,
+                await new Promise<void>((resolve) => {
+                    const { reqFn: registerReqFn, reqOptions: registerOptions } = makeRequest(desktopEnv.soundhausApiUrl, {
                         path: '/repos/register',
                         method: 'POST',
                         headers: {
@@ -290,8 +310,8 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
                             'Accept': 'application/json',
                             'Content-Length': Buffer.byteLength(registerPayload),
                         },
-                    };
-                    const registerReq = http.request(registerOptions, (res) => {
+                    });
+                    const registerReq = registerReqFn(registerOptions, (res) => {
                         let body = '';
                         res.on('data', (chunk) => { body += chunk; });
                         res.on('end', () => {

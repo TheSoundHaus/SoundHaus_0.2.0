@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, FolderSearch, X, AlertCircle } from 'lucide-react'
+import { Download, FolderSearch, X, AlertCircle, Link as LinkIcon } from 'lucide-react'
 
 function parseAllowedHostPort(remote: string): string {
     const trimmed = remote.trim()
@@ -8,31 +8,45 @@ function parseAllowedHostPort(remote: string): string {
     return parsed.host.toLowerCase()
 }
 
-function getCloneUrlHostPort(url: string): string | null {
-    const value = url.trim()
+type ParsedInput =
+    | { kind: 'gitea'; url: string; hostPort: string }
+    | { kind: 'soundhaus'; owner: string; repo: string }
+    | { kind: 'invalid'; reason: string }
+    | null
+
+function parseCloneInput(input: string): ParsedInput {
+    const value = input.trim()
     if (!value) return null
 
     try {
         const parsed = new URL(value)
         const protocol = parsed.protocol.replace(':', '').toLowerCase()
         if (protocol !== 'http' && protocol !== 'https') {
-            return null
+            return { kind: 'invalid', reason: 'Only HTTP and HTTPS URLs are supported.' }
         }
 
         const pathParts = parsed.pathname.split('/').filter(Boolean)
-        if (pathParts.length < 2) {
-            return null
+
+        // Detect SoundHaus clone link: /clone/owner/repo
+        if (pathParts.length >= 3 && pathParts[0] === 'clone') {
+            return { kind: 'soundhaus', owner: pathParts[1], repo: pathParts[2].replace(/\.git$/, '') }
         }
 
-        return parsed.host.toLowerCase()
+        // Standard Gitea clone URL: owner/repo or owner/repo.git
+        if (pathParts.length >= 2) {
+            return { kind: 'gitea', url: value, hostPort: parsed.host.toLowerCase() }
+        }
+
+        return { kind: 'invalid', reason: 'URL must include owner/repository path or be a SoundHaus clone link.' }
     } catch {
-        return null
+        return { kind: 'invalid', reason: 'Enter a valid URL.' }
     }
 }
 
 const CloneUrlDialog = () => {
     const [cloneUrl, setCloneUrl] = useState('')
     const [clonePath, setClonePath] = useState('')
+    const [allowedRemote, setAllowedRemote] = useState<string>('')
     const [allowedHostPort, setAllowedHostPort] = useState<string>('')
     const [loadingRemote, setLoadingRemote] = useState(true)
 
@@ -41,6 +55,7 @@ const CloneUrlDialog = () => {
             try {
                 const remote = await window.patService?.getAllowedCloneRemote()
                 if (remote) {
+                    setAllowedRemote(remote)
                     setAllowedHostPort(parseAllowedHostPort(remote))
                 }
             } catch (error) {
@@ -53,24 +68,35 @@ const CloneUrlDialog = () => {
         void loadAllowedRemote()
     }, [])
 
+    const parsed = useMemo(() => parseCloneInput(cloneUrl), [cloneUrl])
+
     const validationError = useMemo(() => {
         if (loadingRemote) return null
         if (!allowedHostPort) return 'Allowed remote is not configured. Please log in again.'
         if (!cloneUrl.trim()) return null
+        if (!parsed) return null
 
-        const cloneHostPort = getCloneUrlHostPort(cloneUrl)
-        if (!cloneHostPort) {
-            return 'Enter a valid HTTP or HTTPS clone URL with owner/repository path.'
-        }
+        if (parsed.kind === 'invalid') return parsed.reason
 
-        if (cloneHostPort !== allowedHostPort) {
+        if (parsed.kind === 'gitea' && parsed.hostPort !== allowedHostPort) {
             return `Only repositories from ${allowedHostPort} are allowed.`
         }
 
         return null
-    }, [allowedHostPort, cloneUrl, loadingRemote])
+    }, [allowedHostPort, cloneUrl, loadingRemote, parsed])
 
-    const canSubmit = !loadingRemote && !validationError && !!cloneUrl.trim() && !!clonePath.trim()
+    const resolvedGiteaUrl = useMemo(() => {
+        if (!parsed || parsed.kind === 'invalid') return null
+        if (parsed.kind === 'gitea') return parsed.url
+        if (parsed.kind === 'soundhaus' && allowedRemote) {
+            const base = allowedRemote.replace(/\/$/, '')
+            return `${base}/${parsed.owner}/${parsed.repo}.git`
+        }
+        return null
+    }, [parsed, allowedRemote])
+
+    const isSoundHausLink = parsed?.kind === 'soundhaus'
+    const canSubmit = !loadingRemote && !validationError && !!resolvedGiteaUrl && !!clonePath.trim()
 
     const handleBrowseFolder = async () => {
         const folder = await window.electronAPI?.chooseFolder()
@@ -81,14 +107,13 @@ const CloneUrlDialog = () => {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
-        if (!canSubmit) return
+        if (!canSubmit || !resolvedGiteaUrl) return
 
         const data = {
-            url: cloneUrl.trim(),
+            url: resolvedGiteaUrl,
             path: clonePath.trim()
         }
 
-        // Send data back to main process
         window.electron?.submitCloneUrl(data)
     }
 
@@ -123,20 +148,28 @@ const CloneUrlDialog = () => {
                         {/* Repository URL */}
                         <div>
                             <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
-                                Repository URL <span className="text-accent">*</span>
+                                Clone Link <span className="text-accent">*</span>
                             </label>
                             <input
                                 type="text"
                                 autoFocus
                                 value={cloneUrl}
                                 onChange={(e) => setCloneUrl(e.target.value)}
-                                placeholder="https://gitea.example.com/user/repo.git"
+                                placeholder="Paste a SoundHaus clone link or Gitea URL"
                                 className="w-full px-3.5 py-2.5 rounded-xl bg-bg-primary/60 border border-border-default text-text-primary text-sm
                                            placeholder:text-text-tertiary
                                            focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent
                                            transition-all duration-200"
                             />
                         </div>
+
+                        {/* SoundHaus link indicator */}
+                        {isSoundHausLink && !validationError && (
+                            <div className="flex items-center gap-2 text-xs text-accent bg-accent/5 rounded-xl px-3 py-2">
+                                <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                                SoundHaus link detected &mdash; {(parsed as { owner: string; repo: string }).owner}/{(parsed as { owner: string; repo: string }).repo}
+                            </div>
+                        )}
 
                         {/* Validation Error */}
                         {validationError && (
