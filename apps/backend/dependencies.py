@@ -65,6 +65,9 @@ user_limiter = Limiter(
     default_limits=[settings.rate_limit_default],
     enabled=settings.rate_limit_enabled,
 )
+# SlowAPI may override `enabled` from RATELIMIT_* / Starlette Config; keep pydantic as source of truth.
+limiter.enabled = settings.rate_limit_enabled
+user_limiter.enabled = settings.rate_limit_enabled
 
 
 # ── Auth Dependencies ────────────────────────────────────────────────────────

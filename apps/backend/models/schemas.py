@@ -5,7 +5,7 @@ class SignUpRequest(BaseModel):
     email: EmailStr
     password: str
     metadata: Optional[Dict[str, Any]] = None
-    name: str  # username — required
+    name: str  # SoundHaus profile username (unique); Gitea login is provisioned as Supabase user id
 
 
 class ProfileUpdateRequest(BaseModel):

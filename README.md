@@ -19,7 +19,8 @@ SoundHaus_0.2.0/
 │   ├── backend/           # FastAPI API (main.py, routers, services, tests/)
 │   ├── web/               # Next.js web app
 │   └── desktop/           # Electron + Vite desktop app
-├── scripts/               # compose wrappers, deploy, backup, helpers
+├── compose.sh / compose.ps1   # Docker Compose profile wrappers (local | remote)
+├── scripts/               # deploy, backup, helpers
 ├── workers/               # File watcher worker scripts
 ├── gitea/                 # Gitea bind-mount data (local dev)
 ├── docker-compose.yml     # Stack: gitea_db, gitea, fastapi, token-broker
@@ -44,17 +45,17 @@ Copy from the `*.example` files at the repo root and under `apps/backend/`.
 
 The compose wrappers write **`.soundhaus-compose-profile`** (`local` or `remote`) so the backend integration test runner (`apps/backend/tests/run_all.py`) picks the matching `apps/backend/.env.local` or `.env.remote`.
 
-## 📜 Scripts (`scripts/`)
+## 📜 Compose (repo root) and `scripts/`
 
 | Script | Role |
 |--------|------|
-| **`compose.sh`** / **`compose.ps1`** | `compose.sh local up -d` or `compose.ps1 remote up -d` — runs `docker compose --env-file .env.compose.<profile> …` from the repo root and updates `.soundhaus-compose-profile`. |
-| **`deploy-digital-ocean.sh`** | Rsync `docker-compose.yml`, root **`.env`**, and `apps/backend/` to `/opt/soundhaus` on a droplet, open firewall ports, `docker compose up -d`. See **`scripts/DEPLOYMENT.md`**. |
+| **`compose.sh`** / **`compose.ps1`** (repo root) | `compose.sh local up -d` or `compose.ps1 remote up -d` — runs `docker compose --env-file .env.compose.<profile> …` from the repo root and updates `.soundhaus-compose-profile`. |
+| **`deploy-digital-ocean.sh`** (`scripts/`) | Rsync `docker-compose.yml`, root **`.env`**, and `apps/backend/` to `/opt/soundhaus` on a droplet, open firewall ports, `docker compose up -d`. See **`scripts/DEPLOYMENT.md`**. |
 | **`backup.sh`** | Backup helper (Gitea / DB-related; review script for flags). |
 | **`run_desktop.sh`** | Local desktop app helper. |
 | **`bootstrap_local_gitea_admin.py`** | Optional Gitea admin bootstrap (see script docstring). |
 
-**PowerShell (Windows):** from repo root, `.\scripts\compose.ps1 local up -d`
+**PowerShell (Windows):** from repo root, `.\compose.ps1 local up -d`
 
 **Legacy:** plain `docker compose up` without `--env-file .env.compose.local` uses default `BACKEND_ENV_FILE=./apps/backend/.env` if set nowhere else—prefer the **local** profile.
 
@@ -98,12 +99,12 @@ API_BASE_URL=http://localhost:8000
 
 #### Getting Gitea Admin Token
 
-1. Start the stack: `./scripts/compose.sh local up -d` (or `.\scripts\compose.ps1 local up -d` on Windows).
+1. Start the stack: `./compose.sh local up -d` (or `.\compose.ps1 local up -d` on Windows).
 2. Open Gitea: http://localhost:3000
 3. Log in as admin → **Settings → Applications → Manage Access Tokens**
 4. Generate a token with **ALL** scopes (including **`write:admin`**).
 5. Put the token in **`apps/backend/.env.local`** as `GITEA_ADMIN_TOKEN`, then restart FastAPI:  
-   `./scripts/compose.sh local restart fastapi`
+   `./compose.sh local restart fastapi`
 
 #### Getting Supabase Credentials
 
@@ -113,7 +114,7 @@ API_BASE_URL=http://localhost:8000
 ### 3. Start services (recommended: local profile)
 
 ```bash
-./scripts/compose.sh local up -d --build
+./compose.sh local up -d --build
 # Logs (optional): docker compose --env-file .env.compose.local logs -f
 ```
 
@@ -408,7 +409,7 @@ Once the backend is running, access the interactive API documentation:
 
 ## 🚢 Deploying to DigitalOcean
 
-See **[scripts/DEPLOYMENT.md](scripts/DEPLOYMENT.md)** for Spaces, Supabase, firewall, and **`scripts/deploy-digital-ocean.sh`**. On the droplet you can instead clone the repo and run **`./scripts/compose.sh remote up -d`** with **`.env.compose.remote`** and **`apps/backend/.env.remote`** if you align that workflow with your ops process.
+See **[scripts/DEPLOYMENT.md](scripts/DEPLOYMENT.md)** for Spaces, Supabase, firewall, and **`scripts/deploy-digital-ocean.sh`**. On the droplet you can instead clone the repo and run **`./compose.sh remote up -d`** with **`.env.compose.remote`** and **`apps/backend/.env.remote`** if you align that workflow with your ops process.
 
 ## 🤝 Contributing
 

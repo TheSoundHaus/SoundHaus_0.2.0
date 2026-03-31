@@ -324,3 +324,6 @@ coverage.xml
 pyrightconfig.json
 
 .cursorrules
+
+# Local debug / planning notes (not committed)
+debug_plans/

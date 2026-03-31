@@ -46,13 +46,15 @@ def main() -> None:
         headers = {"Authorization": f"Bearer {access_token}"}
 
         token_name = f"test-pat-{uuid.uuid4().hex[:8]}"
-        resp_create = client.post("/api/auth/tokens", headers=headers, json={"name": token_name})
+        resp_create = client.post("/api/auth/tokens", headers=headers, json={"token_name": token_name})
         if resp_create.status_code != 200:
             fail(f"create PAT failed: {resp_create.status_code} {resp_create.text}")
         create_data = resp_create.json()
         if not create_data.get("success"):
             fail(f"create PAT success flag is false: {create_data}")
-        token_id = create_data.get("token", {}).get("id") or create_data.get("token_id")
+        token_id = create_data.get("token_id")
+        if token_id is not None:
+            token_id = str(token_id)
         if not token_id:
             fail(f"no token_id returned from create: {create_data}")
 

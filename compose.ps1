@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..")
+$RepoRoot = Resolve-Path $ScriptDir
 $ComposeEnvFile = Join-Path $RepoRoot ".env.compose.$Mode"
 $ProfileFile = Join-Path $RepoRoot ".soundhaus-compose-profile"
 

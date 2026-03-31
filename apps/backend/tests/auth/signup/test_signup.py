@@ -3,7 +3,7 @@
 Auth signup test.
 
 Flow:
-- POST /api/auth/signup with a unique email and password
+- POST /api/auth/signup with a unique email, password, and name (profile username)
 - Verify Supabase user creation succeeded
 - Verify Gitea user provisioning succeeded
 - Exit 0 on success, 1 on failure
@@ -41,6 +41,7 @@ def main() -> None:
         payload = {
             "email": email,
             "password": password,
+            "name": f"testuser_{unique_tag}",
             "metadata": {"source": "test_signup"},
         }
 
@@ -64,6 +65,12 @@ def main() -> None:
         gitea = body.get("gitea", {})
         if not gitea.get("success"):
             fail(f"gitea provisioning failed: {gitea}")
+
+        if gitea.get("username") != supabase_user_id:
+            fail(
+                f"gitea username should match supabase user id: got {gitea.get('username')!r} "
+                f"expected {supabase_user_id!r}"
+            )
 
         print(
             json.dumps(
