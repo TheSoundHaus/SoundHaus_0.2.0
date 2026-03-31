@@ -15,8 +15,33 @@ import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
 
+// Handle Squirrel.Windows install/update/uninstall events and exit immediately.
+// Without this, setup can launch the app at the wrong time and shortcut creation may fail.
+if (require('electron-squirrel-startup')) {
+  app.quit();
+}
+
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
+
+let mainWindow: BrowserWindow | null = null;
+
+if (process.platform === 'win32') {
+  // Keep a stable AppUserModelID so Start Menu/taskbar shortcuts resolve consistently.
+  app.setAppUserModelId('com.soundhaus.desktop');
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+});
 
 // Tracks the last project path selected by the user so View > Project View
 // can navigate back to it. Starts null (menu item disabled).
@@ -73,7 +98,7 @@ function updateMenuForRoute(route: string) {
 const execFileP = promisify(execFile);
 
 function createWindow() {
-    const mainWindow = new BrowserWindow({
+    mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
@@ -95,6 +120,10 @@ function createWindow() {
     shell.openExternal(details.url); // Open URL in user's browser.
     return { action: "deny" }; // Prevent the app from opening the URL.
   })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 ipcMain.handle('choose-folder', async (event: IpcMainInvokeEvent) => {
