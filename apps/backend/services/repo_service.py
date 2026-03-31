@@ -6,6 +6,7 @@ from services.gitea_service import GiteaAdminService
 from sqlalchemy.orm import Session
 from models.webhook_models import WebhookConfig
 from models.profile_models import Profile
+from models.repo_models import RepoData
 from logging_config import get_logger
 from config import settings
 
@@ -657,3 +658,113 @@ class RepoService:
         except requests.RequestException as e:
             logger.error("remove_collaborator_error", owner=owner, repo=repo_name, collaborator=username, error=str(e))
             return {"success": False, "message": str(e)}
+
+    def search_public_repos(self, query: str, limit: int, offset: int, sort: str, db: Session) -> Dict[str, Any]:
+        """Search public repositories, enriching Gitea results with SoundHaus metadata.
+
+        Orchestrates a search by querying Gitea for matching repos, then batch-fetching
+        RepoData and Profile records from the database to build enriched results.
+
+        Args:
+            query: Search string to match against repo names/descriptions.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip (converted to page-based pagination for Gitea).
+            sort: Sort order - one of 'stars', 'updated', or 'clones'.
+            db: SQLAlchemy database session.
+
+        Returns:
+            Dict with success status, enriched repo list, total count, and pagination info.
+        """
+        try:
+            # Convert offset-based pagination to page-based for Gitea
+            page = (offset // limit) + 1
+
+            # Query Gitea for matching public repositories
+            gitea_svc = GiteaAdminService(base_url=self.base_url, admin_token=self.token)
+            gitea_result = gitea_svc.search_repos(query=query, limit=limit, page=page, sort=sort)
+
+            if not gitea_result.get("success"):
+                logger.warning("search_public_repos_gitea_error", query=query, error=gitea_result.get("message", "Unknown error"))
+                return {"success": False, "message": gitea_result.get("message", "Gitea search failed")}
+
+            gitea_repos = gitea_result.get("repos", [])
+            total = gitea_result.get("total", 0)
+
+            # Extract gitea_ids (full_name values) for batch DB lookup
+            gitea_ids = [r["full_name"] for r in gitea_repos]
+
+            # Batch fetch RepoData records from the database
+            repo_data_map = {}
+            if gitea_ids:
+                repo_data_list = db.query(RepoData).filter(RepoData.gitea_id.in_(gitea_ids)).all()
+                repo_data_map = {rd.gitea_id: rd for rd in repo_data_list}
+
+            # Batch fetch Profile records for owner usernames
+            owner_ids = list({r["owner"]["login"] for r in gitea_repos})
+            profile_map = {}
+            if owner_ids:
+                profiles = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
+                profile_map = {p.id: p for p in profiles}
+
+            # Build enriched results combining Gitea data + SoundHaus metadata
+            enriched = []
+            for gitea_repo in gitea_repos:
+                full_name = gitea_repo["full_name"]
+                rd = repo_data_map.get(full_name)
+                owner_id = gitea_repo["owner"]["login"]
+                profile = profile_map.get(owner_id)
+
+                snippet_metadata = None
+                if rd and rd.audio_snippet:
+                    snippet_metadata = {
+                        "duration": rd.snippet_duration,
+                        "file_size": rd.snippet_file_size,
+                        "format": rd.snippet_format,
+                        "sample_rate": rd.snippet_sample_rate,
+                        "channels": rd.snippet_channels,
+                    }
+
+                enriched.append({
+                    "gitea_id": full_name,
+                    "owner": owner_id,
+                    "owner_username": profile.username if profile else owner_id,
+                    "repo_name": gitea_repo["name"],
+                    "description": gitea_repo.get("description", ""),
+                    "stars_count": gitea_repo.get("stars_count", 0),
+                    "updated_at": gitea_repo.get("updated_at", ""),
+                    "clone_count": rd.clone_count if rd else 0,
+                    "audio_snippet": rd.audio_snippet if rd else None,
+                    "snippet_metadata": snippet_metadata,
+                    "genres": [g.genre_name for g in rd.genres] if rd else [],
+                    "clone_url": f"{settings.gitea_public_url}/{full_name}.git",
+                })
+
+            # Gitea handles 'stars' and 'updated' sort natively.
+            # 'clones' is SoundHaus-specific (not in Gitea), so sort client-side.
+            if sort == "clones":
+                enriched.sort(key=lambda r: r["clone_count"], reverse=True)
+
+            has_more = (offset + limit) < total
+
+            logger.info(
+                "search_public_repos",
+                query=query,
+                result_count=len(enriched),
+                total=total,
+                page=page,
+                sort=sort,
+                has_more=has_more,
+            )
+
+            return {
+                "success": True,
+                "repos": enriched,
+                "total": total,
+                "has_more": has_more,
+                "offset": offset,
+                "limit": limit,
+            }
+
+        except Exception as e:
+            logger.error("search_public_repos_error", query=query, error=str(e))
+            return {"success": False, "message": f"Search failed: {str(e)}"}
