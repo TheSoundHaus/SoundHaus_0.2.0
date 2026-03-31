@@ -33,6 +33,7 @@ if (process.platform === 'win32') {
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
+  process.exit(0);
 }
 
 app.on('second-instance', () => {
