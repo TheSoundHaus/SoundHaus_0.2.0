@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
-import { getAllowedCloneRemote, getGiteaCredentials } from './login';
+import { getAllowedCloneRemote, getGiteaCredentials, getSoundHausCredentials } from './login';
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
@@ -267,6 +267,52 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
             req.write(payload);
             req.end();
         });
+
+        // Step 4.5: Register repo in the SoundHaus database
+        console.log('[init] Step 4.5: Registering repo in SoundHaus database...');
+        const supabaseToken = await getSoundHausCredentials();
+        if (supabaseToken) {
+            try {
+                const registerPayload = JSON.stringify({
+                    name: finalRepoName,
+                    description: finalDescription,
+                    private: isPrivate,
+                });
+                await new Promise<void>((resolve, reject) => {
+                    const registerOptions = {
+                        hostname: 'localhost',
+                        port: 8000,
+                        path: '/repos/register',
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${supabaseToken}`,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Content-Length': Buffer.byteLength(registerPayload),
+                        },
+                    };
+                    const registerReq = http.request(registerOptions, (res) => {
+                        let body = '';
+                        res.on('data', (chunk) => { body += chunk; });
+                        res.on('end', () => {
+                            console.log('[init] Register response:', res.statusCode, body);
+                            resolve();
+                        });
+                    });
+                    registerReq.on('error', (err) => {
+                        console.warn('[init] Register request failed (non-fatal):', err.message);
+                        resolve();
+                    });
+                    registerReq.write(registerPayload);
+                    registerReq.end();
+                });
+                console.log('[init] ✓ Repo registered in SoundHaus database');
+            } catch (regErr: any) {
+                console.warn('[init] Could not register repo in database (non-fatal):', regErr.message);
+            }
+        } else {
+            console.warn('[init] No SoundHaus token available, skipping database registration');
+        }
 
         // Step 5: Configure git credentials
         console.log('[init] Step 5: Configuring git credentials...');

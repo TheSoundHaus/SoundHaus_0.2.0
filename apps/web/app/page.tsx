@@ -204,17 +204,29 @@ function FadeInSection({
     children,
     className = "",
     delay = 0,
+    variant = "up",
 }: {
     children: React.ReactNode;
     className?: string;
     delay?: number;
+    variant?: "up" | "down" | "left" | "right" | "scale";
 }) {
     const { ref, visible } = useFadeIn();
+
+    const hiddenClass: Record<string, string> = {
+        up: "opacity-0 translate-y-12",
+        down: "opacity-0 -translate-y-10",
+        left: "opacity-0 translate-x-16",
+        right: "opacity-0 -translate-x-16",
+        scale: "opacity-0 scale-90",
+    };
+    const visibleClass = "opacity-100 translate-y-0 translate-x-0 scale-100";
+
     return (
         <div
             ref={ref}
             className={`transition-all duration-1000 ease-[cubic-bezier(0.19,1,0.22,1)] ${
-                visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12"
+                visible ? visibleClass : hiddenClass[variant]
             } ${className}`}
             style={{ transitionDelay: `${delay}ms` }}
         >
@@ -277,26 +289,28 @@ function WaveformDivider({ flip = false }: { flip?: boolean }) {
 
 function EQBarsDivider() {
     return (
-        <div className="relative w-full h-12 flex items-end justify-center gap-[3px] overflow-hidden pointer-events-none opacity-[0.15]">
-            {Array.from({ length: 80 }).map((_, i) => {
-                const h = 20 + Math.sin(i * 0.3) * 40 + Math.cos(i * 0.7) * 25;
-                // Stagger animation delay per bar for a ripple effect
-                const delay = (i * 0.06).toFixed(2);
+        <div className="relative w-full h-20 flex items-end justify-center gap-[2px] overflow-hidden pointer-events-none">
+            {Array.from({ length: 120 }).map((_, i) => {
+                const h = 15 + Math.sin(i * 0.25) * 35 + Math.cos(i * 0.6) * 20 + Math.sin(i * 0.12) * 15;
+                const delay = (i * 0.04).toFixed(2);
+                const hue = 200 + (i / 120) * 30;
                 return (
                     <div
                         key={i}
-                        className="w-[1px] rounded-t-full bg-glass-blue-400"
+                        className="rounded-t-full"
                         style={{
-                            height: `${Math.max(h, 5)}%`,
-                            animation: `eqPulse ${2 + (i % 3) * 0.5}s ease-in-out ${delay}s infinite`,
+                            flex: "1 1 0",
+                            height: `${Math.max(h, 6)}%`,
+                            background: `linear-gradient(to top, hsla(${hue}, 45%, 70%, 0.25), hsla(${hue}, 45%, 70%, 0.05))`,
+                            animation: `eqPulse ${1.8 + (i % 4) * 0.4}s ease-in-out ${delay}s infinite`,
                         }}
                     />
                 );
             })}
             <style jsx>{`
                 @keyframes eqPulse {
-                    0%, 100% { transform: scaleY(1); }
-                    50% { transform: scaleY(0.4); }
+                    0%, 100% { transform: scaleY(1); opacity: 1; }
+                    50% { transform: scaleY(0.3); opacity: 0.5; }
                 }
             `}</style>
         </div>
@@ -931,16 +945,16 @@ export default function LandingPage() {
 
                     <div className="grid md:grid-cols-3 gap-12 md:gap-8">
                         {STEPS.map((step, i) => (
-                            <FadeInSection key={step.title} delay={i * 120}>
+                            <FadeInSection key={step.title} delay={i * 200} variant="down">
                                 <div className="relative text-center group">
-                                    <div className="text-5xl font-black text-zinc-800 mb-4 transition-colors duration-500 group-hover:text-zinc-700">
+                                    <div className="text-6xl font-black text-zinc-800/80 mb-4 transition-all duration-700 group-hover:text-glass-blue-400/20 group-hover:scale-110">
                                         {step.num}
                                     </div>
-                                    <div className="relative z-10 mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-900 border border-white/[0.08]"
+                                    <div className="relative z-10 mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-900 border border-white/[0.08] transition-all duration-500 group-hover:border-glass-blue-500/40 group-hover:shadow-[0_0_25px_rgba(167,199,231,0.15)]"
                                          style={{ boxShadow: "0 0 30px rgba(167, 199, 231, 0.06)" }}>
-                                        <step.icon className="w-6 h-6 text-glass-blue-400" />
+                                        <step.icon className="w-6 h-6 text-glass-blue-400 transition-transform duration-500 group-hover:scale-110" />
                                     </div>
-                                    <h3 className="text-lg font-semibold text-white mb-2">
+                                    <h3 className="text-lg font-semibold text-white mb-2 transition-colors duration-300 group-hover:text-glass-blue-400">
                                         {step.title}
                                     </h3>
                                     <p className="text-zinc-500 text-sm leading-relaxed">
@@ -957,55 +971,111 @@ export default function LandingPage() {
             <EQBarsDivider />
 
             {/* ── Human Collaboration Philosophy ─────────── */}
-            <section id="philosophy" className="relative py-32 md:py-40 px-6">
-                <FloatingParticles count={10} color="140, 180, 220" />
-                {/* Soft center glow */}
-                <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 50% 45% at 50% 50%, rgba(167, 199, 231, 0.03) 0%, transparent 70%)" }} aria-hidden />
+            <section id="philosophy" className="relative py-32 md:py-44 px-6 overflow-hidden">
+                <FloatingParticles count={14} color="140, 180, 220" />
+                <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 60% 50% at 50% 40%, rgba(167, 199, 231, 0.04) 0%, transparent 70%)" }} aria-hidden />
 
-                <div className="mx-auto max-w-4xl relative z-10">
-                    <FadeInSection className="text-center mb-16">
+                <div className="mx-auto max-w-6xl relative z-10">
+                    {/* Section header */}
+                    <FadeInSection className="text-center mb-20">
                         <p className="text-xs font-medium tracking-[0.3em] uppercase text-glass-blue-400 mb-4">Our Philosophy</p>
-                        <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-5">
+                        <h2 className="text-4xl md:text-6xl font-bold tracking-tight mb-6">
                             Built for humans,<br className="hidden sm:block" /> not algorithms
                         </h2>
+                        <p className="text-zinc-500 text-lg max-w-2xl mx-auto font-light leading-relaxed">
+                            In a world racing toward automation, we chose a different path.
+                        </p>
                     </FadeInSection>
 
-                    <div className="space-y-10">
-                        <FadeInSection delay={100}>
-                            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-10">
-                                <p className="text-base md:text-lg text-zinc-400 leading-relaxed font-light">
-                                    In a world where AI-generated content is becoming the norm, SoundHaus takes a
-                                    different stand. We believe the best music comes from real people — producers,
-                                    engineers, and artists — working together, sharing ideas, and pushing each
-                                    other creatively. Our platform is built to amplify human talent, not replace it.
+                    {/* Row 1: Image left, text right */}
+                    <FadeInSection delay={100} variant="left">
+                        <div className="grid md:grid-cols-2 gap-0 rounded-2xl border border-white/[0.06] overflow-hidden mb-8 transition-shadow duration-700 hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
+                            <div className="relative h-72 md:h-auto overflow-hidden">
+                                <img
+                                    src="https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?w=800&q=80&auto=format"
+                                    alt="Music producer working at a mixing desk in a studio"
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-zinc-950/80 hidden md:block" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 to-transparent md:hidden" />
+                            </div>
+                            <div className="bg-zinc-900/70 backdrop-blur-sm p-8 md:p-10 flex flex-col justify-center">
+                                <div className="w-10 h-10 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-5">
+                                    <Users className="w-5 h-5 text-glass-blue-400" />
+                                </div>
+                                <h3 className="text-2xl font-bold text-white mb-4">Real people, real music</h3>
+                                <p className="text-base text-zinc-400 leading-relaxed font-light">
+                                    We believe the best music comes from real people — producers, engineers, and
+                                    artists — working together, sharing ideas, and pushing each other creatively.
+                                    Our platform is built to amplify human talent, not replace it.
                                 </p>
                             </div>
-                        </FadeInSection>
+                        </div>
+                    </FadeInSection>
 
-                        <FadeInSection delay={200}>
-                            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-10">
-                                <p className="text-base md:text-lg text-zinc-400 leading-relaxed font-light">
+                    {/* Pull quote */}
+                    <FadeInSection delay={150} variant="scale">
+                        <div className="my-12 md:my-16 text-center px-4">
+                            <blockquote className="text-2xl md:text-4xl font-bold tracking-tight text-white leading-snug">
+                                &ldquo;We&apos;re not interested in generating beats<br className="hidden md:block" /> with a prompt.&rdquo;
+                            </blockquote>
+                            <div className="mt-4 h-px w-16 mx-auto bg-glass-blue-400/40" />
+                        </div>
+                    </FadeInSection>
+
+                    {/* Row 2: Text left, image right */}
+                    <FadeInSection delay={200} variant="right">
+                        <div className="grid md:grid-cols-2 gap-0 rounded-2xl border border-white/[0.06] overflow-hidden mb-8 transition-shadow duration-700 hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
+                            <div className="bg-zinc-900/70 backdrop-blur-sm p-8 md:p-10 flex flex-col justify-center order-2 md:order-1">
+                                <div className="w-10 h-10 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-5">
+                                    <Eye className="w-5 h-5 text-glass-blue-400" />
+                                </div>
+                                <h3 className="text-2xl font-bold text-white mb-4">Transparent by design</h3>
+                                <p className="text-base text-zinc-400 leading-relaxed font-light">
                                     Every feature in SoundHaus — from version control to visual diffs to stem
                                     separation — exists to make collaboration between real musicians easier and
-                                    more transparent. We&apos;re not interested in generating beats with a prompt. We&apos;re
-                                    interested in giving you the tools to iterate on your own ideas, hear exactly
+                                    more transparent. We give you the tools to iterate on your own ideas, hear exactly
                                     what your collaborator changed, and build something genuinely yours.
                                 </p>
                             </div>
-                        </FadeInSection>
+                            <div className="relative h-72 md:h-auto overflow-hidden order-1 md:order-2">
+                                <img
+                                    src="https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=800&q=80&auto=format"
+                                    alt="Musician playing piano in warm studio lighting"
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-l from-transparent to-zinc-950/80 hidden md:block" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 to-transparent md:hidden" />
+                            </div>
+                        </div>
+                    </FadeInSection>
 
-                        <FadeInSection delay={300}>
-                            <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-10">
-                                <p className="text-base md:text-lg text-zinc-400 leading-relaxed font-light">
-                                    SoundHaus is a platform where authenticity matters. Where credit is tracked in
-                                    the commit history, not lost in a chain of anonymous exports. Where async
-                                    collaboration means a drummer in Berlin and a vocalist in LA can trade stems
-                                    across time zones without losing context. The future of music is collaborative —
-                                    and it should be unmistakably human.
+                    {/* Row 3: Image left, text right */}
+                    <FadeInSection delay={300} variant="left">
+                        <div className="grid md:grid-cols-2 gap-0 rounded-2xl border border-white/[0.06] overflow-hidden transition-shadow duration-700 hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
+                            <div className="relative h-72 md:h-auto overflow-hidden">
+                                <img
+                                    src="https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&q=80&auto=format"
+                                    alt="Live band performing together on stage"
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-zinc-950/80 hidden md:block" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 to-transparent md:hidden" />
+                            </div>
+                            <div className="bg-zinc-900/70 backdrop-blur-sm p-8 md:p-10 flex flex-col justify-center">
+                                <div className="w-10 h-10 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-5">
+                                    <GitBranch className="w-5 h-5 text-glass-blue-400" />
+                                </div>
+                                <h3 className="text-2xl font-bold text-white mb-4">Unmistakably human</h3>
+                                <p className="text-base text-zinc-400 leading-relaxed font-light">
+                                    SoundHaus is where authenticity matters. Where credit is tracked in the commit
+                                    history, not lost in a chain of anonymous exports. Where a drummer in Berlin and
+                                    a vocalist in LA can trade stems across time zones without losing context.
+                                    The future of music is collaborative — and it should be unmistakably human.
                                 </p>
                             </div>
-                        </FadeInSection>
-                    </div>
+                        </div>
+                    </FadeInSection>
                 </div>
             </section>
 

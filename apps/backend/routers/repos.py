@@ -23,6 +23,7 @@ from models.profile_models import Profile
 from models.invitation_models import CollaboratorInvitation
 from models.schemas import (
     CreateRepoRequest,
+    RegisterRepoRequest,
     UploadFileRequest,
     DeleteFileRequest,
 )
@@ -106,6 +107,55 @@ async def create_repo(
         "repo": res.get("repo"),
         "repo_data": {"gitea_id": repo_data.gitea_id},
     }
+
+
+@router.post("/repos/register")
+@user_limiter.limit("20/minute")
+async def register_repo(
+    request: Request,
+    register_request: RegisterRepoRequest,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Register an existing Gitea repo in the database.
+
+    Called by the desktop app after it creates a repo directly via the Gitea
+    user API so that the repo_data row (needed for stars, clones, genres, etc.)
+    also exists.  If the row already exists this is a no-op and returns success.
+    """
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unable to fetch user")
+
+    user_id = user_res["user"]["id"]
+    gitea_id = f"{user_id}/{register_request.name}"
+
+    existing = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
+    if existing:
+        return {"success": True, "repo_data": {"gitea_id": existing.gitea_id}, "created": False}
+
+    repo_data = RepoData(
+        gitea_id=gitea_id,
+        audio_snippet=None,
+        clone_count=0,
+        owner_id=user_id,
+    )
+    try:
+        db.add(repo_data)
+        db.commit()
+        db.refresh(repo_data)
+    except IntegrityError:
+        db.rollback()
+        return {"success": True, "repo_data": {"gitea_id": gitea_id}, "created": False}
+
+    # Set up a webhook for this repo so push events are tracked
+    try:
+        svc = RepoService()
+        svc._create_repo_webhook(user_id, register_request.name, db)
+    except Exception as e:
+        logger.warning("register_repo", msg="webhook creation failed", error=str(e))
+
+    return {"success": True, "repo_data": {"gitea_id": repo_data.gitea_id}, "created": True}
 
 
 # ── Contents / Upload / Delete ───────────────────────────────────────────────

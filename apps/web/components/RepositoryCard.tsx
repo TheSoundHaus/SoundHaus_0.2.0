@@ -30,7 +30,7 @@ function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
 
   return (
     <div
-      className="relative w-full h-40 rounded-card overflow-hidden cursor-pointer"
+      className="relative w-full h-40 rounded-xl overflow-hidden cursor-pointer"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -59,33 +59,13 @@ function RemixCardButton({ count, onClick }: { count: number; onClick: (e: React
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="flex items-center gap-1 transition-colors hover:text-glass-blue"
+      className="flex items-center gap-1 transition-colors hover:text-glass-blue-400"
     >
       <RemixIcon hovered={hovered} size={14} />
       {count} remixes
     </button>
   );
 }
-
-/**
- * RepositoryCard Component - Displays repository overview information
- * Used in Explore and Personal Repositories pages
- *
- * @param id - Repository full_name for routing (owner/repo)
- * @param title - Repository name
- * @param author - Repository owner username
- * @param updatedAt - Last update timestamp
- * @param stats - Object containing repository statistics
- * @param isPublic - Whether repository is public or private
- * @param audioSnippet - CDN URL to audio snippet (if any)
- * @param cloneCount - Number of times this repo has been cloned
- * @param isStarred - Whether the current user has starred this repo
- * @param isOwner - Whether the current user owns this repo
- * @param genres - Array of genre name strings
- * @param onStar - Callback when star/unstar is triggered
- * @param onDelete - Callback when delete is triggered
- * @param onRename - Callback when rename is triggered
- */
 
 interface RepositoryCardProps {
   id: string;
@@ -94,9 +74,9 @@ interface RepositoryCardProps {
   updatedAt: string;
   stats: {
     stars: number;
-    tracks?: number;         // Not yet available from API — wire up when endpoint provides it
-    collaborators?: number;  // Not yet available from API — wire up when endpoint provides it
-    commits?: number;        // Not yet available from API — wire up when endpoint provides it
+    tracks?: number;
+    collaborators?: number;
+    commits?: number;
   };
   isPublic?: boolean;
   audioSnippet?: string | null;
@@ -143,14 +123,12 @@ export default function RepositoryCard({
     e.stopPropagation();
     if (!onStar) return;
     const wasStarred = starred;
-    // Optimistic update
     setStarred(!wasStarred);
     setStarCount((c) => (wasStarred ? c - 1 : c + 1));
     startTransition(async () => {
       try {
         await onStar();
       } catch {
-        // Revert on failure
         setStarred(wasStarred);
         setStarCount((c) => (wasStarred ? c + 1 : c - 1));
       }
@@ -180,7 +158,6 @@ export default function RepositoryCard({
     });
   }
 
-  // Format the updatedAt timestamp
   const formattedDate = (() => {
     try {
       const d = new Date(updatedAt);
@@ -199,22 +176,23 @@ export default function RepositoryCard({
   return (
     <Link
       href={`/repository/${id}`}
-      className="group relative block rounded-card border border-white/10 bg-zinc-900 p-6 transition-all hover:border-white/20 hover:bg-zinc-800/60">
-      {/* 3-dot context menu (owner only) — positioned beside the audio player */}
+      className="group relative block rounded-xl border border-zinc-800 p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] no-underline">
+
+      {/* Context menu (owner only) */}
       {isOwner && (
-        <div className="absolute right-3 top-6 z-10">
+        <div className="absolute right-4 top-5 z-10">
           <Menu as="div" className="relative">
             <MenuButton
               onClick={(e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); }}
-              className="rounded-md p-1 text-muted transition-colors hover:bg-charcoal hover:text-soft-white"
+              className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
             >
               <MoreVertical size={16} />
             </MenuButton>
-            <MenuItems className="absolute right-0 mt-1 w-40 origin-top-right rounded-md border border-white/10 bg-midnight/95 backdrop-blur-glass p-1 shadow-xl focus:outline-none">
+            <MenuItems className="absolute right-0 mt-1 w-40 origin-top-right rounded-xl border border-zinc-700 bg-zinc-800 p-1 shadow-2xl focus:outline-none">
               <MenuItem>
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowRenameInput(true); }}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-soft-white data-[focus]:bg-charcoal"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-200 data-[focus]:bg-zinc-700"
                 >
                   <Pencil size={14} /> Rename
                 </button>
@@ -222,7 +200,7 @@ export default function RepositoryCard({
               <MenuItem>
                 <button
                   onClick={handleDelete}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 data-[focus]:bg-charcoal"
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 data-[focus]:bg-zinc-700"
                 >
                   <Trash2 size={14} /> Delete
                 </button>
@@ -232,13 +210,13 @@ export default function RepositoryCard({
         </div>
       )}
 
-{/* Thumbnail / Audio snippet */}
+      {/* Thumbnail / Audio snippet */}
       {thumbnailUrl && thumbnailType === "image" ? (
-        <div className="mb-4 pr-6 overflow-hidden rounded-card">
+        <div className="mb-4 pr-6 overflow-hidden rounded-xl">
           <img
             src={thumbnailUrl}
             alt={`${title} thumbnail`}
-            className="w-full h-40 object-cover rounded-card"
+            className="w-full h-40 object-cover rounded-xl border border-zinc-700 transition-transform duration-700 group-hover:scale-[1.02]"
           />
         </div>
       ) : thumbnailUrl && thumbnailType === "youtube" ? (
@@ -250,10 +228,9 @@ export default function RepositoryCard({
           <AudioPlayer src={audioSnippet} compact />
         </div>
       ) : (
-        // 1. Give the outer wrapper the margin and padding (just like the true branch)
         <div className="mb-4 pr-6">
-          <div className="flex items-center gap-2 rounded-card bg-midnight/80 backdrop-blur-glass border border-white/10 px-3 py-2 text-muted">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-charcoal">
+          <div className="flex items-center gap-2 rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-500">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-700">
               <Music size={14} />
             </div>
             <span className="text-xs">No audio snippet</span>
@@ -261,7 +238,7 @@ export default function RepositoryCard({
         </div>
       )}
 
-      {/* Rename inline input */}
+      {/* Rename input */}
       {showRenameInput ? (
         <form
           onSubmit={handleRenameSubmit}
@@ -273,36 +250,36 @@ export default function RepositoryCard({
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
             onBlur={() => setShowRenameInput(false)}
-            className="w-full rounded-md border border-white/10 bg-charcoal px-2 py-1 text-lg font-semibold text-soft-white focus:border-glass-blue-500 focus:outline-none"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-lg font-semibold text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
           />
         </form>
       ) : (
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="truncate text-lg font-semibold text-soft-white">{title}</h3>
-          <div className="flex items-center gap-2">
-            {!isPublic && (
-              <span className="flex items-center gap-1 text-xs text-muted">
-                <Lock size={12} /> Private
-              </span>
-            )}
-          </div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h3 className="truncate text-base font-semibold text-zinc-100 group-hover:text-glass-blue-400 transition-colors duration-300">{title}</h3>
+          {!isPublic && (
+            <span className="flex items-center gap-1 shrink-0 text-[10px] text-zinc-500 border border-zinc-700 rounded-full px-2 py-0.5">
+              <Lock size={10} /> Private
+            </span>
+          )}
         </div>
       )}
 
-      <p className="mb-3 text-sm text-muted">
-        By <span
+      <p className="mb-3 text-sm text-zinc-400">
+        <span
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/profile/${author}`; }}
-          className="text-zinc-300 hover:text-glass-blue transition-colors cursor-pointer"
-        >{author}</span> • {formattedDate}
+          className="text-zinc-300 hover:text-glass-blue-400 transition-colors cursor-pointer"
+        >{author}</span>
+        <span className="mx-2 text-zinc-600">&middot;</span>
+        {formattedDate}
       </p>
 
       {/* Genre tags */}
       {genres.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-1">
+        <div className="mb-3 flex flex-wrap gap-1.5">
           {genres.map((g) => (
             <span
               key={g}
-              className="rounded-full bg-charcoal px-2 py-0.5 text-xs text-muted"
+              className="rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[10px] text-glass-blue-400"
             >
               {g}
             </span>
@@ -310,11 +287,11 @@ export default function RepositoryCard({
         </div>
       )}
 
-      {/* Stats */}
-      <div className="flex flex-wrap gap-4 text-sm text-muted">
+      {/* Stats row */}
+      <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
         <button
           onClick={handleStar}
-          className={`flex items-center gap-1 transition-colors ${
+          className={`flex items-center gap-1 transition-colors duration-300 ${
             starred ? "text-amber-400" : "hover:text-amber-400"
           }`}
         >

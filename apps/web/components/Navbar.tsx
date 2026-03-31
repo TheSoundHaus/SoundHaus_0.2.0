@@ -7,11 +7,6 @@ import { Waves } from "lucide-react";
 import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "./UserAvatar";
 
-/**
- * Navbar Component - Global navigation for authenticated pages
- * Glass-morphism style matching the landing page aesthetic
- * Shows Waves icon, highlights active page, user avatar
- */
 const Navbar = () => {
     const pathname = usePathname();
     const { user, loading } = useUser();
@@ -56,18 +51,16 @@ const Navbar = () => {
                                 className={`relative rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 ${
                                     isActive
                                         ? "text-glass-blue-400"
-                                        : "text-zinc-400 hover:text-zinc-100"
+                                        : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800"
                                 }`}
                             >
                                 {link.label}
-                                {/* Active indicator bar */}
                                 {isActive && (
                                     <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-glass-blue-400" />
                                 )}
                             </Link>
                         );
                     })}
-                    {/* Profile avatar link */}
                     <Link
                         href="/settings"
                         className={`group relative ml-3 rounded-full p-1 transition-all duration-300 ${
@@ -86,8 +79,7 @@ const Navbar = () => {
                                 size={32}
                             />
                         )}
-                        {/* Tooltip */}
-                        <span className="pointer-events-none absolute -bottom-8 left-1/2 -translate-x-1/2 rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300 opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
+                        <span className="pointer-events-none absolute -bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
                             Profile
                         </span>
                     </Link>

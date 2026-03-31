@@ -1,7 +1,6 @@
-import { getPublicProfile, getUserPublicRepos } from "@/lib/api/profile";
+import { getPublicProfile } from "@/lib/api/profile";
 import UserAvatar from "@/components/UserAvatar";
-import RepositoryCard from "@/components/RepositoryCard";
-import { Calendar, User, Music } from "lucide-react";
+import { Calendar, User } from "lucide-react";
 
 interface Params {
   username: string;
@@ -13,12 +12,9 @@ export default async function PublicProfilePage({
   params: Promise<Params>;
 }) {
   const { username } = await params;
-  const [profileResult, reposResult] = await Promise.all([
-    getPublicProfile(username),
-    getUserPublicRepos(username),
-  ]);
+  const result = await getPublicProfile(username);
 
-  if (!profileResult.success) {
+  if (!result.success) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-20 text-center">
         <div className="rounded-lg border border-zinc-800 p-12">
@@ -32,8 +28,7 @@ export default async function PublicProfilePage({
     );
   }
 
-  const profile = profileResult.data;
-  const repos = reposResult.success ? (reposResult.data ?? []) : [];
+  const profile = result.data;
 
   // Format account creation date
   function formatDate(iso: string | null): string {
@@ -50,7 +45,7 @@ export default async function PublicProfilePage({
   }
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-12">
+    <main className="mx-auto max-w-3xl px-6 py-12">
       {/* Profile Header */}
       <div className="mb-8 rounded-lg border border-zinc-800 p-8">
         <div className="flex items-start gap-6">
@@ -71,48 +66,20 @@ export default async function PublicProfilePage({
               </p>
             )}
 
-            <div className="mt-4 flex items-center gap-4 text-sm text-zinc-500">
-              <div className="flex items-center gap-2">
-                <Calendar size={14} />
-                <span>Joined {formatDate(profile.created_at)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Music size={14} />
-                <span>{repos.length} public project{repos.length !== 1 ? "s" : ""}</span>
-              </div>
+            <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">
+              <Calendar size={14} />
+              <span>Joined {formatDate(profile.created_at)}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Public Repos */}
+      {/* Public Repos placeholder */}
       <div className="rounded-lg border border-zinc-800 p-8">
-        <h2 className="mb-6 text-xl font-semibold">Public Projects</h2>
-        {repos.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            This user hasn&apos;t published any public projects yet.
-          </p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {repos.map((repo) => (
-              <RepositoryCard
-                key={repo.gitea_id}
-                id={repo.gitea_id}
-                title={repo.repo_name}
-                author={repo.owner}
-                updatedAt={repo.updated_at ?? ""}
-                stats={{ stars: repo.stars ?? 0 }}
-                isPublic
-                audioSnippet={repo.audio_snippet}
-                thumbnailUrl={repo.thumbnail_url}
-                thumbnailType={repo.thumbnail_type}
-                cloneCount={repo.clone_count}
-                cloneUrl={repo.clone_url}
-                genres={repo.genres}
-              />
-            ))}
-          </div>
-        )}
+        <h2 className="mb-4 text-xl font-semibold">Public Projects</h2>
+        <p className="text-sm text-zinc-500">
+          Public repositories will be displayed here once the feature is fully enabled.
+        </p>
       </div>
     </main>
   );
