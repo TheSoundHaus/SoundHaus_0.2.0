@@ -33,7 +33,7 @@ COPY . .
 # NEXT_PUBLIC_* vars must be available at BUILD time
 ENV NEXT_TELEMETRY_DISABLED=1
 # These will be overridden by docker-compose environment:
-ENV NEXT_PUBLIC_API_URL=http://localhost:8000/api
+ENV NEXT_PUBLIC_API_URL=http://129.212.182.247:8000
 
 # Build the Next.js app
 RUN npm run build

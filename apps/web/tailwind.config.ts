@@ -158,8 +158,8 @@ const config: Config = {
           '50%': { opacity: '0.8' },
         },
         'crossfade-in': {
-          '0%': { opacity: '0', backdropFilter: 'blur(0px)' },
-          '100%': { opacity: '1', backdropFilter: 'blur(12px)' },
+            '0%': { opacity: '0', backdropFilter: 'blur(0px)', WebkitBackdropFilter: 'blur(0px)' },
+            '100%': { opacity: '1', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' },
         },
         'remix-slide-up': {
           '0%': { opacity: '0', transform: 'translateY(24px) scale(0.96)' },

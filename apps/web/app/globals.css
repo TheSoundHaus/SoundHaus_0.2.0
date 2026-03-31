@@ -1131,6 +1131,37 @@
 }
 
 /* ============================================
+   CROSS-BROWSER COMPATIBILITY
+   ============================================ */
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass,
+  .glass-heavy,
+  .card-glass,
+  [class*="backdrop-blur"] {
+    background-color: rgba(11, 22, 34, 0.95) !important;
+  }
+}
+
+@supports (-webkit-backdrop-filter: blur(1px)) and (not (backdrop-filter: blur(1px))) {
+  .glass {
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .glass-heavy {
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .card-glass {
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+  }
+}
+
+@-moz-document url-prefix() {
+  .text-balance {
+    text-wrap: pretty;
+  }
+}
+
+/* ============================================
    SOUNDHAUS-SPECIFIC COMPONENTS
    ============================================ */
 @layer components {

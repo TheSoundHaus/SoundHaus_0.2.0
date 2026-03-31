@@ -23,7 +23,7 @@ export async function GET(
         );
     }
 
-    const API_BASE_URL = process.env.API_URL || "http://localhost:8000";
+    const API_BASE_URL = process.env.API_URL || "http://129.212.182.247:8000";
     const backendUrl = new URL(
         `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/audio/waveform`,
         API_BASE_URL

@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { clearAuthCookies, getAccessToken, setAuthCookies } from "@/lib/utils/authUtil";
 
 
-const API_BASE_URL = process.env.API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.API_URL || "http://129.212.182.247:8000";
 
 export async function signup(
   _prevState: SignUpFormState,

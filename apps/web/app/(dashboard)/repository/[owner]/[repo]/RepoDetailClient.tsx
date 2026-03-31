@@ -505,9 +505,10 @@ export default function RepoDetailClient({
       </div>
 
       {/* Remix URL Modal */}
-      {showRemixModal && stats?.clone_url && (
+      {showRemixModal && (
         <CloneModal
-          cloneUrl={stats.clone_url}
+          owner={owner}
+          repo={repo}
           onClose={() => setShowRemixModal(false)}
         />
       )}

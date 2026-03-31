@@ -4,23 +4,30 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { X, Copy, Check, Music } from "lucide-react";
 
 interface CloneModalProps {
-  cloneUrl: string;
+  owner: string;
+  repo: string;
+  cloneUrl?: string;
   onClose: () => void;
 }
 
-export default function CloneModal({ cloneUrl, onClose }: CloneModalProps) {
+function buildSoundHausCloneLink(owner: string, repo: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/clone/${owner}/${repo}`;
+}
+
+export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
   const [copied, setCopied] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Stagger the panel entrance after the backdrop crossfade starts
+  const soundhausLink = buildSoundHausCloneLink(owner, repo);
+
   useEffect(() => {
     const id = setTimeout(() => setShowContent(true), 80);
     return () => clearTimeout(id);
   }, []);
 
-  // Close on Escape key
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -29,24 +36,22 @@ export default function CloneModal({ cloneUrl, onClose }: CloneModalProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // Auto-select the URL on open
   useEffect(() => {
     if (showContent) inputRef.current?.select();
   }, [showContent]);
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(cloneUrl);
+      await navigator.clipboard.writeText(soundhausLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
       inputRef.current?.select();
       document.execCommand("copy");
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [cloneUrl]);
+  }, [soundhausLink]);
 
   return (
     <div
@@ -80,7 +85,8 @@ export default function CloneModal({ cloneUrl, onClose }: CloneModalProps) {
         {/* Body */}
         <div className="px-5 py-5">
           <p className="mb-3 text-sm text-muted-300">
-            Paste this URL into the SoundHaus Desktop app to remix the project.
+            Paste this link into the <strong>Clone Project</strong> window in the
+            SoundHaus Desktop app to remix the project.
           </p>
 
           {/* URL input + copy button */}
@@ -95,7 +101,7 @@ export default function CloneModal({ cloneUrl, onClose }: CloneModalProps) {
               ref={inputRef}
               type="text"
               readOnly
-              value={cloneUrl}
+              value={soundhausLink}
               className="flex-1 bg-navy/60 px-3 py-2.5 text-sm text-soft-white font-mono rounded-l-lg outline-none selection:bg-glass-blue/30"
               onFocus={(e) => e.target.select()}
             />

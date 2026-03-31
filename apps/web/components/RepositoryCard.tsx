@@ -297,20 +297,14 @@ export default function RepositoryCard({
         >
           <Star size={14} fill={starred ? "currentColor" : "none"} /> {starCount}
         </button>
-        {cloneUrl ? (
-          <RemixCardButton
-            count={cloneCount}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setShowRemixModal(true);
-            }}
-          />
-        ) : (
-          <span className="flex items-center gap-1">
-            <Download size={14} /> {cloneCount} remixes
-          </span>
-        )}
+        <RemixCardButton
+          count={cloneCount}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setShowRemixModal(true);
+          }}
+        />
         {stats.collaborators != null && stats.collaborators > 0 && (
           <span className="flex items-center gap-1">
             <Users size={14} /> {stats.collaborators}
@@ -324,9 +318,10 @@ export default function RepositoryCard({
       </div>
 
       {/* Remix URL Modal */}
-      {showRemixModal && cloneUrl && (
+      {showRemixModal && (
         <CloneModal
-          cloneUrl={cloneUrl}
+          owner={author}
+          repo={title}
           onClose={() => setShowRemixModal(false)}
         />
       )}

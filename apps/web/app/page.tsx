@@ -936,9 +936,13 @@ export default function LandingPage() {
                         </a>
                     </div>
 
-                    <div className="mt-20 animate-bounce">
-                        <ChevronDown className="mx-auto w-5 h-5 text-zinc-600" />
-                    </div>
+                    <button
+                        onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}
+                        className="mt-20 animate-bounce cursor-pointer bg-transparent border-none p-2"
+                        aria-label="Scroll to features"
+                    >
+                        <ChevronDown className="mx-auto w-5 h-5 text-zinc-600 hover:text-zinc-400 transition-colors" />
+                    </button>
                 </div>
             </section>
 
