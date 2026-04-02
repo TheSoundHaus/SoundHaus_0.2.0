@@ -3,7 +3,8 @@ import { useLocation } from 'react-router-dom'
 import styles from './ProjectPage.module.css'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
-import { useProjectGitActions, GitError } from '../hooks/useProjectGitActions'
+import { useProjectGitActions } from '../hooks/useProjectGitActions'
+import type { GitError } from '../hooks/useProjectGitActions'
 import electronAPI from '../services/electronAPI';
 import PianoRollCanvas from '../components/diff/PianoRollCanvas';
 

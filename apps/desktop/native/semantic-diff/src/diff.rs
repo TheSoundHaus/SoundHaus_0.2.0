@@ -762,6 +762,8 @@ fn diff_notes(old: &[MidiNote], new: &[MidiNote]) -> Vec<ChangeNode> {
                                     "adjusted",
                                 );
                                 node.id = Some(new_id.clone());
+                                node.from = Some(serialize_note(old_note));
+                                node.to = Some(serialize_note(new_note));
                                 changes.push(node);
                             }
                             break;
@@ -792,6 +794,8 @@ fn diff_notes(old: &[MidiNote], new: &[MidiNote]) -> Vec<ChangeNode> {
                         if let Some(ref id) = new_note.note_id {
                             node.id = Some(id.clone());
                         }
+                        node.from = Some(serialize_note(old_note));
+                        node.to = Some(serialize_note(new_note));
                         changes.push(node);
                     }
                     break;
@@ -811,6 +815,7 @@ fn diff_notes(old: &[MidiNote], new: &[MidiNote]) -> Vec<ChangeNode> {
             if let Some(ref id) = old_note.note_id {
                 node.id = Some(id.clone());
             }
+            node.from = Some(serialize_note(old_note));
             changes.push(node);
         }
     }
@@ -825,6 +830,7 @@ fn diff_notes(old: &[MidiNote], new: &[MidiNote]) -> Vec<ChangeNode> {
             if let Some(ref id) = new_note.note_id {
                 node.id = Some(id.clone());
             }
+            node.to = Some(serialize_note(new_note));
             changes.push(node);
         }
     }
@@ -839,4 +845,16 @@ fn format_pitch(pitch: i32) -> String {
     let octave = (pitch_clamped / 12) - 2; 
     let note_name = notes[(pitch_clamped % 12) as usize];
     format!("{}{}", note_name, octave)
+}
+
+fn serialize_note(note: &MidiNote) -> String {
+    serde_json::to_string(note).unwrap_or_else(|_| {
+        format!(
+            "{{\"pitch\":{},\"start_beat\":{},\"duration_beats\":{},\"velocity\":{},\"note_id\":null}}",
+            note.pitch,
+            note.start_beat,
+            note.duration_beats,
+            note.velocity
+        )
+    })
 }

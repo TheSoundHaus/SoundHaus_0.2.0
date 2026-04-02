@@ -97,6 +97,103 @@ function updateMenuForRoute(route: string) {
 
 const execFileP = promisify(execFile);
 
+type SnapshotNote = {
+  pitch: number;
+  start_beat: number;
+  duration_beats: number;
+  velocity: number;
+  note_id?: string | null;
+};
+
+type CommitMeta = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  timestamp: string;
+};
+
+function buildTextSummary(changes: any[], depth = 0): string[] {
+  const lines: string[] = [];
+  const indent = '  '.repeat(depth);
+  for (const node of changes) {
+    if (node?.type === 'Note') {
+      continue;
+    }
+    const prefix = node.action === 'added' ? '+ ' : node.action === 'removed' ? '- ' : '~ ';
+    let line = `${indent}${prefix}${node.type}: ${node.label}`;
+    if (node.from && node.to && node.action === 'value_change') {
+      line += ` (${node.from} -> ${node.to})`;
+    }
+    lines.push(line);
+    if (node.children && node.children.length > 0) {
+      lines.push(...buildTextSummary(node.children, depth + 1));
+    }
+  }
+  return lines;
+}
+
+function parseNotePayload(raw: unknown): SnapshotNote | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.pitch !== 'number') return null;
+    if (typeof parsed?.start_beat !== 'number') return null;
+    if (typeof parsed?.duration_beats !== 'number') return null;
+    return {
+      pitch: parsed.pitch,
+      start_beat: parsed.start_beat,
+      duration_beats: parsed.duration_beats,
+      velocity: typeof parsed?.velocity === 'number' ? parsed.velocity : 100,
+      note_id: typeof parsed?.note_id === 'string' ? parsed.note_id : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractNoteDiffFromChanges(changes: any[]) {
+  const added: SnapshotNote[] = [];
+  const removed: SnapshotNote[] = [];
+  const adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }> = [];
+
+  const visit = (nodes: any[], depth = 0) => {
+    for (const node of nodes || []) {
+      const indent = '  '.repeat(depth);
+      if (node?.type === 'Note') {
+        console.log(`${indent}DEBUG: Found Note node, action="${node.action}"`);
+        console.log(`${indent}  from="${node.from}", to="${node.to}"`);
+        if (node.action === 'added') {
+          const note = parseNotePayload(node.to);
+          console.log(`${indent}  Parsed as "added": ${note ? 'SUCCESS' : 'PARSE FAILED'}`);
+          if (note) added.push(note);
+        } else if (node.action === 'removed') {
+          const note = parseNotePayload(node.from);
+          console.log(`${indent}  Parsed as "removed": ${note ? 'SUCCESS' : 'PARSE FAILED'}`);
+          if (note) removed.push(note);
+        } else if (node.action === 'adjusted') {
+          const from = parseNotePayload(node.from);
+          const to = parseNotePayload(node.to);
+          console.log(`${indent}  Parsed as "adjusted": from=${from ? 'OK' : 'FAIL'}, to=${to ? 'OK' : 'FAIL'}`);
+          if (from && to) adjusted.push({ from, to });
+        } else {
+          console.log(`${indent}  UNHANDLED ACTION: "${node.action}"`);
+        }
+      }
+
+      if (Array.isArray(node?.children) && node.children.length > 0) {
+        console.log(`${indent}DEBUG: Visiting ${node.children.length} children of ${node.type}`);
+        visit(node.children, depth + 1);
+      }
+    }
+  };
+
+  console.log('DEBUG: extractNoteDiffFromChanges called with', changes.length, 'top-level nodes');
+  visit(changes || []);
+  console.log('DEBUG: Result:', { added: added.length, removed: removed.length, adjusted: adjusted.length });
+  return { added, removed, adjusted };
+}
+
 /**
  * Find the first .als file in a directory, parse it, and write/overwrite
  * .soundhaus/{sessionName}/snapshot.json.  Returns the alsPath on success
@@ -128,6 +225,7 @@ function createWindow() {
     height: 600,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
+      spellcheck: false,
     },
   });
 
@@ -422,10 +520,14 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
     const rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
     const report = JSON.parse(rawJson);
     const summaryLines = buildTextSummary(report.changes || []);
-
-    const oldProject = JSON.parse(parentSnapshot);
-    const newProject = JSON.parse(currentSnapshot);
-    const noteDiff = buildNoteDiff(oldProject, newProject);
+    
+    // DEBUG: Write the full changes structure to a file for inspection
+    const debugPath = path.join(repoPath, '.soundhaus', 'debug-changes.json');
+    await fs.promises.mkdir(path.dirname(debugPath), { recursive: true });
+    await fs.promises.writeFile(debugPath, JSON.stringify(report.changes, null, 2), 'utf8');
+    console.log('DEBUG: full changes structure written to', debugPath);
+    
+    const noteDiff = extractNoteDiffFromChanges(report.changes || []);
 
     return {
       ok: true,
