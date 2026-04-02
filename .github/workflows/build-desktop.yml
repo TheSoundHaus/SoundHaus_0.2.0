@@ -2,7 +2,7 @@ name: Build Desktop App
 
 on:
   push:
-    branches: [main]
+    branches: [SCRUM-98_GitHub-Release-Pipeline]
   workflow_dispatch:
 
 jobs:
@@ -55,10 +55,13 @@ jobs:
             apps/desktop/out/make/squirrel.windows/x64/RELEASES
 
       - if: runner.os == 'macOS'
+        run: mv apps/desktop/out/make/*.dmg apps/desktop/out/make/SoundHaus.dmg
+
+      - if: runner.os == 'macOS'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest Build
           files: |
             apps/desktop/out/make/zip/darwin/arm64/*.zip
-            apps/desktop/out/make/*.dmg
+            apps/desktop/out/make/SoundHaus.dmg
