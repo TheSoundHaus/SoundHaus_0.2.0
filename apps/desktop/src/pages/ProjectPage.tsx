@@ -6,7 +6,7 @@ import useElectronIPC from '../hooks/useElectronIPC'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
 import type { GitError } from '../hooks/useProjectGitActions'
 import electronAPI from '../services/electronAPI';
-import PianoRollCanvas from '../components/diff/PianoRollCanvas';
+import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
 
 type CommitEntry = {
     hash: string;
@@ -24,10 +24,16 @@ type SnapshotNote = {
     note_id?: string | null;
 };
 
-type NoteDiff = {
+type TrackNoteDiff = {
+    trackId: string;
+    trackName: string;
     added: SnapshotNote[];
     removed: SnapshotNote[];
     adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
+};
+
+type NoteDiff = {
+    tracks: TrackNoteDiff[];
 };
 
 const ProjectPage = () => {
@@ -50,10 +56,11 @@ const ProjectPage = () => {
     const { findAls } = useElectronIPC()
     const { runPull, runCommit, runPush } = useProjectGitActions()
 
+    const trackDiffs = selectedNoteDiff?.tracks ?? []
     const noteCounts = {
-        added: selectedNoteDiff?.added.length ?? 0,
-        removed: selectedNoteDiff?.removed.length ?? 0,
-        adjusted: selectedNoteDiff?.adjusted.length ?? 0,
+        added: trackDiffs.reduce((sum, track) => sum + track.added.length, 0),
+        removed: trackDiffs.reduce((sum, track) => sum + track.removed.length, 0),
+        adjusted: trackDiffs.reduce((sum, track) => sum + track.adjusted.length, 0),
     }
     const hasNoteChanges = (noteCounts.added + noteCounts.removed + noteCounts.adjusted) > 0
 
@@ -87,7 +94,7 @@ const ProjectPage = () => {
                 return
             }
             setSelectedCommitSummary(result.summary ?? '')
-            setSelectedNoteDiff(result.noteDiff ?? { added: [], removed: [], adjusted: [] })
+            setSelectedNoteDiff(result.noteDiff ?? { tracks: [] })
         } catch (e) {
             setSelectedCommitSummary(e instanceof Error ? e.message : String(e))
             setSelectedNoteDiff(null)

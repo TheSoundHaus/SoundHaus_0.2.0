@@ -105,6 +105,18 @@ type SnapshotNote = {
   note_id?: string | null;
 };
 
+type TrackNoteDiff = {
+  trackId: string;
+  trackName: string;
+  added: SnapshotNote[];
+  removed: SnapshotNote[];
+  adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
+};
+
+type GroupedNoteDiff = {
+  tracks: TrackNoteDiff[];
+};
+
 type CommitMeta = {
   hash: string;
   shortHash: string;
@@ -152,46 +164,82 @@ function parseNotePayload(raw: unknown): SnapshotNote | null {
   }
 }
 
-function extractNoteDiffFromChanges(changes: any[]) {
-  const added: SnapshotNote[] = [];
-  const removed: SnapshotNote[] = [];
-  const adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }> = [];
+function extractNoteDiffFromChanges(changes: any[], trackOrder: string[] = []): GroupedNoteDiff {
+  const byTrack = new Map<string, TrackNoteDiff>();
+  const orderIndex = new Map<string, number>();
 
-  const visit = (nodes: any[], depth = 0) => {
+  trackOrder.forEach((id, index) => {
+    if (typeof id === 'string' && id.length > 0) {
+      orderIndex.set(id, index);
+    }
+  });
+
+  const ensureTrack = (trackId: string, trackName: string) => {
+    const existing = byTrack.get(trackId);
+    if (existing) {
+      if (!existing.trackName && trackName) {
+        existing.trackName = trackName;
+      }
+      return existing;
+    }
+
+    const created: TrackNoteDiff = {
+      trackId,
+      trackName: trackName || 'Unnamed Track',
+      added: [],
+      removed: [],
+      adjusted: [],
+    };
+    byTrack.set(trackId, created);
+    return created;
+  };
+
+  const visit = (nodes: any[], currentTrack: TrackNoteDiff | null) => {
     for (const node of nodes || []) {
-      const indent = '  '.repeat(depth);
-      if (node?.type === 'Note') {
-        console.log(`${indent}DEBUG: Found Note node, action="${node.action}"`);
-        console.log(`${indent}  from="${node.from}", to="${node.to}"`);
+      let nextTrack = currentTrack;
+
+      if (node?.type === 'Track') {
+        const trackId = typeof node?.id === 'string' && node.id.length > 0
+          ? node.id
+          : `track:${typeof node?.label === 'string' ? node.label : 'unknown'}`;
+        const trackName = typeof node?.label === 'string' && node.label.length > 0
+          ? node.label
+          : 'Unnamed Track';
+        nextTrack = ensureTrack(trackId, trackName);
+      } else if (node?.type === 'Note' && currentTrack) {
         if (node.action === 'added') {
           const note = parseNotePayload(node.to);
-          console.log(`${indent}  Parsed as "added": ${note ? 'SUCCESS' : 'PARSE FAILED'}`);
-          if (note) added.push(note);
+          if (note) currentTrack.added.push(note);
         } else if (node.action === 'removed') {
           const note = parseNotePayload(node.from);
-          console.log(`${indent}  Parsed as "removed": ${note ? 'SUCCESS' : 'PARSE FAILED'}`);
-          if (note) removed.push(note);
+          if (note) currentTrack.removed.push(note);
         } else if (node.action === 'adjusted') {
           const from = parseNotePayload(node.from);
           const to = parseNotePayload(node.to);
-          console.log(`${indent}  Parsed as "adjusted": from=${from ? 'OK' : 'FAIL'}, to=${to ? 'OK' : 'FAIL'}`);
-          if (from && to) adjusted.push({ from, to });
-        } else {
-          console.log(`${indent}  UNHANDLED ACTION: "${node.action}"`);
+          if (from && to) currentTrack.adjusted.push({ from, to });
         }
       }
 
       if (Array.isArray(node?.children) && node.children.length > 0) {
-        console.log(`${indent}DEBUG: Visiting ${node.children.length} children of ${node.type}`);
-        visit(node.children, depth + 1);
+        visit(node.children, nextTrack);
       }
     }
   };
 
-  console.log('DEBUG: extractNoteDiffFromChanges called with', changes.length, 'top-level nodes');
-  visit(changes || []);
-  console.log('DEBUG: Result:', { added: added.length, removed: removed.length, adjusted: adjusted.length });
-  return { added, removed, adjusted };
+  visit(changes || [], null);
+
+  const tracks = Array.from(byTrack.values()).filter((track) => {
+    return track.added.length + track.removed.length + track.adjusted.length > 0;
+  });
+
+  tracks.sort((a, b) => {
+    const ai = orderIndex.has(a.trackId) ? orderIndex.get(a.trackId)! : Number.MAX_SAFE_INTEGER;
+    const bi = orderIndex.has(b.trackId) ? orderIndex.get(b.trackId)! : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.trackName.localeCompare(b.trackName);
+  });
+
+  return { tracks };
 }
 
 /**
@@ -520,14 +568,13 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
     const rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
     const report = JSON.parse(rawJson);
     const summaryLines = buildTextSummary(report.changes || []);
-    
-    // DEBUG: Write the full changes structure to a file for inspection
-    const debugPath = path.join(repoPath, '.soundhaus', 'debug-changes.json');
-    await fs.promises.mkdir(path.dirname(debugPath), { recursive: true });
-    await fs.promises.writeFile(debugPath, JSON.stringify(report.changes, null, 2), 'utf8');
-    console.log('DEBUG: full changes structure written to', debugPath);
-    
-    const noteDiff = extractNoteDiffFromChanges(report.changes || []);
+
+    const trackOrder = Array.isArray(report?.project?.tracks)
+      ? report.project.tracks
+          .map((track: any) => (typeof track?.id === 'string' ? track.id : null))
+          .filter((id: string | null): id is string => id !== null)
+      : [];
+    const noteDiff = extractNoteDiffFromChanges(report.changes || [], trackOrder);
 
     return {
       ok: true,
