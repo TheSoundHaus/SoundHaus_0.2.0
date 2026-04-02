@@ -5,36 +5,9 @@ import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
 import type { GitError } from '../hooks/useProjectGitActions'
+import type { CommitEntry, NoteDiff } from '../types'
 import electronAPI from '../services/electronAPI';
 import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
-
-type CommitEntry = {
-    hash: string;
-    shortHash: string;
-    subject: string;
-    author: string;
-    timestamp: string;
-};
-
-type SnapshotNote = {
-    pitch: number;
-    start_beat: number;
-    duration_beats: number;
-    velocity: number;
-    note_id?: string | null;
-};
-
-type TrackNoteDiff = {
-    trackId: string;
-    trackName: string;
-    added: SnapshotNote[];
-    removed: SnapshotNote[];
-    adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
-};
-
-type NoteDiff = {
-    tracks: TrackNoteDiff[];
-};
 
 const ProjectPage = () => {
     const location = useLocation();

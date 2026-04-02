@@ -1,25 +1,6 @@
 import { useEffect, useState } from 'react';
 import React from 'react';
-
-type SnapshotNote = {
-    pitch: number;
-    start_beat: number;
-    duration_beats: number;
-    velocity: number;
-    note_id?: string | null;
-};
-
-type TrackNoteDiff = {
-    trackId: string;
-    trackName: string;
-    added: SnapshotNote[];
-    removed: SnapshotNote[];
-    adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
-};
-
-type NoteDiff = {
-    tracks: TrackNoteDiff[];
-};
+import type { SnapshotNote, NoteDiff } from '../../types';
 
 type TooltipState = {
     text: string;

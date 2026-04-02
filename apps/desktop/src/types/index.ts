@@ -80,6 +80,35 @@ export interface RecentProject {
   lastOpened: string
 }
 
+// MIDI Diff types (used in ProjectPage and PianoRollCanvas)
+export type SnapshotNote = {
+  pitch: number
+  start_beat: number
+  duration_beats: number
+  velocity: number
+  note_id?: string | null
+}
+
+export type TrackNoteDiff = {
+  trackId: string
+  trackName: string
+  added: SnapshotNote[]
+  removed: SnapshotNote[]
+  adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>
+}
+
+export type NoteDiff = {
+  tracks: TrackNoteDiff[]
+}
+
+export type CommitEntry = {
+  hash: string
+  shortHash: string
+  subject: string
+  author: string
+  timestamp: string
+}
+
 declare global {
   interface Window {
     electronAPI?: ElectronAPI

@@ -741,33 +741,35 @@ fn diff_notes(old: &[MidiNote], new: &[MidiNote]) -> Vec<ChangeNode> {
     let mut old_matched = vec![false; old.len()];
     let mut new_matched = vec![false; new.len()];
 
-    // Pass 1: Match by note_id (highest fidelity)
+    // Build HashMap for O(1) note_id lookup: id -> index in new slice
+    let new_note_map: HashMap<&str, usize> = new.iter()
+        .enumerate()
+        .filter_map(|(j, n)| n.note_id.as_ref().map(|id| (id.as_str(), j)))
+        .collect();
+
+    // Pass 1: Match by note_id (highest fidelity) — now O(n) instead of O(n×m)
     for (i, old_note) in old.iter().enumerate() {
         if let Some(ref old_id) = old_note.note_id {
-            for (j, new_note) in new.iter().enumerate() {
+            if let Some(&j) = new_note_map.get(old_id.as_str()) {
                 if !new_matched[j] {
-                    if let Some(ref new_id) = new_note.note_id {
-                        if old_id == new_id {
-                            old_matched[i] = true;
-                            new_matched[j] = true;
-                            
-                            if (old_note.duration_beats - new_note.duration_beats).abs() > 0.001
-                                || old_note.velocity != new_note.velocity
-                                || old_note.pitch != new_note.pitch
-                                || (old_note.start_beat - new_note.start_beat).abs() > 0.001
-                            {
-                                let mut node = ChangeNode::new(
-                                    "Note",
-                                    &format!("Note {}", format_pitch(new_note.pitch)),
-                                    "adjusted",
-                                );
-                                node.id = Some(new_id.clone());
-                                node.from = Some(serialize_note(old_note));
-                                node.to = Some(serialize_note(new_note));
-                                changes.push(node);
-                            }
-                            break;
-                        }
+                    let new_note = &new[j];
+                    old_matched[i] = true;
+                    new_matched[j] = true;
+                    
+                    if (old_note.duration_beats - new_note.duration_beats).abs() > 0.001
+                        || old_note.velocity != new_note.velocity
+                        || old_note.pitch != new_note.pitch
+                        || (old_note.start_beat - new_note.start_beat).abs() > 0.001
+                    {
+                        let mut node = ChangeNode::new(
+                            "Note",
+                            &format!("Note {}", format_pitch(new_note.pitch)),
+                            "adjusted",
+                        );
+                        node.id = Some(old_id.clone());
+                        node.from = Some(serialize_note(old_note));
+                        node.to = Some(serialize_note(new_note));
+                        changes.push(node);
                     }
                 }
             }

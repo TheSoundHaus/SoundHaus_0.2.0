@@ -979,58 +979,16 @@ fn parse_midi_note_event_start_pending(
     start: &quick_xml::events::BytesStart<'_>,
     current_midi_key: Option<i32>,
 ) -> Option<PendingMidiNote> {
-    let mut pitch = get_attr_value(start, b"Key")
-        .or_else(|| get_attr_value(start, b"MidiKey"))
-        .and_then(|v| v.parse::<i32>().ok())
-        .or(current_midi_key);
+    // Delegate attribute extraction to parse_midi_note_event_pending
+    let mut pending = parse_midi_note_event_pending(start, current_midi_key)?;
 
-    let mut start_beat = get_attr_value(start, b"Time")
-        .or_else(|| get_attr_value(start, b"Start"))
-        .and_then(|v| v.parse::<f64>().ok());
-
-    let mut duration_beats = get_attr_value(start, b"Duration")
-        .or_else(|| get_attr_value(start, b"Length"))
-        .and_then(|v| v.parse::<f64>().ok());
-
-    let mut velocity = get_attr_value(start, b"Velocity")
-        .or_else(|| get_attr_value(start, b"Vel"))
-        .and_then(|v| v.parse::<i32>().ok())
-        .unwrap_or(100);
-
-    let note_id = get_attr_value(start, b"NoteId")
-        .or_else(|| get_attr_value(start, b"Id"));
-
+    // Drain stream to matching </MidiNoteEvent> close tag
     let mut depth = 1u32;
     loop {
         buf.clear();
         match xml.read_event_into(buf) {
             Ok(Event::Start(_)) => {
                 depth += 1;
-            }
-            Ok(Event::Empty(ref e)) => {
-                match e.name().as_ref() {
-                    b"Key" | b"MidiKey" => {
-                        if let Some(v) = get_attr_value(e, b"Value").and_then(|s| s.parse::<i32>().ok()) {
-                            pitch = Some(v);
-                        }
-                    }
-                    b"Time" | b"Start" => {
-                        if let Some(v) = get_attr_value(e, b"Value").and_then(|s| s.parse::<f64>().ok()) {
-                            start_beat = Some(v);
-                        }
-                    }
-                    b"Duration" | b"Length" => {
-                        if let Some(v) = get_attr_value(e, b"Value").and_then(|s| s.parse::<f64>().ok()) {
-                            duration_beats = Some(v);
-                        }
-                    }
-                    b"Velocity" | b"Vel" => {
-                        if let Some(v) = get_attr_value(e, b"Value").and_then(|s| s.parse::<i32>().ok()) {
-                            velocity = v;
-                        }
-                    }
-                    _ => {}
-                }
             }
             Ok(Event::End(ref e)) => {
                 depth -= 1;
@@ -1044,13 +1002,7 @@ fn parse_midi_note_event_start_pending(
         }
     }
 
-    Some(PendingMidiNote {
-        pitch,
-        start_beat: start_beat?,
-        duration_beats: duration_beats?,
-        velocity,
-        note_id,
-    })
+    Some(pending)
 }
 
 fn parse_midi_note_event_pending(
