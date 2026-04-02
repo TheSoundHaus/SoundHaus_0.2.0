@@ -31,8 +31,11 @@ export default function ThumbnailSettings({
   const [youtubeInput, setYoutubeInput] = useState(initialType === "youtube" ? (initialUrl ?? "") : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropIsGif, setCropIsGif] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleImageUpload(file: File) {
@@ -111,6 +114,12 @@ export default function ThumbnailSettings({
         </div>
       )}
 
+      {warning && !error && (
+        <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+          ⚠ {warning}
+        </div>
+      )}
+
       {/* Mode toggle */}
       <div className="mb-4 flex rounded-md border border-zinc-700 overflow-hidden w-fit">
         <button
@@ -151,7 +160,24 @@ export default function ThumbnailSettings({
                   return;
                 }
                 const url = URL.createObjectURL(f);
-                setCropSrc(url);
+                // Check dimensions before opening cropper
+                const img = new window.Image();
+                img.onload = () => {
+                  setWarning(null);
+                  if (img.width < 400 || img.height < 225) {
+                    setWarning(`Image is ${img.width}×${img.height}px — it may look blurry as a thumbnail. Recommended: at least 800×450px.`);
+                  } else if (img.width < 800) {
+                    setWarning(`Image is ${img.width}px wide — decent quality but 800+ recommended for best results.`);
+                  }
+                  setCropSrc(url);
+                  setCropFile(f);
+                  setCropIsGif(f.type === "image/gif");
+                };
+                img.onerror = () => {
+                  setError("Could not read image. It may be corrupted.");
+                  URL.revokeObjectURL(url);
+                };
+                img.src = url;
                 if (fileRef.current) fileRef.current.value = "";
               }
             }}
@@ -252,12 +278,18 @@ export default function ThumbnailSettings({
         <ImageCropper
           src={cropSrc}
           aspectRatio={16 / 9}
+          isGif={cropIsGif}
+          originalFile={cropFile}
           onCrop={async (blob) => {
             setCropSrc(null);
-            const file = new File([blob], "thumbnail.jpg", { type: "image/jpeg" });
+            setCropFile(null);
+            setCropIsGif(false);
+            const ext = cropIsGif ? "gif" : "jpg";
+            const mime = cropIsGif ? "image/gif" : "image/jpeg";
+            const file = new File([blob], `thumbnail.${ext}`, { type: mime });
             await handleImageUpload(file);
           }}
-          onCancel={() => setCropSrc(null)}
+          onCancel={() => { setCropSrc(null); setCropFile(null); setCropIsGif(false); }}
           cropLabel="Save Thumbnail"
         />
       )}

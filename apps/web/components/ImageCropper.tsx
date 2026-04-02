@@ -9,6 +9,8 @@ interface ImageCropperProps {
   onCrop: (blob: Blob) => void;
   onCancel: () => void;
   cropLabel?: string;
+  isGif?: boolean; // When true, skip canvas crop to preserve animation
+  originalFile?: File | null; // The original file for GIF passthrough
 }
 
 export default function ImageCropper({
@@ -17,6 +19,8 @@ export default function ImageCropper({
   onCrop,
   onCancel,
   cropLabel = "Crop & Save",
+  isGif = false,
+  originalFile = null,
 }: ImageCropperProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -104,6 +108,11 @@ export default function ImageCropper({
   };
 
   const handleCrop = () => {
+    // For GIFs, pass through the original file to preserve animation
+    if (isGif && originalFile) {
+      onCrop(originalFile);
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     canvas.toBlob(
@@ -128,9 +137,22 @@ export default function ImageCropper({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="mx-4 w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
-        <h3 className="mb-4 text-lg font-semibold text-zinc-100">Adjust Image</h3>
+        <h3 className="mb-4 text-lg font-semibold text-zinc-100">
+          {isGif ? "Preview GIF" : "Adjust Image"}
+        </h3>
 
-        {/* Canvas area */}
+        {isGif && (
+          <p className="mb-3 text-xs text-amber-400/80">
+            Animated GIFs are uploaded as-is to preserve animation. Use the preview below to verify it looks good.
+          </p>
+        )}
+
+        {/* Canvas area — or GIF preview */}
+        {isGif ? (
+          <div className="relative mx-auto overflow-hidden rounded-lg border border-zinc-700" style={{ maxWidth: cw, maxHeight: ch }}>
+            <img src={src} alt="GIF preview" className="w-full h-full object-contain" style={{ maxHeight: ch }} />
+          </div>
+        ) : (
         <div
           ref={containerRef}
           className="relative mx-auto overflow-hidden rounded-lg border border-zinc-700"
@@ -160,8 +182,10 @@ export default function ImageCropper({
             />
           )}
         </div>
+        )}
 
-        {/* Zoom controls */}
+        {/* Zoom controls — only for non-GIF images */}
+        {!isGif && (
         <div className="mt-4 flex items-center justify-center gap-4">
           <button
             onClick={() => setZoom((z) => Math.max(0.5, z - 0.2))}
@@ -194,6 +218,7 @@ export default function ImageCropper({
             <RotateCcw size={16} />
           </button>
         </div>
+        )}
 
         {/* Actions */}
         <div className="mt-5 flex justify-end gap-3">

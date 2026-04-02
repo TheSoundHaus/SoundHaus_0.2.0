@@ -296,11 +296,19 @@ export default function ExplorePage() {
                                                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                                             />
                                         ) : ytId ? (
-                                            <img
-                                                src={youtubeThumbnailHq(ytId)}
-                                                alt=""
-                                                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                                            />
+                                            <div className="relative w-full h-full">
+                                                <img
+                                                    src={youtubeThumbnailHq(ytId)}
+                                                    alt=""
+                                                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                                />
+                                                {/* Play overlay */}
+                                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity duration-300 group-hover:bg-black/10">
+                                                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600/90 shadow-lg transition-transform duration-300 group-hover:scale-110">
+                                                        <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5 ml-0.5"><path d="M8 5v14l11-7z"/></svg>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         ) : repo.audio_snippet ? (
                                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900/85 text-zinc-400">
                                                 <AudioLines className="w-10 h-10 text-glass-blue-400/80" />

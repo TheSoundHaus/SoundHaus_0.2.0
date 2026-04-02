@@ -99,6 +99,17 @@ export default function PublicRepoClient({
   const ownerLabel =
     stats?.owner_display_name || stats?.owner_username || owner;
 
+  // Thumbnail / YouTube
+  const thumbnailUrl = stats?.thumbnail_url ?? null;
+  const thumbnailType = stats?.thumbnail_type ?? null;
+  const [ytPlaying, setYtPlaying] = useState(false);
+
+  function extractYtId(url: string): string | null {
+    const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w\-]{11})/);
+    return m ? m[1] ?? null : null;
+  }
+  const ytVideoId = thumbnailType === "youtube" && thumbnailUrl ? extractYtId(thumbnailUrl) : null;
+
   function timeAgo(iso: string | null | undefined): string {
     if (!iso) return "—";
     try {
@@ -269,6 +280,59 @@ export default function PublicRepoClient({
         </div>
       )}
 
+      {/* YouTube Player / Thumbnail */}
+      {ytVideoId && (
+        <div className="mb-8 overflow-hidden rounded-xl border border-zinc-800">
+          {ytPlaying ? (
+            <div className="relative" style={{ paddingBottom: "56.25%" }}>
+              <iframe
+                className="absolute inset-0 w-full h-full"
+                src={`https://www.youtube-nocookie.com/embed/${ytVideoId}?autoplay=1&rel=0`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                title="YouTube video"
+              />
+            </div>
+          ) : (
+            <button onClick={() => setYtPlaying(true)} className="relative block w-full group">
+              <img
+                src={`https://img.youtube.com/vi/${ytVideoId}/maxresdefault.jpg`}
+                alt="Video thumbnail"
+                className="w-full aspect-video object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition-colors group-hover:bg-black/20">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600 shadow-lg shadow-red-600/30 transition-transform duration-300 group-hover:scale-110">
+                  <svg viewBox="0 0 24 24" fill="white" className="w-7 h-7 ml-1"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+              </div>
+              <div className="absolute bottom-3 right-3">
+                <a
+                  href={thumbnailUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white/80 backdrop-blur-sm hover:text-white transition-colors"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Watch on YouTube
+                </a>
+              </div>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Static thumbnail */}
+      {thumbnailUrl && thumbnailType === "image" && (
+        <div className="mb-8 overflow-hidden rounded-xl border border-zinc-800">
+          <img
+            src={thumbnailUrl}
+            alt={repo}
+            className="w-full aspect-video object-cover"
+          />
+        </div>
+      )}
+
       {/* Audio Player */}
       {snippet?.url && (
         <div className="mb-8">
@@ -377,6 +441,24 @@ export default function PublicRepoClient({
 
           {/* Sidebar */}
           <div className="space-y-8">
+            {/* Thumbnail preview in sidebar */}
+            {thumbnailUrl && (
+              <div className="rounded-lg border border-zinc-800 overflow-hidden">
+                {thumbnailType === "image" ? (
+                  <img src={thumbnailUrl} alt={repo} className="w-full aspect-video object-cover" />
+                ) : ytVideoId ? (
+                  <div className="relative">
+                    <img src={`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`} alt="" className="w-full aspect-video object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-600/90">
+                        <svg viewBox="0 0 24 24" fill="white" className="w-4 h-4 ml-0.5"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             {/* Collaborators */}
             <div className="rounded-lg border border-zinc-800 p-6">
               <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
