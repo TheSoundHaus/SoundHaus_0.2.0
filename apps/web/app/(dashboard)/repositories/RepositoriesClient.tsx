@@ -384,7 +384,6 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                         thumbnailUrl={repo.thumbnail_url}
                         thumbnailType={repo.thumbnail_type}
                         cloneCount={repo.clone_count}
-                        cloneUrl={repo.clone_url}
                         isStarred={repo.is_starred}
                         isOwner={repo.role === "owner"}
                         genres={repo.genres}

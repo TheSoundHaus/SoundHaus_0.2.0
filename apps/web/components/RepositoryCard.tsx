@@ -9,7 +9,6 @@ import {
   Users,
   GitCommit,
   Lock,
-  Download,
   MoreVertical,
   Trash2,
   Pencil,
@@ -89,7 +88,6 @@ interface RepositoryCardProps {
   thumbnailUrl?: string | null;
   thumbnailType?: "image" | "youtube" | null;
   cloneCount: number;
-  cloneUrl?: string;
   isStarred?: boolean;
   isOwner?: boolean;
   genres?: string[];
@@ -111,7 +109,6 @@ export default function RepositoryCard({
   thumbnailUrl,
   thumbnailType,
   cloneCount,
-  cloneUrl,
   isStarred = false,
   isOwner = false,
   genres = [],
