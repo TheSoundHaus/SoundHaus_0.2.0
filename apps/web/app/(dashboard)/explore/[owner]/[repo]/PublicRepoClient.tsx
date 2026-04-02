@@ -217,33 +217,27 @@ export default function PublicRepoClient({
           onClick={() => setShowCloneModal(true)}
           onMouseEnter={() => setRemixHovered(true)}
           onMouseLeave={() => setRemixHovered(false)}
-          className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/35 active:scale-95"
-          style={{ minWidth: "140px" }}
+          className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95"
+          style={{ minWidth: "120px" }}
         >
           {/* Animated swap: [Download] Remix  →  Remix [Crossfade] */}
-          <span className="relative flex items-center" style={{ width: "100px", height: "20px" }}>
+          <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
             {/* Download/Crossfade icon: starts LEFT, moves RIGHT on hover */}
             <span
-              className="absolute inline-flex"
+              className="absolute inline-flex items-center justify-center"
               style={{
-                left: 0,
-                transform: remixHovered ? "translateX(82px)" : "translateX(0)",
-                transition: remixHovered
-                  ? "transform 450ms cubic-bezier(0.22, 1.2, 0.36, 1)"
-                  : "transform 400ms cubic-bezier(0.22, 1.2, 0.36, 1)",
+                transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
+                transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
               }}
             >
               <RemixIcon hovered={remixHovered} size={18} />
             </span>
             {/* "Remix" text: starts RIGHT, moves LEFT on hover */}
             <span
-              className="absolute whitespace-nowrap"
+              className="absolute inline-flex items-center justify-center whitespace-nowrap"
               style={{
-                right: 0,
-                transform: remixHovered ? "translateX(-76px)" : "translateX(0)",
-                transition: remixHovered
-                  ? "transform 450ms cubic-bezier(0.22, 1.2, 0.36, 1)"
-                  : "transform 400ms cubic-bezier(0.22, 1.2, 0.36, 1)",
+                transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
+                transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
               }}
             >
               Remix
