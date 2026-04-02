@@ -24,6 +24,8 @@ import {
 import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import { ABComparisonView } from "@/components/diff/ABComparisonView";
+import RemixIcon from "@/components/RemixIcon";
+import CloneModal from "@/components/CloneModal";
 import UserAvatar from "@/components/UserAvatar";
 import Markdown from "react-markdown";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
@@ -81,6 +83,10 @@ export default function PublicRepoClient({
 
   // Collaborators
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+
+  // Clone/Remix button
+  const [showCloneModal, setShowCloneModal] = useState(false);
+  const [remixHovered, setRemixHovered] = useState(false);
   const [collabLoading, setCollabLoading] = useState(false);
 
   // Events
@@ -207,7 +213,25 @@ export default function PublicRepoClient({
           <h1 className="mb-1 text-3xl font-bold">{repo}</h1>
           <p className="text-sm text-zinc-400">by <Link href={`/profile/${profileSlug}`} className="text-zinc-300 hover:text-glass-blue transition-colors">{ownerLabel}</Link></p>
         </div>
+        <button
+          onClick={() => setShowCloneModal(true)}
+          onMouseEnter={() => setRemixHovered(true)}
+          onMouseLeave={() => setRemixHovered(false)}
+          className="flex items-center gap-2 rounded-lg border border-glass-blue/30 bg-glass-blue/10 px-4 py-2.5 text-sm font-medium text-glass-blue transition-all hover:bg-glass-blue/20 hover:border-glass-blue/50 hover:shadow-[0_0_16px_rgba(167,199,231,0.15)]"
+        >
+          <RemixIcon hovered={remixHovered} size={18} />
+          Remix
+        </button>
       </div>
+
+      {/* Clone Modal */}
+      {showCloneModal && (
+        <CloneModal
+          owner={owner}
+          repo={repo}
+          onClose={() => setShowCloneModal(false)}
+        />
+      )}
 
       {/* Genre tags */}
       {genres.length > 0 && (

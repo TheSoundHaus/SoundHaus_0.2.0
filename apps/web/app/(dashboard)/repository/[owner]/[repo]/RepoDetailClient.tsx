@@ -30,7 +30,6 @@ import {
   UserMinus,
   BookOpen,
 } from "lucide-react";
-import RemixIcon from "@/components/RemixIcon";
 import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
 import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
 import SnippetUploader from "@/components/SnippetUploader";
@@ -40,7 +39,6 @@ import ThumbnailSettings from "@/components/ThumbnailSettings";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import UserAvatar from "@/components/UserAvatar";
-import CloneModal from "@/components/CloneModal";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { getReadme, updateReadme } from "@/lib/api/readme";
@@ -64,39 +62,6 @@ import type {
   SnippetComment,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
-
-function RemixButton({ onClick }: { onClick: () => void }) {
-  const [hovered, setHovered] = useState(false);
-  const swapEase = "0.4s cubic-bezier(0.34, 1.56, 0.64, 1)";
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className="btn btn-primary"
-    >
-      {/* Icon slides from left to right on hover (past the text) */}
-      <span
-        style={{
-          display: "inline-flex",
-          transform: hovered ? "translateX(50px)" : "translateX(0px)",
-          transition: `transform ${swapEase}`,
-        }}
-      >
-        <RemixIcon hovered={hovered} size={18} />
-      </span>
-      {/* Text slides from right to left on hover (past where the icon was) */}
-      <span
-        style={{
-          transform: hovered ? "translateX(-26px)" : "translateX(0px)",
-          transition: `transform ${swapEase}`,
-        }}
-      >
-        Remix
-      </span>
-    </button>
-  );
-}
 
 interface RepoDetailClientProps {
   owner: string;
@@ -204,42 +169,6 @@ export default function RepoDetailClient({
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
   const ownerDisplayName = stats?.owner_username || owner;
-
-  // Remix (clone) modal state + access control
-  const [showRemixModal, setShowRemixModal] = useState(false);
-  const [userCanRemix, setUserCanRemix] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!stats) return;
-
-    // Public repos — anyone can remix
-    if (!stats.private) {
-      setUserCanRemix(true);
-      return;
-    }
-
-    // Private repo — owner can always remix
-    if (user?.username === owner) {
-      setUserCanRemix(true);
-      return;
-    }
-
-    // Private repo — check if logged-in user is a collaborator
-    if (user) {
-      listCollaborators(owner, repo).then((res) => {
-        if (cancelled) return;
-        if (res.success && res.data) {
-          const isCollab = res.data.some(
-            (c) => c.login === user.id || c.username === user.username
-          );
-          setUserCanRemix(isCollab);
-        }
-      });
-    }
-
-    return () => { cancelled = true; };
-  }, [stats, user, owner, repo]);
 
   // Refresh timeline events from the server
   const refreshEvents = useCallback(async () => {
@@ -499,20 +428,8 @@ export default function RepoDetailClient({
           <button className="btn btn-primary">
             Open in Desktop
           </button>
-          {userCanRemix && (
-            <RemixButton onClick={() => setShowRemixModal(true)} />
-          )}
         </div>
       </div>
-
-      {/* Remix URL Modal */}
-      {showRemixModal && (
-        <CloneModal
-          owner={owner}
-          repo={repo}
-          onClose={() => setShowRemixModal(false)}
-        />
-      )}
 
       {/* Audio Player with Comment Markers */}
       {currentSnippetUrl && (
@@ -1091,19 +1008,19 @@ export default function RepoDetailClient({
                       ) : (
                         searchResults.map((u) => (
                           <div
-                            key={u.username}
+                            key={u.username || u.email}
                             className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
                           >
                             <div className="flex items-center gap-3">
-                              <UserAvatar src={u.avatar_url} alt={u.username} size={20} />
+                              <UserAvatar src={u.avatar_url} alt={u.display_name || u.username} size={20} />
                               <div>
-                                <div className="text-sm font-medium text-zinc-200">{u.username}</div>
-                                <div className="text-xs text-zinc-400">{u.email}</div>
+                                <div className="text-sm font-medium text-zinc-200">{u.display_name || u.username}</div>
+                                {u.email && <div className="text-xs text-zinc-400">{u.email}</div>}
                               </div>
                             </div>
                             <button
                               type="button"
-                              onClick={() => handleInvite(u.email)}
+                              onClick={() => handleInvite(u.invite_email || u.email)}
                               disabled={isPending}
                               className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
                             >

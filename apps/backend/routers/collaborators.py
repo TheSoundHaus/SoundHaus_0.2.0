@@ -462,11 +462,18 @@ async def search_users(
 
         users = []
         for p in profiles:
+            # Hide auto-generated SoundHaus emails (contain UUID-style segments)
+            email = p.email or ""
+            import re as _re
+            is_generated = bool(_re.search(r'[0-9a-f]{8,}', email.split('@')[0]))
+            shown_email = "" if is_generated else email
+
             users.append({
-                "username": p.username,
-                "email": p.email,
-                "display_name": p.display_name or "",
+                "username": p.display_name or p.username or "",
+                "email": shown_email,
+                "display_name": p.display_name or p.username or "",
                 "avatar_url": p.avatar_url or "",
+                "invite_email": p.email or "",  # always include real email for invite action
             })
 
         # Fallback to Gitea search if no profile results

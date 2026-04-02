@@ -59,6 +59,17 @@ def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[
     return {"owner_username": username, "owner_display_name": display}
 
 
+def _verify_owner(user_id: str, url_owner: str, db: Session) -> None:
+    """Raise 403 if the authenticated user does not own the resource.
+
+    Resolves the Supabase UUID to the Gitea username first, so both
+    legacy (UUID-based) and new-style (human username) owners work.
+    """
+    gitea_username = _resolve_gitea_username(user_id, db)
+    if gitea_username != url_owner and str(user_id) != str(url_owner):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+
 # ── List / Create ────────────────────────────────────────────────────────────
 
 @router.get("/repos")
@@ -278,8 +289,7 @@ async def patch_repo_settings(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
-        raise HTTPException(status_code=403, detail="Not authorized to modify this repo")
+    _verify_owner(user_id, owner, db)
 
     svc = RepoService()
     res = svc.update_repo_settings(owner, repo, settings)
@@ -635,8 +645,7 @@ async def delete_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
-        raise HTTPException(status_code=403, detail="Not authorized to delete this repo")
+    _verify_owner(user_id, owner, db)
 
     repo_id = f"{owner}/{repo}"
 
@@ -857,8 +866,7 @@ async def update_thumbnail(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
-        raise HTTPException(status_code=403, detail="Not your repo")
+    _verify_owner(user_id, owner, db)
 
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
@@ -920,8 +928,7 @@ async def upload_thumbnail_image(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
-        raise HTTPException(status_code=403, detail="Not your repo")
+    _verify_owner(user_id, owner, db)
 
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
@@ -989,8 +996,7 @@ async def delete_thumbnail(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
-        raise HTTPException(status_code=403, detail="Not your repo")
+    _verify_owner(user_id, owner, db)
 
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()

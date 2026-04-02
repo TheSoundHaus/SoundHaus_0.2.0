@@ -183,7 +183,9 @@ export interface Collaborator {
 export interface UserSearchResult {
   username: string;
   email: string;
+  display_name: string;
   avatar_url: string;
+  invite_email?: string;
 }
 
 // POST /repos/{owner}/{repo}/clone
