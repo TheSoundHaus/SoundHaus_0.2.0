@@ -32,7 +32,7 @@ interface RebaseResult {
  */
 function parseConflictingFiles(repoPath: string): Promise<string[]> {
   return new Promise((resolve) => {
-    execFile(gitBin, ['status', '--porcelain'], { cwd: repoPath }, (err, stdout) => {
+    execFile(gitBin, ['status', '--porcelain'], { cwd: repoPath }, (_err, stdout) => {
       if (!stdout) {
         resolve([]);
         return;
@@ -74,7 +74,7 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
     // Step 1: Fetch from remote
     console.log(`[Rebase] Starting fetch from origin/main in ${repoPath}`);
     await new Promise<void>((resolve, reject) => {
-      execFile(gitBin, ['fetch', 'origin', 'main'], { cwd: repoPath }, (err, stdout, stderr) => {
+      execFile(gitBin, ['fetch', 'origin', 'main'], { cwd: repoPath }, (err, _stdout, stderr) => {
         if (err) {
           console.error(`[Rebase] Fetch failed: ${stderr || err.message}`);
           reject(new Error(`Fetch failed: ${stderr || err.message}`));
@@ -88,7 +88,7 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
     // Step 2: Attempt rebase
     console.log(`[Rebase] Starting rebase onto origin/main`);
     await new Promise<void>((resolve, reject) => {
-      execFile(gitBin, ['rebase', '--autostash', 'origin/main'], { cwd: repoPath }, (err, stdout, stderr) => {
+      execFile(gitBin, ['rebase', '--autostash', 'origin/main'], { cwd: repoPath }, (err, _stdout, stderr) => {
         if (err) {
           console.error(`[Rebase] Rebase failed: ${stderr || err.message}`);
           reject(new Error(`Rebase failed: ${stderr || err.message}`));
