@@ -287,9 +287,10 @@ export default function PublicRepoClient({
             <div className="relative" style={{ paddingBottom: "56.25%" }}>
               <iframe
                 className="absolute inset-0 w-full h-full"
-                src={`https://www.youtube-nocookie.com/embed/${ytVideoId}?autoplay=1&rel=0`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                src={`https://www.youtube-nocookie.com/embed/${ytVideoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
                 title="YouTube video"
               />
             </div>
@@ -300,9 +301,9 @@ export default function PublicRepoClient({
                 alt="Video thumbnail"
                 className="w-full aspect-video object-cover transition-transform duration-500 group-hover:scale-[1.02]"
               />
-              <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition-colors group-hover:bg-black/20">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600 shadow-lg shadow-red-600/30 transition-transform duration-300 group-hover:scale-110">
-                  <svg viewBox="0 0 24 24" fill="white" className="w-7 h-7 ml-1"><path d="M8 5v14l11-7z"/></svg>
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition-colors group-hover:bg-black/15">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-lg shadow-black/20 transition-all duration-300 group-hover:scale-110 group-hover:bg-white/15">
+                  <svg viewBox="0 0 24 24" fill="white" className="w-6 h-6 ml-0.5 drop-shadow-sm"><path d="M8 5v14l11-7z"/></svg>
                 </div>
               </div>
               <div className="absolute bottom-3 right-3">

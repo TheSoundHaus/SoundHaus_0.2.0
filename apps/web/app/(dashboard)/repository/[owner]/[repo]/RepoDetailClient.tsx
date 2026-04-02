@@ -39,6 +39,8 @@ import ThumbnailSettings from "@/components/ThumbnailSettings";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import UserAvatar from "@/components/UserAvatar";
+import RemixIcon from "@/components/RemixIcon";
+import CloneModal from "@/components/CloneModal";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { getReadme, updateReadme } from "@/lib/api/readme";
@@ -133,6 +135,10 @@ export default function RepoDetailClient({
   const [compareMode, setCompareMode] = useState(false);
   const [compareSelection, setCompareSelection] = useState<[string | null, string | null]>([null, null]);
   const [showComparison, setShowComparison] = useState(false);
+
+  // Clone/Remix
+  const [showCloneModal, setShowCloneModal] = useState(false);
+  const [remixHovered, setRemixHovered] = useState(false);
 
   function handleCompareToggle() {
     if (compareMode) {
@@ -433,11 +439,45 @@ export default function RepoDetailClient({
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-primary">
-            Open in Desktop
+          <button
+            onClick={() => setShowCloneModal(true)}
+            onMouseEnter={() => setRemixHovered(true)}
+            onMouseLeave={() => setRemixHovered(false)}
+            className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95"
+            style={{ minWidth: "120px" }}
+          >
+            <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
+              <span
+                className="absolute inline-flex items-center justify-center"
+                style={{
+                  transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
+                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                }}
+              >
+                <RemixIcon hovered={remixHovered} size={18} />
+              </span>
+              <span
+                className="absolute inline-flex items-center justify-center whitespace-nowrap"
+                style={{
+                  transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
+                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                }}
+              >
+                Clone
+              </span>
+            </span>
           </button>
         </div>
       </div>
+
+      {/* Clone Modal */}
+      {showCloneModal && (
+        <CloneModal
+          owner={owner}
+          repo={repo}
+          onClose={() => setShowCloneModal(false)}
+        />
+      )}
 
       {/* Audio Player with Comment Markers */}
       {currentSnippetUrl && (

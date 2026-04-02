@@ -304,8 +304,8 @@ export default function ExplorePage() {
                                                 />
                                                 {/* Play overlay */}
                                                 <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity duration-300 group-hover:bg-black/10">
-                                                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600/90 shadow-lg transition-transform duration-300 group-hover:scale-110">
-                                                        <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5 ml-0.5"><path d="M8 5v14l11-7z"/></svg>
+                                                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-lg shadow-black/20 transition-all duration-300 group-hover:scale-110 group-hover:bg-white/15">
+                                                        <svg viewBox="0 0 24 24" fill="white" className="w-4.5 h-4.5 ml-0.5 drop-shadow-sm"><path d="M8 5v14l11-7z"/></svg>
                                                     </div>
                                                 </div>
                                             </div>

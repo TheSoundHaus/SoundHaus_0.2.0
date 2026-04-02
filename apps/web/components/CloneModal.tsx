@@ -11,8 +11,9 @@ interface CloneModalProps {
 }
 
 function buildSoundHausCloneLink(owner: string, repo: string): string {
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  return `${origin}/clone/${owner}/${repo}`;
+  // Use the Gitea public URL so the desktop app can validate and clone directly
+  const giteaBase = process.env.NEXT_PUBLIC_GITEA_URL || "https://git.thesound.haus";
+  return `${giteaBase}/${owner}/${repo}.git`;
 }
 
 export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
@@ -85,8 +86,8 @@ export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
         {/* Body */}
         <div className="px-5 py-5">
           <p className="mb-3 text-sm text-muted-300">
-            Paste this link into the <strong>Clone Project</strong> window in the
-            SoundHaus Desktop app to remix the project.
+            Paste this clone URL into the <strong>Clone Project</strong> window in the
+            SoundHaus Desktop app to remix this project.
           </p>
 
           {/* URL input + copy button */}
