@@ -1,0 +1,64 @@
+name: Build Desktop App
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/native/semantic-diff
+
+      - run: npm install -g @napi-rs/cli
+
+      - working-directory: apps/desktop/native/semantic-diff
+        run: napi build --platform --release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - working-directory: apps/desktop
+        run: npm install
+
+      - working-directory: apps/desktop
+        run: |
+          echo "GITEA_PUBLIC_URL=${{ secrets.GITEA_PUBLIC_URL }}" >> .env
+          echo "VITE_SUPABASE_PUBLIC_URL=${{ secrets.VITE_SUPABASE_PUBLIC_URL }}" >> .env
+
+      - working-directory: apps/desktop
+        run: npm run build
+
+      - if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: |
+            apps/desktop/out/make/squirrel.windows/x64/SoundHaus Setup.exe
+            apps/desktop/out/make/squirrel.windows/x64/*.nupkg
+            apps/desktop/out/make/squirrel.windows/x64/RELEASES
+
+      - if: runner.os == 'macOS'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          files: |
+            apps/desktop/out/make/zip/darwin/arm64/*.zip
+            apps/desktop/out/make/*.dmg
