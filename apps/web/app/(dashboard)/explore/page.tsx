@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useUser } from "@/lib/context/UserContext";
 import { getPublicRepos } from "@/lib/api/repos";
 import type { PublicRepo } from "@/lib/types/api";
-import { Compass, TrendingUp, AudioLines } from "lucide-react";
+import { Compass, TrendingUp, AudioLines, Music } from "lucide-react";
+import {
+    extractYouTubeVideoId,
+    youtubeThumbnailHq,
+} from "@/lib/utils/youtube";
 
 export default function ExplorePage() {
     const { user, loading } = useUser();
@@ -37,11 +41,16 @@ export default function ExplorePage() {
         let filtered = repos;
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
-            filtered = filtered.filter(
-                (repo) =>
+            filtered = filtered.filter((repo) => {
+                const dn = (repo.owner_display_name || "").toLowerCase();
+                const un = (repo.owner_username || "").toLowerCase();
+                return (
                     repo.repo_name.toLowerCase().includes(query) ||
-                    repo.owner.toLowerCase().includes(query)
-            );
+                    repo.owner.toLowerCase().includes(query) ||
+                    dn.includes(query) ||
+                    un.includes(query)
+                );
+            });
         }
         const sorted = [...filtered];
         switch (sortBy) {
@@ -133,7 +142,7 @@ export default function ExplorePage() {
                                     </div>
                                 </div>
                                 <h2 className="text-lg font-semibold text-zinc-100">
-                                    {user?.username || "Guest"}
+                                    {user?.display_name || user?.username || "Guest"}
                                 </h2>
                                 <div className="flex items-center gap-2 text-sm text-zinc-400">
                                     <svg className="w-4 h-4 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">
@@ -213,35 +222,55 @@ export default function ExplorePage() {
                                 <p className="text-xs mt-1 text-zinc-500">Try adjusting your search</p>
                             </div>
                         ) : (
-                            filteredAndSortedRepos.map((repo) => (
+                            filteredAndSortedRepos.map((repo) => {
+                                const ytId =
+                                    repo.thumbnail_type === "youtube" && repo.thumbnail_url
+                                        ? extractYouTubeVideoId(repo.thumbnail_url)
+                                        : null;
+                                const ownerShown =
+                                    repo.owner_display_name ||
+                                    repo.owner_username ||
+                                    repo.owner;
+                                return (
                                 <Link
                                     key={repo.gitea_id}
                                     href={`/explore/${repo.owner}/${repo.repo_name}`}
                                     className="group block rounded-xl border border-zinc-800 overflow-hidden transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] no-underline"
                                 >
-                                    {/* Thumbnail */}
+                                    {/* Thumbnail: image, YouTube still (hqdefault), audio hint, or placeholder */}
                                     <div className="relative h-48 overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-800/80 to-zinc-900">
-                                        {repo.thumbnail_url ? (
-                                            repo.thumbnail_type === "image" ? (
-                                                <img
-                                                    src={repo.thumbnail_url}
-                                                    alt={repo.repo_name}
-                                                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                                                />
-                                            ) : (
-                                                <iframe
-                                                    src={repo.thumbnail_url.replace("watch?v=", "embed/")}
-                                                    className="w-full h-full"
-                                                    allow="autoplay; encrypted-media"
-                                                    allowFullScreen
-                                                />
-                                            )
+                                        {repo.thumbnail_url && repo.thumbnail_type === "image" ? (
+                                            <img
+                                                src={repo.thumbnail_url}
+                                                alt={repo.repo_name}
+                                                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                            />
+                                        ) : ytId ? (
+                                            <img
+                                                src={youtubeThumbnailHq(ytId)}
+                                                alt=""
+                                                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                            />
+                                        ) : repo.audio_snippet ? (
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900/85 text-zinc-400">
+                                                <AudioLines className="w-10 h-10 text-glass-blue-400/80" />
+                                                <span className="text-xs font-medium text-zinc-500">Audio preview</span>
+                                            </div>
                                         ) : (
-                                            <div className="absolute inset-0 flex items-end justify-center gap-[1px] px-6 pb-4 opacity-15">
-                                                {Array.from({ length: 50 }).map((_, i) => {
-                                                    const h = 15 + Math.sin(i * 0.35 + (repo.stars ?? 0)) * 30 + Math.cos(i * 0.8) * 20;
-                                                    return <div key={i} className="flex-1 rounded-t-sm bg-glass-blue-400" style={{ height: `${Math.max(h, 8)}%` }} />;
-                                                })}
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-zinc-600">
+                                                <Music className="w-12 h-12 opacity-40" />
+                                                <div className="absolute inset-x-6 bottom-4 flex items-end justify-center gap-[1px] opacity-20">
+                                                    {Array.from({ length: 40 }).map((_, i) => {
+                                                        const h = 15 + Math.sin(i * 0.35 + (repo.stars ?? 0)) * 28 + Math.cos(i * 0.8) * 18;
+                                                        return (
+                                                            <div
+                                                                key={i}
+                                                                className="flex-1 rounded-t-sm bg-glass-blue-400"
+                                                                style={{ height: `${Math.max(h, 8)}%` }}
+                                                            />
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -252,7 +281,7 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-sm text-zinc-400">
-                                            <span className="font-medium text-zinc-300">{repo.owner_username || repo.owner}</span>
+                                            <span className="font-medium text-zinc-300">{ownerShown}</span>
                                             {repo.updated_at && (
                                                 <>
                                                     <span className="mx-2 text-zinc-600">&middot;</span>
@@ -291,7 +320,8 @@ export default function ExplorePage() {
                                         </div>
                                     </div>
                                 </Link>
-                            ))
+                            );
+                            })
                         )}
                     </div>
                 </section>
@@ -317,7 +347,9 @@ export default function ExplorePage() {
                                         <h3 className="text-sm font-medium text-zinc-300 group-hover:text-glass-blue-400 transition-colors truncate">
                                             {repo.repo_name}
                                         </h3>
-                                        <p className="text-xs text-zinc-500 mt-0.5">@{repo.owner_username || repo.owner}</p>
+                                        <p className="text-xs text-zinc-500 mt-0.5">
+                                            {repo.owner_display_name || repo.owner_username || repo.owner}
+                                        </p>
                                         <div className="flex items-center gap-1 mt-1">
                                             <svg className="w-3 h-3 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">
                                                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />

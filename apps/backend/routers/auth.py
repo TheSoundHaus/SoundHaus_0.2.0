@@ -18,6 +18,7 @@ from services.gitea_service import GiteaAdminService
 from services.repo_service import RepoService
 from services.profile_service import profile_service
 from models.repo_models import RepoData
+from models.profile_models import Profile
 from models.schemas import (
     SignUpRequest,
     SignInRequest,
@@ -26,7 +27,13 @@ from models.schemas import (
     RefreshTokenRequest,
     ProfileUpdateRequest,
 )
+import re
 import secrets
+
+_PROFILE_PATH_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 logger = get_logger(__name__)
 
@@ -424,8 +431,10 @@ async def get_user_stats(
     collaboration_count = 0
     total_size_kb = 0
     try:
+        profile = db.query(Profile).filter(Profile.id == user_id).first()
+        gitea_username = profile.username if profile and profile.username else user_id
         svc = RepoService()
-        gitea_result = svc.list_user_repos(user_id)
+        gitea_result = svc.list_user_repos(gitea_username)
         if gitea_result.get("success"):
             owned_ids = gitea_result.get("owned_ids", set())
             all_repos = gitea_result.get("repos", [])
@@ -459,8 +468,10 @@ async def get_public_profile(
     username: str,
     db: Session = Depends(get_db),
 ):
-    """Get a user's public profile by username (no auth required)."""
+    """Get a user's public profile by SoundHaus username or Supabase user id (no auth)."""
     profile = profile_service.get_profile_by_username(username, db)
+    if not profile and _PROFILE_PATH_UUID.match(username):
+        profile = profile_service.get_profile(username, db)
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -468,10 +479,11 @@ async def get_public_profile(
         raise HTTPException(status_code=404, detail="This profile is private")
 
     # Return only public-safe fields (exclude email and id)
+    pub_username = profile.get("username") or profile.get("id") or ""
     return {
         "success": True,
         "profile": {
-            "username": profile["username"],
+            "username": pub_username,
             "display_name": profile["display_name"],
             "avatar_url": profile["avatar_url"],
             "bio": profile["bio"],

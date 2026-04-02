@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   Star,
@@ -17,15 +18,15 @@ import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 import AudioPlayer from "@/components/AudioPlayer";
 import CloneModal from "@/components/CloneModal";
 import RemixIcon from "@/components/RemixIcon";
-
-function extractYouTubeId(url: string): string | null {
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w\-]{11})/);
-  return m ? m[1] ?? null : null;
-}
+import {
+  extractYouTubeVideoId,
+  youtubeThumbnailHq,
+  youtubeNoCookieEmbedUrl,
+} from "@/lib/utils/youtube";
 
 function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
   const [hovered, setHovered] = useState(false);
-  const videoId = extractYouTubeId(url);
+  const videoId = extractYouTubeVideoId(url);
   if (!videoId) return null;
 
   return (
@@ -36,14 +37,14 @@ function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
     >
       {hovered ? (
         <iframe
-          src={`https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&modestbranding=1`}
+          src={youtubeNoCookieEmbedUrl(videoId, true)}
           className="absolute inset-0 w-full h-full"
           allow="autoplay"
           title={title}
         />
       ) : (
         <img
-          src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
+          src={youtubeThumbnailHq(videoId)}
           alt={title}
           className="w-full h-full object-cover"
         />
@@ -70,7 +71,12 @@ function RemixCardButton({ count, onClick }: { count: number; onClick: (e: React
 interface RepositoryCardProps {
   id: string;
   title: string;
+  /** Shown next to the date (usually display name). */
   author: string;
+  /** Gitea owner segment for clone links (defaults to first segment of id). */
+  cloneOwner?: string;
+  /** Path segment for /profile/[slug] (username or UUID). */
+  profileSlug?: string;
   updatedAt: string;
   stats: {
     stars: number;
@@ -96,6 +102,8 @@ export default function RepositoryCard({
   id,
   title,
   author,
+  cloneOwner: cloneOwnerProp,
+  profileSlug: profileSlugProp,
   updatedAt,
   stats,
   isPublic = true,
@@ -111,6 +119,9 @@ export default function RepositoryCard({
   onDelete,
   onRename,
 }: RepositoryCardProps) {
+  const router = useRouter();
+  const giteaOwner = cloneOwnerProp ?? id.split("/")[0] ?? "";
+  const profileSlug = profileSlugProp ?? author;
   const [starred, setStarred] = useState(isStarred);
   const [starCount, setStarCount] = useState(stats.stars);
   const [showRenameInput, setShowRenameInput] = useState(false);
@@ -266,7 +277,20 @@ export default function RepositoryCard({
 
       <p className="mb-3 text-sm text-zinc-400">
         <span
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `/profile/${author}`; }}
+          role="link"
+          tabIndex={0}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            router.push(`/profile/${encodeURIComponent(profileSlug)}`);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              router.push(`/profile/${encodeURIComponent(profileSlug)}`);
+            }
+          }}
           className="text-zinc-300 hover:text-glass-blue-400 transition-colors cursor-pointer"
         >{author}</span>
         <span className="mx-2 text-zinc-600">&middot;</span>
@@ -320,7 +344,7 @@ export default function RepositoryCard({
       {/* Remix URL Modal */}
       {showRemixModal && (
         <CloneModal
-          owner={author}
+          owner={giteaOwner}
           repo={title}
           onClose={() => setShowRemixModal(false)}
         />

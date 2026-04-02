@@ -364,12 +364,20 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
               </p>
             </div>
           ) : (
-              filteredRepos.map((repo) => (
+              filteredRepos.map((repo) => {
+                    const giteaOwner = repo.full_name.split("/")[0] ?? "";
+                    return (
                     <RepositoryCard
                         key={repo.id}
                         id={repo.full_name}
                         title={repo.name}
-                        author={repo.owner_username || repo.name}
+                        author={
+                          repo.owner_display_name ||
+                          repo.owner_username ||
+                          giteaOwner
+                        }
+                        cloneOwner={giteaOwner}
+                        profileSlug={repo.owner_username || giteaOwner}
                         updatedAt={repo.updated_at}
                         isPublic={!repo.private}
                         audioSnippet={repo.audio_snippet}
@@ -415,7 +423,8 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                           router.refresh();
                         }}
                     />
-                ))              
+                );
+              })
           )}
         </div>
       </main>

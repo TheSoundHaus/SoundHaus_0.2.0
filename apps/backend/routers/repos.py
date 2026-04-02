@@ -34,11 +34,36 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["repos"])
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _resolve_gitea_username(user_id: str, db: Session) -> str:
+    """Map Supabase UUID → Gitea login.
+
+    New-style users have a human-readable Profile.username that matches the
+    Gitea account created at signup.  Legacy users have username=None and
+    their Gitea login IS the UUID itself.
+    """
+    profile = db.query(Profile).filter(Profile.id == user_id).first()
+    if profile and profile.username:
+        return profile.username
+    return user_id
+
+
+def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[str, str]:
+    """SoundHaus username (for /profile links) and human-facing display name."""
+    if profile is None:
+        return {"owner_username": gitea_owner, "owner_display_name": gitea_owner}
+    username = profile.username or gitea_owner
+    display = (profile.display_name or "").strip() or username
+    return {"owner_username": username, "owner_display_name": display}
+
+
 # ── List / Create ────────────────────────────────────────────────────────────
 
 @router.get("/repos")
 @user_limiter.limit("60/minute")
-async def list_repos(request: Request, token: str = Depends(verify_token)):
+async def list_repos(request: Request, token: str = Depends(verify_token), db: Session = Depends(get_db)):
     """List Gitea repositories for the current user (protected)."""
     logger.debug("list_repos", endpoint="/repos", method="GET")
     user_res = await get_auth().get_user(token)
@@ -49,13 +74,16 @@ async def list_repos(request: Request, token: str = Depends(verify_token)):
         raise HTTPException(status_code=401, detail=user_res.get("message", "Unable to fetch user"))
 
     user_id = user_res["user"]["id"]
-    logger.debug("list_repos", user_id=user_id)
+    gitea_username = _resolve_gitea_username(user_id, db)
+    logger.debug("list_repos", user_id=user_id, gitea_username=gitea_username)
 
     svc = RepoService()
-    res = svc.list_user_repos(user_id)
+    res = svc.list_user_repos(gitea_username)
     logger.info("list_repos", success=res.get("success"), repo_count=len(res.get("repos", [])))
 
     if not res.get("success"):
+        if "does not exist" in str(res.get("message", "")):
+            return {"success": True, "repos": []}
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to list repos"))
     return {"success": True, "repos": res.get("repos", [])}
 
@@ -74,7 +102,7 @@ async def create_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    gitea_username = user_id
+    gitea_username = _resolve_gitea_username(user_id, db)
 
     svc = RepoService()
     res = svc.create_user_repo(
@@ -128,7 +156,8 @@ async def register_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    gitea_id = f"{user_id}/{register_request.name}"
+    gitea_username = _resolve_gitea_username(user_id, db)
+    gitea_id = f"{gitea_username}/{register_request.name}"
 
     existing = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
     if existing:
@@ -347,23 +376,24 @@ async def get_public_repos(
 
     all_repos = query.all()
 
-    # Batch-resolve owner UUIDs → SoundHaus usernames
+    # Batch-resolve owner UUIDs → SoundHaus username + display name
     owner_ids = list({r.gitea_id.split("/", 1)[0] for r in all_repos if "/" in r.gitea_id})
     profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
-    profile_map = {str(p.id): p.username for p in profile_rows}
+    profile_map = {str(p.id): _owner_profile_fields(p, str(p.id)) for p in profile_rows}
 
     svc = RepoService()
     result = []
     for repo in all_repos:
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
-            owner_username = profile_map.get(owner, owner)
+            fields = profile_map.get(owner, _owner_profile_fields(None, owner))
             gitea_data = svc.get_repo_contents(owner, repo_name)
 
             repo_info = {
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
-                "owner_username": owner_username,
+                "owner_username": fields["owner_username"],
+                "owner_display_name": fields["owner_display_name"],
                 "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
@@ -391,10 +421,12 @@ async def get_public_repos(
         except Exception as e:
             logger.warning("get_public_repos", gitea_id=repo.gitea_id, error=str(e))
             owner_id = repo.gitea_id.split("/", 1)[0] if "/" in repo.gitea_id else repo.gitea_id
+            fb = profile_map.get(owner_id, _owner_profile_fields(None, owner_id))
             result.append({
                 "gitea_id": repo.gitea_id,
                 "owner": owner_id,
-                "owner_username": profile_map.get(owner_id, owner_id),
+                "owner_username": fb["owner_username"],
+                "owner_display_name": fb["owner_display_name"],
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
                 "snippet_metadata": {
@@ -420,10 +452,13 @@ async def get_user_public_repos(
 ):
     """Get all public repos owned by a specific user (no auth required).
     Accepts either a Supabase UUID or a SoundHaus username."""
-    # Try to resolve username → UUID so we can match gitea_id
     profile = db.query(Profile).filter(Profile.username == username).first()
+    if not profile:
+        profile = db.query(Profile).filter(Profile.id == username).first()
     owner_id = str(profile.id) if profile else username
-    owner_username = profile.username if profile else username
+    labels = _owner_profile_fields(profile, owner_id)
+    owner_username = labels["owner_username"]
+    owner_display_name = labels["owner_display_name"]
 
     prefix = f"{owner_id}/"
     repos = db.query(RepoData).filter(RepoData.gitea_id.like(f"{prefix}%")).all()
@@ -439,6 +474,7 @@ async def get_user_public_repos(
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
                 "owner_username": owner_username,
+                "owner_display_name": owner_display_name,
                 "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
@@ -505,14 +541,15 @@ async def get_repo_stats(
     except Exception:
         pass  # Non-critical: description/privacy are cosmetic
 
-    # Resolve owner UUID → username
+    # Resolve owner UUID → username + display name
     owner_profile = db.query(Profile).filter(Profile.id == owner).first()
-    owner_username = owner_profile.username if owner_profile else owner
+    olab = _owner_profile_fields(owner_profile, owner)
 
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
-        "owner_username": owner_username,
+        "owner_username": olab["owner_username"],
+        "owner_display_name": olab["owner_display_name"],
         "description": description,
         "private": is_private,
         "clone_url": f"{settings.gitea_public_url}/{owner}/{repo}.git",
@@ -665,11 +702,14 @@ async def get_enriched_repos(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
+    gitea_username = _resolve_gitea_username(user_id, db)
 
     # Fetch Gitea repos
     svc = RepoService()
-    gitea_result = svc.list_user_repos(user_id)
+    gitea_result = svc.list_user_repos(gitea_username)
     if not gitea_result.get("success"):
+        if "does not exist" in str(gitea_result.get("message", "")):
+            return {"success": True, "repos": []}
         raise HTTPException(status_code=400, detail=gitea_result.get("message", "Failed to list repos"))
 
     gitea_repos = gitea_result.get("repos", [])
@@ -677,7 +717,7 @@ async def get_enriched_repos(
 
     # Fetch starred repos for this user
     gitea_admin = GiteaAdminService()
-    starred_result = gitea_admin.list_user_starred(user_id)
+    starred_result = gitea_admin.list_user_starred(gitea_username)
     starred_ids = set()
     if starred_result.get("success"):
         for sr in starred_result.get("repos", []):
@@ -692,17 +732,17 @@ async def get_enriched_repos(
     )
     repo_data_map = {rd.gitea_id: rd for rd in repo_data_rows}
 
-    # Batch-resolve owner UUIDs → SoundHaus usernames
+    # Batch-resolve owner UUIDs → SoundHaus username + display name
     owner_ids = list({r.get("owner", {}).get("login", "") for r in gitea_repos})
     profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
-    # Profile.id is PostgreSQL UUID, but Gitea login is a plain string — cast to str
-    profile_map = {str(p.id): p.username for p in profile_rows}
+    profile_map = {str(p.id): _owner_profile_fields(p, str(p.id)) for p in profile_rows}
 
     enriched = []
     for repo in gitea_repos:
         full_name = repo.get("full_name", "")
         rd = repo_data_map.get(full_name)
         owner_login = repo.get("owner", {}).get("login", "")
+        olab = profile_map.get(owner_login, _owner_profile_fields(None, owner_login))
 
         enriched.append({
             "id": repo.get("id"),
@@ -711,7 +751,8 @@ async def get_enriched_repos(
             "description": repo.get("description", ""),
             "private": repo.get("private", True),
             "owner_id": owner_login,
-            "owner_username": profile_map.get(owner_login, owner_login),
+            "owner_username": olab["owner_username"],
+            "owner_display_name": olab["owner_display_name"],
             "created_at": repo.get("created_at", ""),
             "updated_at": repo.get("updated_at", ""),
             "stars_count": repo.get("stars_count", 0),
