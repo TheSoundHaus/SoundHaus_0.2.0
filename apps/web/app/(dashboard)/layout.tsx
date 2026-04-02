@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import Navbar from "@/components/Navbar";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import { UserProvider } from "@/lib/context/UserContext";
+import CursorGlow from "@/components/CursorGlow";
 import {
     useKeyboardShortcuts,
     createDefaultShortcuts,
@@ -29,9 +30,10 @@ export default function DashboardLayout({
 
     return (
         <UserProvider>
-            <div className="min-h-screen bg-zinc-900 text-zinc-100">
+            <div className="min-h-screen bg-zinc-950 text-zinc-100">
+                <CursorGlow />
                 <Navbar />
-                <main>{children}</main>
+                <main className="relative z-10">{children}</main>
                 <KeyboardShortcutsModal
                     open={shortcutsOpen}
                     onClose={() => setShortcutsOpen(false)}

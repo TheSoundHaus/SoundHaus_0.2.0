@@ -1284,7 +1284,7 @@ export default function LandingPage() {
                                     <div className="space-y-3 mb-8">
                                         {/* macOS - transparent gray with real Apple logo */}
                                         <a
-                                            href="/downloads/SoundHaus-latest.dmg"
+                                            href="https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus-0.0.1-arm64.dmg"
                                             className="flex items-center justify-center gap-3 w-full rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] text-white font-medium py-3.5 px-6 transition-all duration-300 no-underline backdrop-blur-sm"
                                         >
                                             <AppleLogo className="w-5 h-5" />
@@ -1292,7 +1292,7 @@ export default function LandingPage() {
                                         </a>
                                         {/* Windows - same transparent gray */}
                                         <a
-                                            href="/downloads/SoundHaus-latest.exe"
+                                            href="https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus.Setup.exe"
                                             className="flex items-center justify-center gap-3 w-full rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] text-white font-medium py-3.5 px-6 transition-all duration-300 no-underline backdrop-blur-sm"
                                         >
                                             <Download className="w-5 h-5" />

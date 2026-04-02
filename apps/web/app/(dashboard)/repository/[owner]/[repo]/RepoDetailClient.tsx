@@ -546,7 +546,7 @@ export default function RepoDetailClient({
         <div className="grid gap-8 lg:grid-cols-3">
           <div className="space-y-8 lg:col-span-2">
             {/* Stats grid */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Project Stats</h2>
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -571,7 +571,7 @@ export default function RepoDetailClient({
             </div>
 
             {/* Recent Push Activity */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
               {pushes.length === 0 ? (
                 <p className="text-sm text-zinc-400">No push activity recorded yet.</p>
@@ -606,7 +606,7 @@ export default function RepoDetailClient({
             </div>
 
             {/* README Preview */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
                 <BookOpen size={16} /> About
               </h2>
@@ -634,7 +634,7 @@ export default function RepoDetailClient({
           <div className="space-y-8">
             {/* Thumbnail */}
             {stats?.thumbnail_url && (
-              <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <div className="glass-card rounded-lg overflow-hidden">
                 {stats.thumbnail_type === "youtube" ? (
                   <iframe
                     src={stats.thumbnail_url.replace("watch?v=", "embed/")}
@@ -653,7 +653,7 @@ export default function RepoDetailClient({
             )}
 
             {/* Collaborators */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
                 <Users size={16} /> Collaborators
               </h3>
@@ -683,7 +683,7 @@ export default function RepoDetailClient({
 
             {/* Recent Remixes — only shown on public repos */}
             {!isPrivate && (
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h3 className="mb-4 text-lg font-semibold">Recent Remixes</h3>
               {stats && stats.recent_clones.length > 0 ? (
                 <div className="space-y-3">
@@ -703,7 +703,7 @@ export default function RepoDetailClient({
             )}
 
             {/* Project Info */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h3 className="mb-4 text-lg font-semibold">Project Info</h3>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
@@ -749,7 +749,7 @@ export default function RepoDetailClient({
 
       {/* ── Commits Tab ────────────────────────────────────────────── */}
       {activeTab === "commits" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-semibold">Snapshot History</h2>
@@ -813,7 +813,7 @@ export default function RepoDetailClient({
                   (c.files_removed?.length ?? 0);
 
                 return (
-                  <div key={c.sha} className="rounded-lg border border-zinc-800 overflow-hidden">
+                  <div key={c.sha} className="glass-card rounded-lg overflow-hidden">
                     {/* Commit row */}
                     <div
                       className="flex items-start gap-4 px-4 py-3 hover:bg-zinc-800/30 transition-colors cursor-pointer"
@@ -959,7 +959,7 @@ export default function RepoDetailClient({
 
       {/* ── Events Tab ─────────────────────────────────────────────── */}
       {activeTab === "events" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
           {repoEvents.length === 0 ? (
             <p className="text-zinc-400">No activity recorded yet.</p>
@@ -1046,7 +1046,7 @@ export default function RepoDetailClient({
           )}
 
           {/* Invite Collaborators Section */}
-          <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <UserPlus size={18} /> Invite Collaborators
             </h2>
@@ -1151,7 +1151,7 @@ export default function RepoDetailClient({
           </div>
 
           {/* Pending Invitations */}
-          <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <Clock size={18} /> Pending Invitations
             </h2>
@@ -1195,7 +1195,7 @@ export default function RepoDetailClient({
           </div>
 
           {/* Active Collaborators */}
-          <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <Users size={18} /> Active Collaborators
             </h2>
@@ -1271,7 +1271,7 @@ export default function RepoDetailClient({
 
           {/* Invitation History (accepted/declined/expired) */}
           {repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Invitation History</h2>
               <div className="space-y-3">
                 {repoInvitations
@@ -1328,7 +1328,7 @@ export default function RepoDetailClient({
 
       {/* ── Settings Tab ───────────────────────────────────────────── */}
       {activeTab === "settings" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <h2 className="mb-6 text-2xl font-semibold">Project Settings</h2>
 
           {/* Settings error banner */}

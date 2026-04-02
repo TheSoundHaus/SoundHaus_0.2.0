@@ -22,6 +22,7 @@ export function createCloneUrlDialog(parentWindow: BrowserWindow): Promise<Clone
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '../preload.js'),
+        spellcheck: false,
       },
     });
 
@@ -30,9 +31,9 @@ export function createCloneUrlDialog(parentWindow: BrowserWindow): Promise<Clone
     if (isDev) {
       dialog.loadURL('http://localhost:5173/#/clone-url');
     } else if (isPreview) {
-      dialog.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/clone-url' });
+      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/clone-url' });
     } else {
-      dialog.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/clone-url' });
+      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/clone-url' });
     }
 
     dialog.once('ready-to-show', () => {

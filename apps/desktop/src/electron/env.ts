@@ -1,5 +1,5 @@
-import * as dotenv from 'dotenv';
 import * as path from 'path';
+const dotenv = require('dotenv');
 
 // Load desktop env vars for Electron main-process modules.
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -14,4 +14,5 @@ function requireEnv(name: string): string {
 
 export const desktopEnv = {
     giteaPublicUrl: requireEnv('GITEA_PUBLIC_URL').replace(/\/$/, ''),
+    supabasePublicUrl: process.env['VITE_SUPABASE_PUBLIC_URL']?.replace(/\/$/, '') ?? '',
 };

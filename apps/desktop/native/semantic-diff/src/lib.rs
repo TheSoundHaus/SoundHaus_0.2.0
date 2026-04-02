@@ -107,6 +107,28 @@ pub async fn diff_from_snapshot(snapshot_json: String, current_als_path: String)
     .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Task panicked: {}", e)))?
 }
 
+/// Diff two serialized Project snapshots directly.
+///
+/// This is used for commit-to-parent history diffs where both sides come from
+/// `.soundhaus/{session}/snapshot.json` at different revisions.
+#[napi]
+pub async fn diff_snapshots(old_snapshot_json: String, new_snapshot_json: String) -> napi::Result<String> {
+    tokio::task::spawn_blocking(move || {
+        let old_project: models::Project = serde_json::from_str(&old_snapshot_json)
+            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to deserialize old snapshot: {}", e)))?;
+
+        let new_project: models::Project = serde_json::from_str(&new_snapshot_json)
+            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to deserialize new snapshot: {}", e)))?;
+
+        let report = diff::diff_projects(&old_project, &new_project);
+
+        serde_json::to_string(&report)
+            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to serialize report: {}", e)))
+    })
+    .await
+    .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Task panicked: {}", e)))?
+}
+
 /// Generate a human-readable git commit message from a serialized DiffReport JSON string.
 /// Mirrors the `buildCommitMessage` logic previously in `main.ts`.
 #[napi]

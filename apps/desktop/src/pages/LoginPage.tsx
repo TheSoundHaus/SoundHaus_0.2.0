@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, Waves } from 'lucide-react';
 
-const SUPABASE_PUBLIC_URL = (import.meta.env.VITE_SUPABASE_PUBLIC_URL as string).replace(/\/$/, '');
-
 const LoginPage = () => {
     const navigate = useNavigate();
     const autoLoginAttempted = useRef(false);
@@ -15,46 +13,16 @@ const LoginPage = () => {
         autoLoginAttempted.current = true;
 
         const attemptPATLogin = async () => {
-            const token = await window.patService?.getSoundHausCredentials();
-            if (!token) {
-                console.log('No saved SoundHaus PAT');
-                return;
-            }
+            const result = await window.patService?.autoLogin();
+            if (!result) return;
 
-            const existingGiteaToken = await window.patService?.getGiteaCredentials();
-            console.log('Attempting PAT auto-login...');
-
-            try {
-                const credUrl = `${SUPABASE_PUBLIC_URL}/api/desktop/credentials`;
-                const headers: Record<string, string> = { Authorization: `token ${token}` };
-                if (existingGiteaToken) {
-                    headers['X-Cached-Gitea-Token'] = existingGiteaToken;
-                }
-
-                const credRes = await fetch(credUrl, { method: 'GET', headers });
-
-                if (!credRes.ok) {
-                    console.warn('Saved PAT is invalid/expired');
-                    return;
-                }
-
-                const credData = await credRes.json();
-
-                if (!existingGiteaToken || existingGiteaToken !== credData.token) {
-                    console.log('Saving new Gitea token');
-                    await window.patService?.setGiteaCredentials(credData.token);
-                } else {
-                    console.log('Gitea token validated and reused');
-                }
-
-                if (credData?.gitea_url) {
-                    await window.patService?.setAllowedCloneRemote(credData.gitea_url);
-                }
-
+            if (result.success) {
                 console.log('Auto-login successful');
                 navigate('/home');
-            } catch (err) {
-                console.warn('Auto-login failed', err);
+            } else if (result.reason === 'no-token') {
+                console.log('No saved SoundHaus PAT');
+            } else {
+                console.warn('Auto-login failed', result);
             }
         };
 
@@ -69,62 +37,19 @@ const LoginPage = () => {
         const password = (document.getElementById('password') as HTMLInputElement).value;
 
         try {
-            const loginRes = await fetch(`${SUPABASE_PUBLIC_URL}/api/auth/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
-
-            if (!loginRes.ok) {
-                setError('Invalid email or password');
+            const result = await window.patService?.manualLogin(email, password);
+            if (!result) {
+                setError('Login service unavailable');
                 setLoading(false);
                 return;
             }
 
-            const loginData = await loginRes.json();
-            const accessToken = loginData.session.access_token;
-
-            if (!accessToken) {
-                setError('No access token returned');
+            if (result.success) {
+                navigate('/home');
+            } else {
+                setError(result.reason || 'Login failed');
                 setLoading(false);
-                return;
             }
-
-            const patRes = await fetch(`${SUPABASE_PUBLIC_URL}/api/auth/tokens`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-                body: JSON.stringify({ token_name: 'Gitea Token', expires_in_days: 90 }),
-            });
-
-            if (!patRes.ok) {
-                setError('Could not create session token');
-                setLoading(false);
-                return;
-            }
-
-            const patData = await patRes.json();
-            const token = patData.token;
-
-            try {
-                await window.patService?.setSoundHausCredentials(token);
-            } catch (err) {
-                setError('Failed to store credentials');
-                setLoading(false);
-                return;
-            }
-
-            const credRes = await fetch(`${SUPABASE_PUBLIC_URL}/api/desktop/credentials`, {
-                method: 'GET',
-                headers: { Authorization: `token ${token}` }
-            });
-
-            if (credRes.ok) {
-                const credData = await credRes.json();
-                if (credData?.token) await window.patService?.setGiteaCredentials(credData.token);
-                if (credData?.gitea_url) await window.patService?.setAllowedCloneRemote(credData.gitea_url);
-            }
-
-            navigate('/home');
         } catch (err) {
             setError('Connection failed — is the server running?');
             setLoading(false);
@@ -132,8 +57,11 @@ const LoginPage = () => {
     };
 
     return (
-        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-6">
-            <div className="w-full max-w-sm animate-scale-in">
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-6 relative overflow-hidden">
+            {/* Ambient glow */}
+            <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px]
+                            bg-accent/[0.04] rounded-full blur-[100px] pointer-events-none" />
+            <div className="w-full max-w-sm animate-scale-in relative z-10">
                 {/* Logo + Title */}
                 <div className="flex flex-col items-center mb-8">
                     <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-accent/10 mb-4

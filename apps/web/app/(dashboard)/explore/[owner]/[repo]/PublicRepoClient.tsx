@@ -282,7 +282,7 @@ export default function PublicRepoClient({
 
       {/* YouTube Player / Thumbnail */}
       {ytVideoId && (
-        <div className="mb-8 overflow-hidden rounded-xl border border-zinc-800">
+        <div className="mb-8 overflow-hidden glass-card rounded-xl">
           {ytPlaying ? (
             <div className="relative" style={{ paddingBottom: "56.25%" }}>
               <iframe
@@ -325,7 +325,7 @@ export default function PublicRepoClient({
 
       {/* Static thumbnail */}
       {thumbnailUrl && thumbnailType === "image" && (
-        <div className="mb-8 overflow-hidden rounded-xl border border-zinc-800">
+        <div className="mb-8 overflow-hidden glass-card rounded-xl">
           <img
             src={thumbnailUrl}
             alt={repo}
@@ -369,7 +369,7 @@ export default function PublicRepoClient({
         <div className="grid gap-8 lg:grid-cols-3">
           <div className="space-y-8 lg:col-span-2">
             {/* Stats */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Project Stats</h2>
               <div className="grid grid-cols-3 gap-4">
                 <div>
@@ -394,7 +394,7 @@ export default function PublicRepoClient({
             </div>
 
             {/* README */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
                 <BookOpen size={16} /> About
               </h2>
@@ -408,7 +408,7 @@ export default function PublicRepoClient({
             </div>
 
             {/* Recent Activity */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
               {pushes.length === 0 ? (
                 <p className="text-sm text-zinc-400">No push activity recorded yet.</p>
@@ -444,7 +444,7 @@ export default function PublicRepoClient({
           <div className="space-y-8">
             {/* Thumbnail preview in sidebar */}
             {thumbnailUrl && (
-              <div className="rounded-lg border border-zinc-800 overflow-hidden">
+              <div className="glass-card rounded-lg overflow-hidden">
                 {thumbnailType === "image" ? (
                   <img src={thumbnailUrl} alt={repo} className="w-full aspect-video object-cover" />
                 ) : ytVideoId ? (
@@ -461,7 +461,7 @@ export default function PublicRepoClient({
             )}
 
             {/* Collaborators */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
                 <Users size={16} /> Collaborators
               </h3>
@@ -490,7 +490,7 @@ export default function PublicRepoClient({
             </div>
 
             {/* Project Info */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h3 className="mb-4 text-lg font-semibold">Project Info</h3>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
@@ -536,7 +536,7 @@ export default function PublicRepoClient({
 
       {/* ── Snapshots Tab ──────────────────────────────────────────── */}
       {activeTab === "commits" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-semibold">Snapshot History</h2>
@@ -705,7 +705,7 @@ export default function PublicRepoClient({
 
       {/* ── Timeline Tab ─────────────────────────────────────────── */}
       {activeTab === "events" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
           {repoEvents.length === 0 ? (
             <p className="text-zinc-400">No activity recorded yet.</p>
@@ -765,7 +765,7 @@ export default function PublicRepoClient({
 
       {/* ── Collaborators Tab ──────────────────────────────────────── */}
       {activeTab === "collaborators" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <h2 className="mb-6 text-2xl font-semibold flex items-center gap-2">
             <Users size={20} /> Collaborators
           </h2>

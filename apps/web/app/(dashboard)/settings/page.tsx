@@ -337,7 +337,7 @@ export default function SettingsPage() {
           {/* Content Area */}
           <div className="lg:col-span-3">
             {activeTab === "profile" && (
-              <div className="rounded-xl border border-zinc-800 p-8">
+              <div className="glass-card rounded-xl p-8">
                 <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Profile Settings</h2>
 
                 {userLoading ? (
@@ -486,7 +486,7 @@ export default function SettingsPage() {
             )}
 
             {activeTab === "account" && (
-              <div className="rounded-xl border border-zinc-800 p-8">
+              <div className="glass-card rounded-xl p-8">
                 <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Account Settings</h2>
                 <div className="space-y-6">
                   <div>
@@ -539,7 +539,7 @@ export default function SettingsPage() {
             )}
 
             {activeTab === "invitations" && (
-              <div className="rounded-xl border border-zinc-800 p-8">
+              <div className="glass-card rounded-xl p-8">
                 <h2 className="mb-6 text-2xl font-semibold text-zinc-100 flex items-center gap-2">
                   <Send size={20} /> Sent Invitations
                 </h2>
@@ -564,7 +564,7 @@ export default function SettingsPage() {
                     {sentInvitations.map((inv) => (
                       <div
                         key={inv.id}
-                        className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3"
+                        className="flex items-center justify-between glass-card rounded-lg px-4 py-3"
                       >
                         <div className="flex items-center gap-3">
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800">
@@ -607,7 +607,7 @@ export default function SettingsPage() {
 
             {activeTab === "stats" && (
               <div className="space-y-6">
-                <div className="rounded-xl border border-zinc-800 p-8">
+                <div className="glass-card rounded-xl p-8">
                   <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Your Statistics</h2>
 
                   {statsError && (
@@ -623,25 +623,25 @@ export default function SettingsPage() {
                     </div>
                   ) : (
                     <div className="grid gap-6 md:grid-cols-2">
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                      <div className="glass-card rounded-lg p-6">
                         <div className="mb-2 text-3xl font-bold text-glass-blue-400">
                           {stats?.total_repos ?? 0}
                         </div>
                         <div className="text-sm text-zinc-400">Total Projects</div>
                       </div>
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                      <div className="glass-card rounded-lg p-6">
                         <div className="mb-2 text-3xl font-bold text-emerald-400">
                           {stats?.total_commits ?? 0}
                         </div>
                         <div className="text-sm text-zinc-400">Total Commits</div>
                       </div>
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                      <div className="glass-card rounded-lg p-6">
                         <div className="mb-2 text-3xl font-bold text-amber-400">
                           {stats?.collaborations ?? 0}
                         </div>
                         <div className="text-sm text-zinc-400">Collaborations</div>
                       </div>
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
+                      <div className="glass-card rounded-lg p-6">
                         <div className="mb-2 text-3xl font-bold text-glass-cyan-500">
                           {stats ? formatStorageSize(stats.total_size_kb) : "0 B"}
                         </div>
@@ -651,7 +651,7 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                <div className="rounded-xl border border-zinc-800 p-8">
+                <div className="glass-card rounded-xl p-8">
                   <h3 className="mb-4 text-xl font-semibold text-zinc-100">Overview</h3>
                   {stats ? (
                     <div className="space-y-3 text-sm text-zinc-400">

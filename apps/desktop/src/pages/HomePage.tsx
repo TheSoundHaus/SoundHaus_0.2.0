@@ -1,8 +1,30 @@
+import { useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Waves, FolderOpen, Download, Globe, Music } from 'lucide-react'
 import { useProjectActions } from '../hooks/useProjectActions'
+import OpenProjectDialog from '../components/OpenProjectDialog'
 
 const HomePage = () => {
-    const { handleProjectClone, handleServerExplore, handleAbletonImport, handleExistingProject } = useProjectActions()
+    const location = useLocation()
+    const navigate = useNavigate()
+    const { 
+        handleProjectClone, 
+        handleServerExplore, 
+        handleAbletonImport, 
+        handleOpenSoundHausProject,
+        handleSelectFromDialog,
+        handleOpenFromFilepath,
+        isOpenDialogVisible,
+        setIsOpenDialogVisible,
+    } = useProjectActions()
+
+    // Open dialog if triggered from menu, then clear state to prevent re-opening on back
+    useEffect(() => {
+        if ((location.state as { openProjectDialog?: boolean })?.openProjectDialog) {
+            setIsOpenDialogVisible(true)
+            navigate(location.pathname, { replace: true, state: {} })
+        }
+    }, [location.state, navigate])
 
     const actions = [
         {
@@ -27,13 +49,16 @@ const HomePage = () => {
             icon: FolderOpen,
             label: 'Open Existing',
             description: 'Open a SoundHaus-tracked project folder',
-            onClick: handleExistingProject,
+            onClick: handleOpenSoundHausProject,
         },
     ]
 
     return (
-        <div className="flex flex-col items-center justify-center w-full h-screen bg-bg-primary p-8">
-            <div className="w-full max-w-lg animate-fade-in">
+        <div className="flex flex-col items-center justify-center w-full h-screen bg-bg-primary p-8 relative overflow-hidden">
+            {/* Ambient radial glow */}
+            <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px]
+                            bg-accent/[0.04] rounded-full blur-[120px] pointer-events-none" />
+            <div className="w-full max-w-lg animate-fade-in relative z-10">
                 {/* Header */}
                 <div className="flex flex-col items-center mb-10">
                     <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-accent/10 mb-4
@@ -51,9 +76,10 @@ const HomePage = () => {
                             key={action.label}
                             onClick={action.onClick}
                             className="group flex flex-col items-start gap-3 p-5 rounded-xl
-                                       bg-bg-elevated border border-border-subtle
-                                       hover:border-accent/30 hover:bg-bg-tertiary/60
-                                       hover:shadow-[0_0_20px_rgba(167,199,231,0.06)]
+                                       bg-bg-glass/60 backdrop-blur-xl border border-border-glass
+                                       shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]
+                                       hover:border-accent/30 hover:bg-bg-glass-heavy/80
+                                       hover:shadow-[0_0_24px_rgba(167,199,231,0.08),inset_0_1px_0_rgba(255,255,255,0.06)]
                                        transition-all duration-300 text-left cursor-pointer"
                         >
                             <div className="flex items-center justify-center w-9 h-9 rounded-lg
@@ -73,6 +99,13 @@ const HomePage = () => {
                     ))}
                 </div>
             </div>
+
+            <OpenProjectDialog
+                isOpen={isOpenDialogVisible}
+                onClose={() => setIsOpenDialogVisible(false)}
+                onSelectProject={handleSelectFromDialog}
+                onOpenFromFilepath={handleOpenFromFilepath}
+            />
         </div>
     )
 }

@@ -1199,3 +1199,65 @@ All write operations on repos (upload snippet, set thumbnail, change settings, d
 ### Secrets never in code
 
 All credentials are loaded from environment variables via `pydantic-settings`. The `.env` files are gitignored. Example files (`.env.*.example`) contain no real values.
+
+---
+
+## 21. Desktop App — Visual Note Differ (SCRUM-37)
+
+The SCRUM-37 branch added a native semantic diff system for Ableton `.als` files:
+
+### How it works
+
+1. **Ableton Parser** (`native/semantic-diff/src/parser.rs`) — Rust NAPI module that parses gzipped XML `.als` files into structured JSON (tracks, clips, notes, parameters).
+2. **Diff Engine** (`native/semantic-diff/src/diff.rs`) — Compares two parsed project states and produces per-track note diffs (added, removed, adjusted notes with pitch/time/velocity).
+3. **Piano Roll Canvas** (`src/components/diff/PianoRollCanvas.tsx`) — HTML5 Canvas component that renders a visual piano roll showing note changes as colored rectangles:
+   - Green = added notes
+   - Red = removed notes  
+   - Blue = adjusted notes (moved/resized)
+   - Gray = unchanged context notes
+
+### Commit history flow
+
+1. User clicks "Show changes" on the Project Page
+2. Desktop calls `electronAPI.loadHistory(projectPath)` → runs `git log --format=...` on the project folder
+3. User selects a commit → `electronAPI.showDiff(projectPath, sha)` runs `git diff` between that commit and its parent
+4. The diff output is parsed by the Rust NAPI module to produce a `NoteDiff` struct
+5. `PianoRollCanvas` renders the visual diff with per-track note changes
+
+### Recent Projects Manager
+
+`src/electron/recentProjectsManager.ts` persists a list of recently opened projects in `~/.soundhaus/recent-projects.json`. The home page shows these for quick access.
+
+### Open Project Dialog
+
+`src/components/OpenProjectDialog.tsx` shows a list of recent projects with a file browser fallback. It validates that selected folders contain a `.als` file and a `.git` directory before opening.
+
+---
+
+## 22. UI Design System
+
+### Web (Next.js + Tailwind)
+
+The web app uses a deep dark theme (`bg-zinc-950`) with "Apple glass" morphism:
+
+- **Glass cards**: `backdrop-blur-2xl bg-white/[0.03] border border-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]`
+- **CursorGlow**: A component (`components/CursorGlow.tsx`) that renders a soft radial gradient following the mouse cursor, giving the dashboard and explore pages a living, reactive feel
+- **WaveformSpinner**: Custom loading indicator (`components/WaveformSpinner.tsx`) that renders animated EQ-style bars
+- **PageTransition**: Fade/slide wrapper using CSS `@keyframes fade-slide-in` for smooth page-to-page transitions
+- **Glass-blue accent**: `#A7C7E7` — consistent across buttons, links, hover states, and glow effects
+- **Noise texture**: Subtle SVG fractal noise overlay on auth pages for depth
+
+### Desktop (Electron + React + Tailwind)
+
+Identical design language but with Electron-specific adjustments:
+
+- **Color tokens**: `bg-primary (#141414)`, `bg-glass (rgba(28,26,26,0.82))`, `accent (#A7C7E7)`
+- **Glass panels**: `glass-panel` class applies `backdrop-blur-xl`, inner glow shadows, and subtle border highlights
+- **Animations**: `animate-fade-in`, `animate-scale-in`, `animate-slide-up` using cubic-bezier(0.16, 1, 0.3, 1) easing
+- **Ambient glow**: Login and Home pages have a positioned `bg-accent/[0.04]` blur behind the main content
+
+### Download Links
+
+The desktop app has platform-specific installers:
+- **macOS (Apple Silicon)**: `https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus-0.0.1-arm64.dmg`
+- **Windows**: `https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus.Setup.exe`

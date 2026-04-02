@@ -10,6 +10,8 @@ import {
     extractYouTubeVideoId,
     youtubeThumbnailHq,
 } from "@/lib/utils/youtube";
+import CursorGlow from "@/components/CursorGlow";
+import WaveformSpinner from "@/components/WaveformSpinner";
 
 export default function ExplorePage() {
     const { user, loading } = useUser();
@@ -114,9 +116,11 @@ export default function ExplorePage() {
     };
 
     return (
-        <div className="mx-auto max-w-[1400px] px-6 py-12">
+        <div className="relative mx-auto max-w-[1400px] px-6 py-12">
+            <CursorGlow color="210, 60%, 78%" accent="280, 50%, 60%" radius={450} intensity={0.04} />
+
             {/* Page Header */}
-            <div className="mb-10">
+            <div className="mb-10 animate-fade-in-up">
                 <h1 className="mb-2 text-4xl font-bold tracking-tight">
                     Explore
                 </h1>
@@ -130,7 +134,7 @@ export default function ExplorePage() {
 
                 {/* LEFT SIDEBAR: Profile Card */}
                 <aside className="lg:sticky lg:top-6 lg:self-start">
-                    <div className="rounded-xl border border-zinc-800 p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)]">
+                    <div className="glass-card rounded-xl p-6 animate-fade-in-up delay-100">
                         {loading ? (
                             <div className="flex flex-col items-center space-y-4 animate-pulse">
                                 <div className="w-20 h-20 rounded-full bg-zinc-800" />
@@ -182,7 +186,7 @@ export default function ExplorePage() {
                                 placeholder="Search projects..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 pl-10 text-sm text-zinc-100 placeholder:text-zinc-400 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all duration-300"
+                                className="glass-card w-full rounded-lg px-4 py-3 pl-10 text-sm text-zinc-100 placeholder:text-zinc-400 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all duration-300"
                             />
                             <svg
                                 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400"
@@ -249,13 +253,12 @@ export default function ExplorePage() {
                     {/* Repository Cards */}
                     <div className="space-y-5">
                         {reposLoading ? (
-                            <div className="text-center py-16">
-                                <div className="w-8 h-8 mx-auto mb-4 border-2 border-zinc-700 border-t-glass-blue-400 rounded-full animate-spin" />
-                                <p className="text-sm text-zinc-400">Loading projects...</p>
+                            <div className="flex flex-col items-center justify-center py-20">
+                                <WaveformSpinner size="lg" bars={7} label="Discovering projects..." />
                             </div>
                         ) : error ? (
                             <div className="text-center py-16">
-                                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-zinc-800/60 border border-zinc-700/50 backdrop-blur-sm flex items-center justify-center">
                                     <svg className="w-6 h-6 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                                     </svg>
@@ -265,7 +268,7 @@ export default function ExplorePage() {
                             </div>
                         ) : filteredAndSortedRepos.length === 0 ? (
                             <div className="text-center py-16">
-                                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-zinc-800/60 border border-zinc-700/50 backdrop-blur-sm flex items-center justify-center">
                                     <Compass className="w-6 h-6 text-zinc-500" />
                                 </div>
                                 <p className="text-sm text-zinc-400">No projects found</p>
@@ -285,7 +288,7 @@ export default function ExplorePage() {
                                 <Link
                                     key={repo.gitea_id}
                                     href={`/explore/${repo.owner}/${repo.repo_name}`}
-                                    className="group block rounded-xl border border-zinc-800 overflow-hidden transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] no-underline"
+                                    className="group block glass-card rounded-xl overflow-hidden transition-all duration-300 hover:border-glass-blue-500/40 hover:shadow-[0_0_24px_rgba(167,199,231,0.15)] no-underline animate-fade-in-up"
                                 >
                                     {/* Thumbnail: image, YouTube still (hqdefault), audio hint, or placeholder */}
                                     <div className="relative h-48 overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-800/80 to-zinc-900">
@@ -350,7 +353,7 @@ export default function ExplorePage() {
                                         {repo.genres.length > 0 && (
                                             <div className="flex flex-wrap gap-1.5">
                                                 {repo.genres.map((genre) => (
-                                                    <span key={genre} className="text-[10px] text-glass-blue-400 bg-zinc-800 rounded-full px-2 py-0.5 border border-zinc-700">
+                                                    <span key={genre} className="text-[10px] text-glass-blue-400 bg-zinc-800/60 rounded-full px-2 py-0.5 border border-zinc-700/50 backdrop-blur-sm">
                                                         {genre}
                                                     </span>
                                                 ))}
@@ -386,7 +389,7 @@ export default function ExplorePage() {
 
                 {/* RIGHT SIDEBAR: Trending */}
                 <aside className="lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-                    <div className="rounded-xl border border-zinc-800 p-5 transition-all duration-300 hover:border-glass-blue-500/40 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)]">
+                    <div className="glass-card rounded-xl p-5 transition-all duration-300 hover:border-glass-blue-500/40 hover:shadow-[0_0_24px_rgba(167,199,231,0.15)]">
                         <div className="flex items-center gap-2 mb-5 pb-3 border-b border-zinc-800">
                             <TrendingUp className="w-4 h-4 text-glass-blue-400" />
                             <h2 className="text-sm font-semibold text-glass-blue-400 tracking-wide">Trending</h2>

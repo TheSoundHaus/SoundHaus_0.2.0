@@ -23,6 +23,7 @@ export function createProjectSetupDialog(parentWindow: BrowserWindow): Promise<P
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '../preload.js'),
+        spellcheck: false,
       },
     });
 
@@ -31,9 +32,9 @@ export function createProjectSetupDialog(parentWindow: BrowserWindow): Promise<P
     if (isDev) {
       dialog.loadURL('http://localhost:5173/#/project-setup');
     } else if (isPreview) {
-      dialog.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/project-setup' });
+      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/project-setup' });
     } else {
-      dialog.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/project-setup' });
+      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/project-setup' });
     }
 
     dialog.once('ready-to-show', () => {

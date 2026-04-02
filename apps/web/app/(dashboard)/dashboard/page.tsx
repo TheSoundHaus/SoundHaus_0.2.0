@@ -16,6 +16,8 @@ import {
 import { useUser } from "@/lib/context/UserContext";
 import { getDashboardData } from "@/lib/api/dashboard";
 import type { DashboardData, DashboardActivity } from "@/lib/api/dashboard";
+import CursorGlow from "@/components/CursorGlow";
+import WaveformSpinner from "@/components/WaveformSpinner";
 
 function timeAgo(iso: string): string {
     const now = Date.now();
@@ -44,16 +46,6 @@ function activityIcon(type: DashboardActivity["type"]) {
         default:
             return "bg-zinc-500";
     }
-}
-
-function StatSkeleton() {
-    return (
-        <div className="rounded-xl border border-zinc-800 p-6 bg-zinc-900/50 animate-pulse">
-            <div className="w-5 h-5 rounded bg-zinc-800 mb-3" />
-            <div className="h-8 w-16 rounded bg-zinc-800 mb-1" />
-            <div className="h-4 w-20 rounded bg-zinc-800" />
-        </div>
-    );
 }
 
 function ActivitySkeleton() {
@@ -113,10 +105,20 @@ export default function DashboardPage() {
     const recentRepos = data?.recentRepos ?? [];
     const pendingInvitations = data?.pendingInvitations ?? 0;
 
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+                <WaveformSpinner size="lg" bars={7} label="Loading your dashboard..." />
+            </div>
+        );
+    }
+
     return (
-        <div className="mx-auto max-w-7xl px-6 py-12">
+        <div className="relative mx-auto max-w-7xl px-6 py-12">
+            <CursorGlow color="210, 60%, 78%" accent="190, 70%, 65%" radius={500} intensity={0.05} />
+
             {/* Welcome Header */}
-            <div className="mb-10">
+            <div className="mb-10 animate-fade-in-up">
                 <h1 className="mb-2 text-4xl font-bold tracking-tight">Dashboard</h1>
                 <p className="text-lg text-zinc-400">{greeting}</p>
             </div>
@@ -131,23 +133,15 @@ export default function DashboardPage() {
                 <div className="lg:col-span-2 space-y-6">
                     {/* Quick Stats */}
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        {loading ? (
-                            <>
-                                <StatSkeleton />
-                                <StatSkeleton />
-                                <StatSkeleton />
-                                <StatSkeleton />
-                            </>
-                        ) : (
-                            [
+                        {[
                                 { icon: FolderGit2, value: stats?.projectCount ?? 0, label: "Projects", color: "text-glass-blue-400" },
                                 { icon: GitBranch, value: stats?.totalCommits ?? 0, label: "Commits", color: "text-emerald-400" },
                                 { icon: Users, value: stats?.collaborationCount ?? 0, label: "Collaborations", color: "text-amber-400" },
                                 { icon: Star, value: stats?.totalStars ?? 0, label: "Stars Received", color: "text-yellow-400" },
-                            ].map((stat) => (
+                            ].map((stat, i) => (
                                 <div
                                     key={stat.label}
-                                    className="group rounded-xl border border-zinc-800 p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)]"
+                                    className={`glass-card group rounded-xl p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] animate-fade-in-up delay-${(i + 1) * 100}`}
                                 >
                                     <div className="flex items-center justify-between mb-3">
                                         <stat.icon className={`w-5 h-5 ${stat.color} opacity-70`} />
@@ -155,8 +149,7 @@ export default function DashboardPage() {
                                     <div className={`text-3xl font-bold ${stat.color}`}>{stat.value}</div>
                                     <div className="text-sm text-zinc-500 mt-1">{stat.label}</div>
                                 </div>
-                            ))
-                        )}
+                            ))}
                     </div>
 
                     {/* Pending Invitations Banner */}
@@ -174,7 +167,7 @@ export default function DashboardPage() {
                     )}
 
                     {/* Recent Activity Feed */}
-                    <div className="rounded-xl border border-zinc-800 p-6">
+                    <div className="glass-card rounded-xl p-6 animate-fade-in-up delay-300">
                         <h2 className="mb-5 text-xl font-semibold flex items-center gap-2">
                             <Music className="w-5 h-5 text-glass-blue-400 opacity-70" />
                             Recent Activity
@@ -219,7 +212,7 @@ export default function DashboardPage() {
 
                 {/* Sidebar */}
                 <div className="space-y-6">
-                    <div className="rounded-xl border border-zinc-800 p-6">
+                    <div className="glass-card rounded-xl p-6 animate-fade-in-up delay-200">
                         <h3 className="mb-4 text-lg font-semibold">Quick Actions</h3>
                         <div className="space-y-2">
                             {[
@@ -230,7 +223,7 @@ export default function DashboardPage() {
                                 <Link
                                     key={action.href}
                                     href={action.href}
-                                    className="flex items-center gap-3 rounded-lg border border-zinc-800 px-4 py-3 text-sm font-medium transition-all duration-300 hover:border-glass-blue-500/30 hover:bg-zinc-800/50 hover:text-glass-blue-400 group"
+                                    className="glass-btn flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium group"
                                 >
                                     <action.icon className="w-4 h-4 text-zinc-500 group-hover:text-glass-blue-400 transition-colors" />
                                     {action.label}
@@ -239,7 +232,7 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
-                    <div className="rounded-xl border border-zinc-800 p-6">
+                    <div className="glass-card rounded-xl p-6 animate-fade-in-up delay-300">
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-lg font-semibold">Your Projects</h3>
                             <Link
