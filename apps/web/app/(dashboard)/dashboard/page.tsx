@@ -12,6 +12,7 @@ import {
     Mail,
     Clock,
     Plus,
+    Star,
 } from "lucide-react";
 import { useUser } from "@/lib/context/UserContext";
 import { getDashboardData } from "@/lib/api/dashboard";
@@ -130,9 +131,10 @@ export default function DashboardPage() {
             <div className="grid gap-6 lg:grid-cols-3">
                 <div className="lg:col-span-2 space-y-6">
                     {/* Quick Stats */}
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         {loading ? (
                             <>
+                                <StatSkeleton />
                                 <StatSkeleton />
                                 <StatSkeleton />
                                 <StatSkeleton />
@@ -142,6 +144,7 @@ export default function DashboardPage() {
                                 { icon: FolderGit2, value: stats?.projectCount ?? 0, label: "Projects", color: "text-glass-blue-400" },
                                 { icon: GitBranch, value: stats?.totalCommits ?? 0, label: "Commits", color: "text-emerald-400" },
                                 { icon: Users, value: stats?.collaborationCount ?? 0, label: "Collaborations", color: "text-amber-400" },
+                                { icon: Star, value: stats?.totalStars ?? 0, label: "Stars Received", color: "text-yellow-400" },
                             ].map((stat) => (
                                 <div
                                     key={stat.label}

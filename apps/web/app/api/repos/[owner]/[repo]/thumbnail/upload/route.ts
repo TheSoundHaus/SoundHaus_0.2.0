@@ -24,15 +24,31 @@ export async function POST(
   const upstreamForm = new FormData();
   upstreamForm.append("file", file);
 
-  const res = await fetch(
-    `${API_BASE_URL}/repos/${owner}/${repo}/thumbnail/upload`,
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: upstreamForm,
-    },
-  );
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/repos/${owner}/${repo}/thumbnail/upload`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: upstreamForm,
+      },
+    );
 
-  const data = await res.json();
-  return NextResponse.json(data, { status: res.status });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: `Backend error (${res.status}): ${text.slice(0, 200)}` },
+        { status: res.status },
+      );
+    }
+    return NextResponse.json(data, { status: res.status });
+  } catch (e) {
+    return NextResponse.json(
+      { success: false, error: e instanceof Error ? e.message : "Upload failed" },
+      { status: 502 },
+    );
+  }
 }

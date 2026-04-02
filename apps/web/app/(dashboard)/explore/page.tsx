@@ -18,6 +18,14 @@ export default function ExplorePage() {
     const [repos, setRepos] = useState<PublicRepo[]>([]);
     const [reposLoading, setReposLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+
+    // Collect all unique genres from loaded repos for the filter pills
+    const allGenres = useMemo(() => {
+        const set = new Set<string>();
+        repos.forEach((r) => r.genres?.forEach((g) => set.add(g)));
+        return Array.from(set).sort();
+    }, [repos]);
 
     useEffect(() => {
         let cancelled = false;
@@ -39,6 +47,14 @@ export default function ExplorePage() {
 
     const filteredAndSortedRepos = useMemo(() => {
         let filtered = repos;
+
+        // Genre tag filter
+        if (selectedGenres.length > 0) {
+            filtered = filtered.filter((repo) =>
+                selectedGenres.every((g) => repo.genres?.includes(g))
+            );
+        }
+
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter((repo) => {
@@ -76,7 +92,7 @@ export default function ExplorePage() {
                 break;
         }
         return sorted;
-    }, [repos, sortBy, searchQuery]);
+    }, [repos, sortBy, searchQuery, selectedGenres]);
 
     const trendingRepos = useMemo(() => {
         return [...repos]
@@ -194,6 +210,40 @@ export default function ExplorePage() {
                                 </button>
                             ))}
                         </div>
+
+                        {/* Genre tag filters */}
+                        {allGenres.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {allGenres.map((genre) => {
+                                    const active = selectedGenres.includes(genre);
+                                    return (
+                                        <button
+                                            key={genre}
+                                            onClick={() =>
+                                                setSelectedGenres((prev) =>
+                                                    active ? prev.filter((g) => g !== genre) : [...prev, genre]
+                                                )
+                                            }
+                                            className={`rounded-full px-3 py-1 text-xs font-medium border transition-all duration-200 ${
+                                                active
+                                                    ? "border-glass-blue-500 bg-glass-blue-500/20 text-glass-blue-300"
+                                                    : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300"
+                                            }`}
+                                        >
+                                            {genre}
+                                        </button>
+                                    );
+                                })}
+                                {selectedGenres.length > 0 && (
+                                    <button
+                                        onClick={() => setSelectedGenres([])}
+                                        className="rounded-full px-3 py-1 text-xs font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
+                                    >
+                                        Clear filters
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Repository Cards */}

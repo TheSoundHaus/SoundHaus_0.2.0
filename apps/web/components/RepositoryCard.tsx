@@ -237,11 +237,22 @@ export default function RepositoryCard({
         </div>
       ) : (
         <div className="mb-4 pr-6">
-          <div className="flex items-center gap-2 rounded-xl bg-zinc-800 border border-zinc-700 px-3 py-2.5 text-zinc-500">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-700">
-              <Music size={14} />
+          <div className="relative h-32 overflow-hidden rounded-xl bg-gradient-to-br from-zinc-800 via-zinc-800/80 to-zinc-900 border border-zinc-700">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-zinc-600">
+              <Music size={20} className="opacity-40" />
             </div>
-            <span className="text-xs">No audio snippet</span>
+            <div className="absolute inset-x-4 bottom-3 flex items-end justify-center gap-[1px] opacity-20">
+              {Array.from({ length: 32 }).map((_, i) => {
+                const h = 15 + Math.sin(i * 0.4 + (stats?.stars ?? 0)) * 28 + Math.cos(i * 0.8) * 18;
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-t-sm bg-glass-blue-400"
+                    style={{ height: `${Math.max(h, 8)}%` }}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

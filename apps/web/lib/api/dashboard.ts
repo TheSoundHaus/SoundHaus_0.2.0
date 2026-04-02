@@ -17,6 +17,7 @@ export interface DashboardStats {
     projectCount: number;
     totalCommits: number;
     collaborationCount: number;
+    totalStars: number;
 }
 
 export interface DashboardActivity {
@@ -135,6 +136,11 @@ export async function getDashboardData(): Promise<{
         // Count collaborations
         const collaborationCount = repos.filter((r) => r.role === "collaborator").length;
 
+        // Sum stars across all owned repos
+        const totalStars = repos
+            .filter((r) => r.role === "owner")
+            .reduce((sum, r) => sum + (r.stars_count ?? 0), 0);
+
         // Build activity feed
         const activity = buildActivity(repos);
 
@@ -145,6 +151,7 @@ export async function getDashboardData(): Promise<{
                     projectCount: repos.length,
                     totalCommits,
                     collaborationCount,
+                    totalStars,
                 },
                 recentRepos,
                 activity,
