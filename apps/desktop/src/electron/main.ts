@@ -78,6 +78,7 @@ function createWindow() {
     backgroundColor: '#18181B',
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
+      webSecurity: false,
     },
   });
 

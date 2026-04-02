@@ -186,7 +186,7 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         
         const finalRepoName = projectInfo ? sanitizeName(projectInfo.name) : repoName;
         const finalDescription = projectInfo?.description || '';
-        const isPrivate = projectInfo?.isPublic === false;
+        const isPrivate = true;  // Always create repos as private — must be made public manually via web UI
         
         console.log('[init] Step 2: Creating remote repository...');
         console.log('[init] Repository name:', finalRepoName);

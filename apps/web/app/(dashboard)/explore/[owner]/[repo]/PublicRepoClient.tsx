@@ -217,10 +217,28 @@ export default function PublicRepoClient({
           onClick={() => setShowCloneModal(true)}
           onMouseEnter={() => setRemixHovered(true)}
           onMouseLeave={() => setRemixHovered(false)}
-          className="flex items-center gap-2 rounded-lg border border-glass-blue/30 bg-glass-blue/10 px-4 py-2.5 text-sm font-medium text-glass-blue transition-all hover:bg-glass-blue/20 hover:border-glass-blue/50 hover:shadow-[0_0_16px_rgba(167,199,231,0.15)]"
+          className="group relative flex items-center overflow-hidden rounded-lg border border-glass-blue/30 bg-glass-blue/10 px-5 py-2.5 text-sm font-medium text-glass-blue transition-all hover:bg-glass-blue/20 hover:border-glass-blue/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.18)]"
         >
-          <RemixIcon hovered={remixHovered} size={18} />
-          Remix
+          {/* Animated content — icon and text swap positions on hover */}
+          <span className="relative flex items-center gap-2">
+            {/* Icon: slides from left to center on hover */}
+            <span
+              className="inline-flex transition-transform duration-300 ease-out"
+              style={{ transform: remixHovered ? "translateX(18px)" : "translateX(0)" }}
+            >
+              <RemixIcon hovered={remixHovered} size={18} />
+            </span>
+            {/* Text: fades out and slides right on hover */}
+            <span
+              className="transition-all duration-300 ease-out"
+              style={{
+                opacity: remixHovered ? 0 : 1,
+                transform: remixHovered ? "translateX(8px)" : "translateX(0)",
+              }}
+            >
+              Remix
+            </span>
+          </span>
         </button>
       </div>
 

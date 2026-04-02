@@ -11,7 +11,6 @@ import {
     Settings,
     Mail,
     Clock,
-    Plus,
     Star,
 } from "lucide-react";
 import { useUser } from "@/lib/context/UserContext";
@@ -188,13 +187,7 @@ export default function DashboardPage() {
                             ) : activity.length === 0 ? (
                                 <div className="flex flex-col items-center gap-3 py-8 text-center">
                                     <Clock className="w-8 h-8 text-zinc-600" />
-                                    <p className="text-sm text-zinc-500">No activity yet. Create your first project!</p>
-                                    <Link
-                                        href="/repositories"
-                                        className="mt-1 inline-flex items-center gap-1.5 btn btn-primary rounded-lg px-4 py-2 text-sm font-medium"
-                                    >
-                                        <Plus className="w-4 h-4" /> New Project
-                                    </Link>
+                                    <p className="text-sm text-zinc-500">No activity yet. Push a project from the desktop app to get started!</p>
                                 </div>
                             ) : (
                                 activity.map((item, i) => (
