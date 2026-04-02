@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "SoundHaus desktop application for collaborative music production",
   "license": "UNLICENSED",
   "productName": "SoundHaus",
