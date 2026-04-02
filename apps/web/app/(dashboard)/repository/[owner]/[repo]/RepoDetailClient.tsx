@@ -168,7 +168,7 @@ export default function RepoDetailClient({
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
-  const ownerDisplayName = stats?.owner_username || owner;
+  const ownerDisplayName = stats?.owner_display_name || stats?.owner_username || owner;
 
   // Refresh timeline events from the server
   const refreshEvents = useCallback(async () => {
@@ -416,12 +416,20 @@ export default function RepoDetailClient({
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
-              <Lock size={14} /> Private
+              <User size={14} /> {ownerDisplayName}
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
-              <Download size={14} /> {cloneCount} remixes
+              <Lock size={14} /> {isPrivate ? "Private" : "Public"}
             </span>
+            {!isPrivate && (
+              <>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  <Download size={14} /> {cloneCount} remixes
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="flex gap-2">
@@ -584,6 +592,26 @@ export default function RepoDetailClient({
 
           {/* Sidebar */}
           <div className="space-y-8">
+            {/* Thumbnail */}
+            {stats?.thumbnail_url && (
+              <div className="rounded-lg border border-zinc-800 overflow-hidden">
+                {stats.thumbnail_type === "youtube" ? (
+                  <iframe
+                    src={stats.thumbnail_url.replace("watch?v=", "embed/")}
+                    className="w-full aspect-video"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <img
+                    src={stats.thumbnail_url}
+                    alt={`${repo} thumbnail`}
+                    className="w-full object-cover"
+                  />
+                )}
+              </div>
+            )}
+
             {/* Collaborators */}
             <div className="rounded-lg border border-zinc-800 p-6">
               <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
@@ -613,7 +641,8 @@ export default function RepoDetailClient({
               )}
             </div>
 
-            {/* Recent Remixes */}
+            {/* Recent Remixes — only shown on public repos */}
+            {!isPrivate && (
             <div className="rounded-lg border border-zinc-800 p-6">
               <h3 className="mb-4 text-lg font-semibold">Recent Remixes</h3>
               {stats && stats.recent_clones.length > 0 ? (
@@ -631,6 +660,7 @@ export default function RepoDetailClient({
                 <p className="text-sm text-zinc-400">No remixes yet.</p>
               )}
             </div>
+            )}
 
             {/* Project Info */}
             <div className="rounded-lg border border-zinc-800 p-6">
@@ -767,9 +797,17 @@ export default function RepoDetailClient({
                           </div>
                         </div>
                       )}
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 mt-0.5">
-                        <GitCommit size={15} />
-                      </div>
+                      {c.author_avatar_url ? (
+                        <img
+                          src={c.author_avatar_url}
+                          alt={c.author_name}
+                          className="h-9 w-9 shrink-0 rounded-full object-cover mt-0.5"
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 mt-0.5">
+                          <GitCommit size={15} />
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="mb-1 font-medium text-zinc-200 truncate">
                           {c.message.split("\n")[0]}

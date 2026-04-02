@@ -218,32 +218,32 @@ export default function PublicRepoClient({
           onMouseEnter={() => setRemixHovered(true)}
           onMouseLeave={() => setRemixHovered(false)}
           className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/35 active:scale-95"
-          style={{ minWidth: "110px" }}
+          style={{ minWidth: "140px" }}
         >
-          {/* Container for the animated swap */}
-          <span className="relative flex items-center" style={{ width: "68px", height: "20px" }}>
-            {/* Icon: starts at left, slides to center on hover */}
+          {/* Animated swap: [Download] Remix  →  Remix [Crossfade] */}
+          <span className="relative flex items-center" style={{ width: "100px", height: "20px" }}>
+            {/* Download/Crossfade icon: starts LEFT, moves RIGHT on hover */}
             <span
               className="absolute inline-flex"
               style={{
                 left: 0,
-                transform: remixHovered ? "translateX(25px)" : "translateX(0)",
+                transform: remixHovered ? "translateX(82px)" : "translateX(0)",
                 transition: remixHovered
-                  ? "transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1)"
-                  : "transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+                  ? "transform 450ms cubic-bezier(0.22, 1.2, 0.36, 1)"
+                  : "transform 400ms cubic-bezier(0.22, 1.2, 0.36, 1)",
               }}
             >
               <RemixIcon hovered={remixHovered} size={18} />
             </span>
-            {/* Text: starts at right, slides further right and fades on hover */}
+            {/* "Remix" text: starts RIGHT, moves LEFT on hover */}
             <span
-              className="absolute right-0 whitespace-nowrap"
+              className="absolute whitespace-nowrap"
               style={{
-                opacity: remixHovered ? 0 : 1,
-                transform: remixHovered ? "translateX(12px)" : "translateX(0)",
+                right: 0,
+                transform: remixHovered ? "translateX(-76px)" : "translateX(0)",
                 transition: remixHovered
-                  ? "opacity 200ms ease-in, transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1)"
-                  : "opacity 250ms ease-out 100ms, transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1) 50ms",
+                  ? "transform 450ms cubic-bezier(0.22, 1.2, 0.36, 1)"
+                  : "transform 400ms cubic-bezier(0.22, 1.2, 0.36, 1)",
               }}
             >
               Remix
@@ -538,9 +538,17 @@ export default function PublicRepoClient({
                       }
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800">
-                          <GitCommit size={14} className="text-zinc-400" />
-                        </div>
+                        {c.author_avatar_url ? (
+                          <img
+                            src={c.author_avatar_url}
+                            alt={c.author_name}
+                            className="h-8 w-8 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-800">
+                            <GitCommit size={14} className="text-zinc-400" />
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{c.message}</div>
                           <div className="text-xs text-zinc-400">

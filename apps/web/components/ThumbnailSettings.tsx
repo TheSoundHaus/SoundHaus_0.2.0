@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { Image, Youtube, Upload, Trash2, Eye } from "lucide-react";
 import { setThumbnailUrl, deleteThumbnail } from "@/lib/api/repos";
+import ImageCropper from "@/components/ImageCropper";
 
 interface ThumbnailSettingsProps {
   owner: string;
@@ -31,6 +32,7 @@ export default function ThumbnailSettings({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleImageUpload(file: File) {
@@ -139,7 +141,19 @@ export default function ThumbnailSettings({
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) handleImageUpload(f);
+              if (f) {
+                if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(f.type)) {
+                  setError("Only JPEG, PNG, WebP, or GIF images allowed.");
+                  return;
+                }
+                if (f.size > 5 * 1024 * 1024) {
+                  setError("Image must be under 5 MB.");
+                  return;
+                }
+                const url = URL.createObjectURL(f);
+                setCropSrc(url);
+                if (fileRef.current) fileRef.current.value = "";
+              }
             }}
           />
           <button
@@ -231,6 +245,21 @@ export default function ThumbnailSettings({
             <p className="text-xs text-zinc-500">by {owner}</p>
           </div>
         </div>
+      )}
+
+      {/* Image Cropper Modal */}
+      {cropSrc && (
+        <ImageCropper
+          src={cropSrc}
+          aspectRatio={16 / 9}
+          onCrop={async (blob) => {
+            setCropSrc(null);
+            const file = new File([blob], "thumbnail.jpg", { type: "image/jpeg" });
+            await handleImageUpload(file);
+          }}
+          onCancel={() => setCropSrc(null)}
+          cropLabel="Save Thumbnail"
+        />
       )}
     </div>
   );

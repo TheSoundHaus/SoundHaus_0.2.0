@@ -5,9 +5,10 @@ import { logout, requestPasswordResetAction } from "@/actions/auth";
 import { getSentInvitations } from "@/lib/api/invitations";
 import { getUserStats } from "@/lib/api/profile";
 import { cancelInvitationAction } from "@/actions/invitations";
-import { updateProfileAction, uploadAvatarAction, deleteAvatarAction } from "@/actions/profile";
+import { updateProfileAction } from "@/actions/profile";
 import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "@/components/UserAvatar";
+import ImageCropper from "@/components/ImageCropper";
 import type { SentInvitation } from "@/lib/types/api";
 import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail } from "lucide-react";
 
@@ -23,6 +24,7 @@ export default function SettingsPage() {
   const [profileMessage, setProfileMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [sentInvitations, setSentInvitations] = useState<SentInvitation[]>([]);
@@ -126,32 +128,52 @@ export default function SettingsPage() {
       return;
     }
 
+    // Open the cropper with a preview URL
+    const url = URL.createObjectURL(file);
+    setCropSrc(url);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleCroppedUpload = async (blob: Blob) => {
+    setCropSrc(null);
     setAvatarUploading(true);
     setProfileMessage(null);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", new File([blob], "avatar.jpg", { type: "image/jpeg" }));
 
-    const result = await uploadAvatarAction(formData);
-    if (result.success) {
-      setProfileMessage({ type: "success", text: "Avatar updated!" });
-      await refreshUser();
-    } else {
-      setProfileMessage({ type: "error", text: result.error });
+    try {
+      const res = await fetch("/api/profile/avatar", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.avatar_url) {
+        setProfileMessage({ type: "success", text: "Avatar updated!" });
+        await refreshUser();
+      } else {
+        setProfileMessage({ type: "error", text: data.error || data.detail || "Upload failed" });
+      }
+    } catch (e) {
+      setProfileMessage({ type: "error", text: e instanceof Error ? e.message : "Upload failed" });
     }
     setAvatarUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleAvatarDelete = async () => {
     setAvatarUploading(true);
     setProfileMessage(null);
-    const result = await deleteAvatarAction();
-    if (result.success) {
-      setProfileMessage({ type: "success", text: "Avatar removed." });
-      await refreshUser();
-    } else {
-      setProfileMessage({ type: "error", text: result.error });
+    try {
+      const res = await fetch("/api/profile/avatar", { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok) {
+        setProfileMessage({ type: "success", text: "Avatar removed." });
+        await refreshUser();
+      } else {
+        setProfileMessage({ type: "error", text: data.error || data.detail || "Delete failed" });
+      }
+    } catch (e) {
+      setProfileMessage({ type: "error", text: e instanceof Error ? e.message : "Delete failed" });
     }
     setAvatarUploading(false);
   };
@@ -717,6 +739,16 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      )}
+      {/* Image Cropper Modal */}
+      {cropSrc && (
+        <ImageCropper
+          src={cropSrc}
+          aspectRatio={1}
+          onCrop={handleCroppedUpload}
+          onCancel={() => setCropSrc(null)}
+          cropLabel="Save Avatar"
+        />
       )}
       </main>
   );

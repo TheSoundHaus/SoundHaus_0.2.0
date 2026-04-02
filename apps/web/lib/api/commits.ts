@@ -18,6 +18,7 @@ export interface CommitSummary {
     message: string;
     author_name: string;
     author_email: string | null;
+    author_avatar_url: string | null;
     timestamp: string | null;
     files_added: string[];
     files_modified: string[];

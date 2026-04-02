@@ -12,6 +12,7 @@ from logging_config import get_logger
 from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
 from models.repo_models import RepoData
+from models.profile_models import Profile
 
 logger = get_logger(__name__)
 
@@ -61,16 +62,31 @@ async def get_commit_list(
         )
         diff_shas = {row[0] for row in diff_rows}
 
+    # Batch-fetch author profiles by email for avatar + display name
+    author_emails = list({c.author_email for c in commits if c.author_email})
+    author_names = list({c.author_name for c in commits if c.author_name})
+    profile_by_email: dict = {}
+    profile_by_name: dict = {}
+    if author_emails:
+        profiles = db.query(Profile).filter(Profile.email.in_(author_emails)).all()
+        profile_by_email = {p.email: p for p in profiles}
+    if author_names:
+        profiles2 = db.query(Profile).filter(Profile.display_name.in_(author_names)).all()
+        profile_by_name = {p.display_name: p for p in profiles2 if p.display_name}
+
     # Serialize
     commits_out = []
     for c in commits:
+        # Resolve author profile: try email first, then display_name match
+        author_profile = profile_by_email.get(c.author_email) or profile_by_name.get(c.author_name)
         commits_out.append({
             "id": c.id,
             "sha": c.sha,
             "short_sha": c.short_sha,
             "message": c.message,
-            "author_name": c.author_name,
+            "author_name": author_profile.display_name if author_profile and author_profile.display_name else c.author_name,
             "author_email": c.author_email,
+            "author_avatar_url": author_profile.avatar_url if author_profile else None,
             "timestamp": c.timestamp.isoformat() if c.timestamp else None,
             "files_added": c.files_added or [],
             "files_modified": c.files_modified or [],
