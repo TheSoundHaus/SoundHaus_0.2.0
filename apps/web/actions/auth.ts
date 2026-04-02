@@ -5,7 +5,7 @@ import { SignupFormSchema, LoginFormSchema, type FormState, type LoginFormState 
 import { redirect } from "next/navigation";
 import { setAuthCookies, getAccessToken, clearAuthCookies } from "@/lib/utils/auth";
 
-const API_BASE_URL = process.env.API_URL || "http://129.212.182.247:8000";
+const API_BASE_URL = process.env.API_URL || "http://localhost:8000";
 
 export async function signup(
   _state: FormState,

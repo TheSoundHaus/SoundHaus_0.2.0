@@ -6,7 +6,7 @@
  * this uses browser fetch which automatically includes cookies
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://129.212.182.247:8000'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 /**
  * Make authenticated API request to FastAPI backend (CLIENT-SIDE)

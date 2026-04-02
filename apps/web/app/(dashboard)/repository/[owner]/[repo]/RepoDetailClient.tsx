@@ -44,7 +44,7 @@ import CloneModal from "@/components/CloneModal";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { getReadme, updateReadme } from "@/lib/api/readme";
-import { deleteRepoAction, renameRepoAction } from "@/actions/repos";
+import { deleteRepoAction, renameRepoAction, updateVisibilityAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
@@ -146,6 +146,7 @@ export default function RepoDetailClient({
   // Settings form state
   const [newName, setNewName] = useState(repo);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [isPrivate, setIsPrivate] = useState(stats?.private ?? true);
 
   // Commits state — deduplicate by SHA on init to guard against backend duplicates
   const [commits, setCommits] = useState<CommitSummary[]>(() => {
@@ -1380,6 +1381,49 @@ export default function RepoDetailClient({
               initialUrl={stats?.thumbnail_url ?? null}
               initialType={stats?.thumbnail_type ?? null}
             />
+
+            {/* 2.6. Visibility Toggle */}
+            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                <Lock size={14} /> Visibility
+              </h3>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-zinc-200">
+                    {isPrivate ? "Private" : "Public"} project
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {isPrivate
+                      ? "Only you and collaborators can see this project."
+                      : "Anyone can discover this project on the Explore page."}
+                  </p>
+                </div>
+                <button
+                  disabled={isPending}
+                  onClick={() => {
+                    const newPrivate = !isPrivate;
+                    startTransition(async () => {
+                      setSettingsError(null);
+                      const result = await updateVisibilityAction(owner, repo, newPrivate);
+                      if (result.success) {
+                        setIsPrivate(newPrivate);
+                      } else {
+                        setSettingsError(result.error);
+                      }
+                    });
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    isPrivate ? "bg-zinc-600" : "bg-glass-blue-500"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                      isPrivate ? "translate-x-1" : "translate-x-6"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
 
             {/* 3. README / About Editor */}
             <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">

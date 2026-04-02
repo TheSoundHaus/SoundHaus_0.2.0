@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { Image, Youtube, Upload, Trash2, Eye } from "lucide-react";
-import { uploadThumbnail, setThumbnailUrl, deleteThumbnail } from "@/lib/api/repos";
+import { setThumbnailUrl, deleteThumbnail } from "@/lib/api/repos";
 
 interface ThumbnailSettingsProps {
   owner: string;
@@ -36,14 +36,25 @@ export default function ThumbnailSettings({
   async function handleImageUpload(file: File) {
     setSaving(true);
     setError(null);
-    const res = await uploadThumbnail(owner, repo, file);
-    setSaving(false);
-    if (res.success && res.data) {
-      setThumbUrl(res.data.thumbnail_url);
-      setThumbType("image");
-    } else if (!res.success) {
-      setError(res.error ?? "Upload failed");
+    try {
+      // Use the API route directly from the client (File can't cross Server Action boundary)
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/repos/${owner}/${repo}/thumbnail/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok && data.thumbnail_url) {
+        setThumbUrl(data.thumbnail_url);
+        setThumbType("image");
+      } else {
+        setError(data.detail || data.error || "Upload failed");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
     }
+    setSaving(false);
   }
 
   async function handleYoutubeSave() {

@@ -71,7 +71,7 @@ async function tryRefreshToken(): Promise<string | null> {
   const refreshToken = await getRefreshToken()
   if (!refreshToken) return null
 
-  const API_BASE_URL = process.env.API_URL || 'http://129.212.182.247:8000'
+  const API_BASE_URL = process.env.API_URL || 'http://localhost:8000'
   try {
     const res = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
       method: 'POST',
@@ -104,7 +104,7 @@ export async function authenticatedFetch(
   options: RequestInit = {}
 ): Promise<Response> {
   let token = await getAccessToken()
-  const API_BASE_URL = process.env.API_URL || 'http://129.212.182.247:8000'
+  const API_BASE_URL = process.env.API_URL || 'http://localhost:8000'
 
   // If no access token try to refresh before sending the request
   if (!token) {

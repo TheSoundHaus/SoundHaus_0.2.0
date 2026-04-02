@@ -74,7 +74,7 @@ export async function deleteAvatar(): Promise<ApiResponse<null>> {
 // ─── GET /api/auth/profile/{username}/public ────────────────────────────────
 
 export async function getPublicProfile(username: string): Promise<ApiResponse<PublicProfile>> {
-    const baseUrl = process.env.API_URL || "http://129.212.182.247:8000";
+    const baseUrl = process.env.API_URL || "http://localhost:8000";
     try {
         const res = await fetch(`${baseUrl}/api/auth/profile/${encodeURIComponent(username)}/public`, {
             cache: "no-store",
@@ -116,7 +116,7 @@ export async function getUserStats(): Promise<ApiResponse<UserStats>> {
 // ─── GET /api/repos/user/{username} ─────────────────────────────────────────
 
 export async function getUserPublicRepos(username: string): Promise<ApiResponse<PublicRepo[]>> {
-    const baseUrl = process.env.API_URL || "http://129.212.182.247:8000";
+    const baseUrl = process.env.API_URL || "http://localhost:8000";
     try {
         const res = await fetch(`${baseUrl}/api/repos/user/${encodeURIComponent(username)}`, {
             cache: "no-store",

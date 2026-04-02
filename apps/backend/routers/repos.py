@@ -353,7 +353,10 @@ async def get_public_repos(
     match: str = "any",
     db: Session = Depends(get_db),
 ):
-    """Get all publicly published repos with audio snippets (Explore page)."""
+    """Get all publicly published repos with audio snippets (Explore page).
+    
+    Only repos whose Gitea visibility is public are returned.
+    """
     genre_names = []
     if genres is not None:
         genre_names = [g.strip() for g in genres.split(",")]
@@ -387,7 +390,14 @@ async def get_public_repos(
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
             fields = profile_map.get(owner, _owner_profile_fields(None, owner))
-            gitea_data = svc.get_repo_contents(owner, repo_name)
+
+            # Check Gitea visibility — skip private repos
+            gitea_info = svc.get_repo(owner, repo_name)
+            if not gitea_info.get("success"):
+                continue
+            gitea_repo = gitea_info.get("repo", {})
+            if gitea_repo.get("private", True):
+                continue
 
             repo_info = {
                 "gitea_id": repo.gitea_id,
@@ -408,37 +418,14 @@ async def get_public_repos(
                 "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
                 "thumbnail_url": repo.thumbnail_url,
                 "thumbnail_type": repo.thumbnail_type,
+                "description": gitea_repo.get("description", ""),
+                "stars": gitea_repo.get("stars_count", 0),
+                "updated_at": gitea_repo.get("updated_at", ""),
             }
-
-            if gitea_data.get("success"):
-                contents = gitea_data.get("contents", {})
-                if isinstance(contents, list) and len(contents) > 0:
-                    repo_info["description"] = contents[0].get("repository", {}).get("description", "")
-                    repo_info["stars"] = contents[0].get("repository", {}).get("stars_count", 0)
-                    repo_info["updated_at"] = contents[0].get("repository", {}).get("updated_at", "")
 
             result.append(repo_info)
         except Exception as e:
             logger.warning("get_public_repos", gitea_id=repo.gitea_id, error=str(e))
-            owner_id = repo.gitea_id.split("/", 1)[0] if "/" in repo.gitea_id else repo.gitea_id
-            fb = profile_map.get(owner_id, _owner_profile_fields(None, owner_id))
-            result.append({
-                "gitea_id": repo.gitea_id,
-                "owner": owner_id,
-                "owner_username": fb["owner_username"],
-                "owner_display_name": fb["owner_display_name"],
-                "clone_count": repo.clone_count,
-                "audio_snippet": repo.audio_snippet,
-                "snippet_metadata": {
-                    "duration": repo.snippet_duration,
-                    "file_size": repo.snippet_file_size,
-                    "format": repo.snippet_format,
-                    "sample_rate": repo.snippet_sample_rate,
-                    "channels": repo.snippet_channels,
-                } if repo.audio_snippet else None,
-                "genres": [g.genre_name for g in repo.genres],
-                "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
-            })
 
     return {"success": True, "repos": result}
 
