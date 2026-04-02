@@ -143,7 +143,20 @@ const ProjectPage = () => {
             alert(`Push failed:\n${error}`)
         }
     }
-
+    const handleOpenInAbleton = async () => {
+        if(!selectedProject) return
+        setOpeningAbleton(true)
+        try {
+            const result = await (window as any).electron.openAlsFile(selectedProject)
+            if (!result.ok) {
+                alert(`Failed to open project in Ableton:\n${result.error}`)
+            }
+        } catch(error) {
+            alert(`Error opening file:\n${error}`)
+        } finally {
+            setOpeningAbleton(false)
+        }
+    }
     useEffect(() => {
         handleRefreshChanges()
     }, [handleRefreshChanges])
