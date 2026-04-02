@@ -2,7 +2,7 @@ name: Build Desktop App
 
 on:
   push:
-    branches: [main]
+    branches: [SCRUM-98_GitHub-Release-Pipeline]
   workflow_dispatch:
 
 jobs:
