@@ -217,23 +217,33 @@ export default function PublicRepoClient({
           onClick={() => setShowCloneModal(true)}
           onMouseEnter={() => setRemixHovered(true)}
           onMouseLeave={() => setRemixHovered(false)}
-          className="group relative flex items-center overflow-hidden rounded-lg border border-glass-blue/30 bg-glass-blue/10 px-5 py-2.5 text-sm font-medium text-glass-blue transition-all hover:bg-glass-blue/20 hover:border-glass-blue/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.18)]"
+          className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/35 active:scale-95"
+          style={{ minWidth: "110px" }}
         >
-          {/* Animated content — icon and text swap positions on hover */}
-          <span className="relative flex items-center gap-2">
-            {/* Icon: slides from left to center on hover */}
+          {/* Container for the animated swap */}
+          <span className="relative flex items-center" style={{ width: "68px", height: "20px" }}>
+            {/* Icon: starts at left, slides to center on hover */}
             <span
-              className="inline-flex transition-transform duration-300 ease-out"
-              style={{ transform: remixHovered ? "translateX(18px)" : "translateX(0)" }}
+              className="absolute inline-flex"
+              style={{
+                left: 0,
+                transform: remixHovered ? "translateX(25px)" : "translateX(0)",
+                transition: remixHovered
+                  ? "transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1)"
+                  : "transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+              }}
             >
               <RemixIcon hovered={remixHovered} size={18} />
             </span>
-            {/* Text: fades out and slides right on hover */}
+            {/* Text: starts at right, slides further right and fades on hover */}
             <span
-              className="transition-all duration-300 ease-out"
+              className="absolute right-0 whitespace-nowrap"
               style={{
                 opacity: remixHovered ? 0 : 1,
-                transform: remixHovered ? "translateX(8px)" : "translateX(0)",
+                transform: remixHovered ? "translateX(12px)" : "translateX(0)",
+                transition: remixHovered
+                  ? "opacity 200ms ease-in, transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1)"
+                  : "opacity 250ms ease-out 100ms, transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1) 50ms",
               }}
             >
               Remix

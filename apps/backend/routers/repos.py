@@ -949,13 +949,14 @@ async def upload_thumbnail_image(
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    # Upload to Supabase Storage in the same bucket as snippets
+    # Upload to Supabase Storage in a dedicated thumbnails bucket
     from pathlib import Path
     ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
     storage_path = f"{owner}/{repo}/thumbnail{ext}"
 
+    from services.snippet_service import snippet_service
     supabase = snippet_service.supabase
-    bucket = snippet_service.bucket_name
+    bucket = "thumbnails"
 
     supabase.storage.from_(bucket).upload(
         path=storage_path,
