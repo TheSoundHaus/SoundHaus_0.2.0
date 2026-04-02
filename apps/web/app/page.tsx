@@ -269,7 +269,7 @@ function WaveformDivider({ flip = false }: { flip?: boolean }) {
                         "
                     />
                 </path>
-                {/* Second animated stroke — offset timing for layered feel */}
+                {/* Second animated stroke - offset timing for layered feel */}
                 <path fill="none" stroke="rgba(167, 199, 231, 0.04)" strokeWidth="1">
                     <animate
                         attributeName="d"
@@ -308,7 +308,7 @@ function AudioSpectrumDivider() {
                     </linearGradient>
                 </defs>
 
-                {/* EQ bars — each with unique timing via CSS offset */}
+                {/* EQ bars - each with unique timing via CSS offset */}
                 {Array.from({ length: barCount }, (_, i) => {
                     const x = i * barWidth + barWidth * 0.15;
                     const width = barWidth * 0.7;
@@ -451,7 +451,7 @@ const DEMO_SLIDES = [
         title: "Visual Diff Engine",
         subtitle: "Note-level precision",
         description:
-            "Our proprietary diff engine renders every MIDI change on an Ableton-style piano roll, so you can see precisely what your collaborator modified — note by note.",
+            "Our proprietary diff engine renders every MIDI change on an Ableton-style piano roll, so you can see precisely what your collaborator modified, note by note.",
         render: () => (
             <div className="rounded-xl bg-zinc-900/80 p-5 md:p-6 min-h-[300px] flex flex-col gap-3">
                 <div className="flex items-center gap-3 mb-1">
@@ -460,7 +460,7 @@ const DEMO_SLIDES = [
                         <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
                         <div className="w-3 h-3 rounded-full bg-green-500/80" />
                     </div>
-                    <span className="text-xs text-zinc-500 font-mono">my-beat.als — commit a3f2c1d</span>
+                    <span className="text-xs text-zinc-500 font-mono">my-beat.als: commit a3f2c1d</span>
                 </div>
                 {[
                     { name: "Drums", color: "#FF7C00", notes: [2, 6, 10, 14, 18, 22, 26, 30], type: "unchanged" as const },
@@ -847,7 +847,7 @@ const FEATURES = [
         icon: BarChart3,
         title: "Visual Diff Engine",
         description:
-            "See exactly what changed between versions — note-by-note on an Ableton-style piano roll. No more guessing.",
+            "See exactly what changed between versions, note by note on an Ableton-style piano roll. No more guessing.",
     },
 ];
 
@@ -918,7 +918,7 @@ export default function LandingPage() {
                     </h1>
                     <p className="mx-auto mb-12 max-w-lg text-base md:text-lg text-zinc-500 leading-relaxed font-light">
                         Seamless collaboration for Ableton projects.
-                        Version, diff, and remix — see every note that changed.
+                        Version, diff, and remix to see every note that changed.
                     </p>
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                         <a
@@ -1046,11 +1046,11 @@ export default function LandingPage() {
                         </p>
                     </FadeInSection>
 
-                    {/* Philosophy cards — text with animated decorative accents */}
+                    {/* Philosophy cards - text with animated decorative accents */}
                     <div className="space-y-6">
                         <FadeInSection delay={100} variant="left">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                                {/* Decorative — mixing console faders */}
+                                {/* Decorative - mixing console faders */}
                                 <div className="absolute -right-10 -top-10 w-72 h-72 pointer-events-none opacity-[0.05]">
                                     <svg viewBox="0 0 240 240" fill="none">
                                         {[40, 80, 120, 160, 200].map((x, i) => (
@@ -1069,7 +1069,7 @@ export default function LandingPage() {
                                     </svg>
                                 </div>
                                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
-                                    {/* Custom icon — headphones with waveform */}
+                                    {/* Custom icon - headphones with waveform */}
                                     <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
                                         <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
                                             <path d="M3 18V12a9 9 0 0118 0v6" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
@@ -1081,8 +1081,8 @@ export default function LandingPage() {
                                     <div>
                                         <h3 className="text-2xl font-bold text-white mb-4">Real people, real music</h3>
                                         <p className="text-base text-zinc-400 leading-relaxed font-light max-w-2xl">
-                                            We believe the best music comes from real people — producers, engineers, and
-                                            artists — working together, sharing ideas, and pushing each other creatively.
+                                            We believe the best music comes from real people. From producers and engineers
+                                            to artists working together, sharing ideas, and pushing each other creatively.
                                             Our platform is built to amplify human talent, not replace it.
                                         </p>
                                     </div>
@@ -1092,7 +1092,7 @@ export default function LandingPage() {
 
                         <FadeInSection delay={200} variant="right">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                                {/* Decorative — spectrum analyzer bars */}
+                                {/* Decorative - spectrum analyzer bars */}
                                 <div className="absolute -left-6 top-1/2 -translate-y-1/2 w-64 h-64 pointer-events-none opacity-[0.05]">
                                     <svg viewBox="0 0 200 200" fill="none">
                                         {Array.from({ length: 12 }, (_, i) => {
@@ -1120,7 +1120,7 @@ export default function LandingPage() {
                                     </svg>
                                 </div>
                                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
-                                    {/* Custom icon — waveform with magnifying glass */}
+                                    {/* Custom icon - waveform with magnifying glass */}
                                     <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
                                         <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
                                             <circle cx="10" cy="10" r="6" stroke="rgba(167,199,231,1)" strokeWidth="1.5" />
@@ -1131,9 +1131,9 @@ export default function LandingPage() {
                                     <div>
                                         <h3 className="text-2xl font-bold text-white mb-4">Transparent by design</h3>
                                         <p className="text-base text-zinc-400 leading-relaxed font-light max-w-2xl">
-                                            Every feature in SoundHaus — from version control to visual diffs to stem
-                                            separation — exists to make collaboration between real musicians easier and
-                                            more transparent. We give you the tools to iterate on your own ideas, hear exactly
+                                            Every feature in SoundHaus is built to make collaboration between real musicians easier and
+                                            more transparent. Whether you are using version control, visual diffs, or stem
+                                            separation, we give you the tools to iterate on your own ideas, hear exactly
                                             what your collaborator changed, and build something genuinely yours.
                                         </p>
                                     </div>
@@ -1143,7 +1143,7 @@ export default function LandingPage() {
 
                         <FadeInSection delay={300} variant="left">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
-                                {/* Decorative — soundwave fingerprint */}
+                                {/* Decorative - soundwave fingerprint */}
                                 <div className="absolute -right-12 -bottom-12 w-64 h-64 pointer-events-none opacity-[0.05]">
                                     <svg viewBox="0 0 200 200" fill="none">
                                         {[30, 50, 70, 90, 110, 130, 170].map((r, i) => (
@@ -1166,7 +1166,7 @@ export default function LandingPage() {
                                     </svg>
                                 </div>
                                 <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start">
-                                    {/* Custom icon — fingerprint made of sound waves */}
+                                    {/* Custom icon - fingerprint made of sound waves */}
                                     <div className="w-12 h-12 shrink-0 rounded-xl bg-glass-blue-400/10 flex items-center justify-center">
                                         <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
                                             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10" stroke="rgba(167,199,231,0.3)" strokeWidth="1" strokeLinecap="round" />
@@ -1179,10 +1179,10 @@ export default function LandingPage() {
                                     <div>
                                         <h3 className="text-2xl font-bold text-white mb-4">Unmistakably human</h3>
                                         <p className="text-base text-zinc-400 leading-relaxed font-light max-w-2xl">
-                                            SoundHaus is where authenticity matters. Where credit is tracked in the commit
-                                            history, not lost in a chain of anonymous exports. Where a drummer in Berlin and
+                                            SoundHaus is where authenticity matters. When credit is tracked in the commit
+                                            history instead of being lost in a chain of anonymous exports, a drummer in Berlin and
                                             a vocalist in LA can trade stems across time zones without losing context.
-                                            The future of music is collaborative — and it should be unmistakably human.
+                                            The future of music is collaborative, and it should be unmistakably human.
                                         </p>
                                     </div>
                                 </div>
@@ -1203,7 +1203,7 @@ export default function LandingPage() {
                             See SoundHaus in action
                         </h2>
                         <p className="text-zinc-500 text-base max-w-lg mx-auto font-light">
-                            From visual diffs to collaborative discovery — explore the tools
+                            From visual diffs to collaborative discovery, explore the tools
                             that make music production seamless.
                         </p>
                     </FadeInSection>
@@ -1278,11 +1278,11 @@ export default function LandingPage() {
                                         Download the Desktop App
                                     </h3>
                                     <p className="text-zinc-500 text-sm leading-relaxed mb-8">
-                                        Manage your Ableton projects locally. Sync, version, and collaborate — all from a native desktop app. No terminal required.
+                                        Manage your Ableton projects locally. Sync, version, and collaborate all from a native desktop app without using a terminal.
                                     </p>
 
                                     <div className="space-y-3 mb-8">
-                                        {/* macOS — transparent gray with real Apple logo */}
+                                        {/* macOS - transparent gray with real Apple logo */}
                                         <a
                                             href="/downloads/SoundHaus-latest.dmg"
                                             className="flex items-center justify-center gap-3 w-full rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] text-white font-medium py-3.5 px-6 transition-all duration-300 no-underline backdrop-blur-sm"
@@ -1290,7 +1290,7 @@ export default function LandingPage() {
                                             <AppleLogo className="w-5 h-5" />
                                             Download for macOS
                                         </a>
-                                        {/* Windows — same transparent gray */}
+                                        {/* Windows - same transparent gray */}
                                         <a
                                             href="/downloads/SoundHaus-latest.exe"
                                             className="flex items-center justify-center gap-3 w-full rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] text-white font-medium py-3.5 px-6 transition-all duration-300 no-underline backdrop-blur-sm"
