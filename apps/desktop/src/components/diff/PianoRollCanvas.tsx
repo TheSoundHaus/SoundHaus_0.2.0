@@ -41,7 +41,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
     }, [tracks]);
 
     if (!hasAnyNotes) {
-        return <p style={{ color: '#888' }}>No MIDI note changes in this commit.</p>;
+        return <p style={{ color: 'rgba(160,160,160,0.6)' }}>No MIDI note changes in this commit.</p>;
     }
 
     const formatPitchName = (pitch: number) => {
@@ -141,13 +141,14 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                     type="button"
                     onClick={() => setAllTracksExpanded(true)}
                     style={{
-                        border: '1px solid #d0d7e2',
-                        background: '#fff',
-                        color: '#334',
+                        border: '1px solid rgba(167,199,231,0.2)',
+                        background: 'rgba(167,199,231,0.08)',
+                        color: '#A7C7E7',
                         borderRadius: 6,
                         padding: '4px 10px',
                         fontSize: 12,
                         cursor: 'pointer',
+                        transition: 'background 200ms ease',
                     }}
                 >
                     Open all
@@ -156,13 +157,14 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                     type="button"
                     onClick={() => setAllTracksExpanded(false)}
                     style={{
-                        border: '1px solid #d0d7e2',
-                        background: '#fff',
-                        color: '#334',
+                        border: '1px solid rgba(167,199,231,0.2)',
+                        background: 'rgba(167,199,231,0.08)',
+                        color: '#A7C7E7',
                         borderRadius: 6,
                         padding: '4px 10px',
                         fontSize: 12,
                         cursor: 'pointer',
+                        transition: 'background 200ms ease',
                     }}
                 >
                     Collapse all
@@ -255,7 +257,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                 };
 
                 return (
-                    <div key={`${track.trackId}-${trackIndex}`} style={{ border: '1px solid #e6e6e6', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                    <div key={`${track.trackId}-${trackIndex}`} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden', background: 'rgba(20,20,20,0.55)', backdropFilter: 'blur(16px)' }}>
                         <button
                             type="button"
                             onClick={() => toggleTrackExpanded(track.trackId)}
@@ -263,8 +265,8 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                             style={{
                                 width: '100%',
                                 border: 'none',
-                                background: '#fafafa',
-                                borderBottom: isExpanded ? '1px solid #eee' : 'none',
+                                background: 'rgba(255,255,255,0.025)',
+                                borderBottom: isExpanded ? '1px solid rgba(255,255,255,0.06)' : 'none',
                                 padding: '8px 12px',
                                 display: 'flex',
                                 justifyContent: 'space-between',
@@ -272,20 +274,21 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                 gap: 12,
                                 cursor: 'pointer',
                                 textAlign: 'left',
+                                transition: 'background 200ms ease',
                             }}
                         >
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ color: '#556', fontSize: 12 }}>{isExpanded ? '▾' : '▸'}</span>
-                                <strong style={{ fontSize: 13 }}>{track.trackName || 'Unnamed Track'}</strong>
+                                <span style={{ color: 'rgba(167,199,231,0.5)', fontSize: 12 }}>{isExpanded ? '▾' : '▸'}</span>
+                                <strong style={{ fontSize: 13, color: '#F0F0F0' }}>{track.trackName || 'Unnamed Track'}</strong>
                             </span>
-                            <span style={{ fontSize: 11, color: '#667' }}>
+                            <span style={{ fontSize: 11, color: 'rgba(160,160,160,0.6)' }}>
                                 +{track.added.length} / -{track.removed.length} / ~{track.adjusted.length}
                             </span>
                         </button>
 
                         {isExpanded ? (
                         <div style={{ overflowX: 'auto', overflowY: 'hidden' }}>
-                            <svg width={rollWidth} height={ROLL_HEIGHT} style={{ display: 'block', background: '#fff' }}>
+                            <svg width={rollWidth} height={ROLL_HEIGHT} style={{ display: 'block', background: '#111' }}>
                                 {Array.from({ length: Math.min(24, pitchRange) }).map((_, i) => {
                                     const pitch = minPitch + i;
                                     const y = yForPitch(pitch);
@@ -296,7 +299,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                             y1={y}
                                             x2={rollWidth}
                                             y2={y}
-                                            stroke="#f3f3f3"
+                                            stroke="rgba(255,255,255,0.04)"
                                             strokeWidth={1}
                                         />
                                     );
@@ -325,16 +328,16 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                 <>
                                                     {renderRect(pair.from, 'none', `${pair.pairKey}-from-outline`, {
                                                         opacity: 1,
-                                                        stroke: '#f0ad4e',
+                                                        stroke: '#f59e0b',
                                                         strokeWidth: active ? 2.5 : 1.5,
                                                         dash: '5 3',
                                                         cursor: 'pointer',
                                                         title: label,
                                                         ...handlers,
                                                     })}
-                                                    {renderRect(pair.to, '#337ab7', `${pair.pairKey}-to-solid`, {
+                                                    {renderRect(pair.to, '#A7C7E7', `${pair.pairKey}-to-solid`, {
                                                         opacity: active ? 1 : 0.92,
-                                                        stroke: active ? '#1f2937' : 'transparent',
+                                                        stroke: active ? 'rgba(167,199,231,0.6)' : 'transparent',
                                                         strokeWidth: active ? 2 : 0,
                                                         cursor: 'pointer',
                                                         title: label,
@@ -346,7 +349,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                             y={yForPitch(pair.to.pitch) - noteHeight}
                                                             width={deltaWidth}
                                                             height={noteHeight}
-                                                            fill="#5b8def"
+                                                            fill="#60a5fa"
                                                             opacity={0.95}
                                                             rx={2}
                                                         />
@@ -357,7 +360,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                             y={yForPitch(pair.from.pitch) - noteHeight}
                                                             width={deltaWidth}
                                                             height={noteHeight}
-                                                            fill="#f0ad4e"
+                                                            fill="#f59e0b"
                                                             opacity={0.45}
                                                             rx={2}
                                                         />
@@ -365,17 +368,17 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                 </>
                                             ) : (
                                                 <>
-                                                    {renderRect(pair.from, '#f0ad4e', `${pair.pairKey}-from`, {
+                                                    {renderRect(pair.from, '#f59e0b', `${pair.pairKey}-from`, {
                                                         opacity: active ? 0.95 : 0.72,
-                                                        stroke: active ? '#1f2937' : 'transparent',
+                                                        stroke: active ? 'rgba(167,199,231,0.6)' : 'transparent',
                                                         strokeWidth: active ? 2 : 0,
                                                         cursor: 'pointer',
                                                         title: label,
                                                         ...handlers,
                                                     })}
-                                                    {renderRect(pair.to, '#337ab7', `${pair.pairKey}-to`, {
+                                                    {renderRect(pair.to, '#A7C7E7', `${pair.pairKey}-to`, {
                                                         opacity: active ? 1 : 0.92,
-                                                        stroke: active ? '#1f2937' : 'transparent',
+                                                        stroke: active ? 'rgba(167,199,231,0.6)' : 'transparent',
                                                         strokeWidth: active ? 2 : 0,
                                                         cursor: 'pointer',
                                                         title: label,
@@ -390,10 +393,10 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                 {track.removed.map((note, i) => {
                                     const noteKey = `${track.trackId}:removed:${i}`;
                                     const label = getNoteActionLabel('removed', note);
-                                    return renderRect(note, '#d9534f', noteKey, {
+                                    return renderRect(note, '#ef4444', noteKey, {
                                         noteKey,
                                         opacity: 0.85,
-                                        stroke: hoveredNoteKey === noteKey ? '#8f2f2a' : 'transparent',
+                                        stroke: hoveredNoteKey === noteKey ? '#b91c1c' : 'transparent',
                                         strokeWidth: hoveredNoteKey === noteKey ? 2 : 0,
                                         cursor: 'pointer',
                                         title: label,
@@ -404,10 +407,10 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                 {track.added.map((note, i) => {
                                     const noteKey = `${track.trackId}:added:${i}`;
                                     const label = getNoteActionLabel('added', note);
-                                    return renderRect(note, '#5cb85c', noteKey, {
+                                    return renderRect(note, '#22c55e', noteKey, {
                                         noteKey,
                                         opacity: 0.9,
-                                        stroke: hoveredNoteKey === noteKey ? '#2f6f33' : 'transparent',
+                                        stroke: hoveredNoteKey === noteKey ? '#15803d' : 'transparent',
                                         strokeWidth: hoveredNoteKey === noteKey ? 2 : 0,
                                         cursor: 'pointer',
                                         title: label,

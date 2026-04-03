@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import Navbar from "@/components/Navbar";
 import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 import { UserProvider } from "@/lib/context/UserContext";
-import CursorGlow from "@/components/CursorGlow";
+import AmbientWaveform from "@/components/AmbientWaveform";
 import {
     useKeyboardShortcuts,
     createDefaultShortcuts,
@@ -30,8 +30,8 @@ export default function DashboardLayout({
 
     return (
         <UserProvider>
-            <div className="min-h-screen bg-zinc-950 text-zinc-100">
-                <CursorGlow />
+            <div className="min-h-screen bg-[#111318] text-zinc-100">
+                <AmbientWaveform />
                 <Navbar />
                 <main className="relative z-10">{children}</main>
                 <KeyboardShortcutsModal

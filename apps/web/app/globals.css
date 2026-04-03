@@ -21,8 +21,8 @@
 @layer base {
   :root {
     /* Background - Deep midnight navy gradient */
-    --background-primary: #0B1622;
-    --background-secondary: #0E1C2B;
+    --background-primary: #0f1318;
+    --background-secondary: #111827;
     --background-depth: #2A3E52;
 
     /* Brand - Icy blue with glow */
@@ -88,11 +88,11 @@
     /* Chromatic midnight gradient - subtle hue shifts */
     background: linear-gradient(
       135deg,
-      #0B1622 0%,
-      #0E1C2B 25%,
-      #0D1A2E 50%,
-      #0E1C2B 75%,
-      #0B1622 100%
+      #0f1318 0%,
+      #111827 25%,
+      #0f1520 50%,
+      #111827 75%,
+      #0f1318 100%
     );
     background-attachment: fixed;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";

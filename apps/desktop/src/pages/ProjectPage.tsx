@@ -8,8 +8,10 @@ import type { GitError } from '../hooks/useProjectGitActions'
 import type { CommitEntry, NoteDiff } from '../types'
 import electronAPI from '../services/electronAPI';
 import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
+import styles from './ProjectPage.module.css';
 
 const ProjectPage = () => {
+    console.log('[SoundHaus] ProjectPage: rendering')
     const location = useLocation();
     const selectedProject = (location.state as any)?.projectPath || null
 
@@ -274,9 +276,9 @@ const ProjectPage = () => {
                     )}
                 </div>
 
-                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #eee' }}>
-                        <span>Commit History</span>
+                <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, marginBottom: 12, overflow: 'hidden', background: 'rgba(20,20,20,0.55)', backdropFilter: 'blur(16px)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.025)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <span style={{ color: '#F0F0F0' }}>Commit History</span>
                         <span
                             role="button"
                             tabIndex={0}
@@ -295,23 +297,25 @@ const ProjectPage = () => {
                             style={{
                                 padding: '4px 8px',
                                 fontSize: '12px',
-                                background: '#fff',
-                                border: '1px solid #ccc',
+                                background: 'rgba(167,199,231,0.08)',
+                                border: '1px solid rgba(167,199,231,0.2)',
                                 borderRadius: '4px',
+                                color: '#A7C7E7',
                                 cursor: historyLoading ? 'wait' : 'pointer',
                                 opacity: historyLoading ? 0.6 : 1,
-                                userSelect: 'none'
+                                userSelect: 'none',
+                                transition: 'background 200ms ease'
                             }}
                             title="Refresh commit history"
                         >
                             {historyLoading ? '⟳' : '↻'}
                         </span>
                     </div>
-                    <div style={{ padding: 12, background: '#fff', maxHeight: 240, overflowY: 'auto' }}>
+                    <div style={{ padding: 12, maxHeight: 240, overflowY: 'auto' }}>
                         {historyLoading ? (
-                            <p style={{ color: '#888' }}>Loading commit history...</p>
+                            <p style={{ color: 'rgba(160,160,160,0.6)' }}>Loading commit history...</p>
                         ) : history.length === 0 ? (
-                            <p style={{ color: '#888' }}>No commits found.</p>
+                            <p style={{ color: 'rgba(160,160,160,0.6)' }}>No commits found.</p>
                         ) : (
                             <div style={{ display: 'grid', gap: 8 }}>
                                 {history.map((entry) => (
@@ -320,15 +324,17 @@ const ProjectPage = () => {
                                         onClick={() => handleSelectCommit(entry.hash)}
                                         style={{
                                             textAlign: 'left',
-                                            border: selectedCommit === entry.hash ? '1px solid #999' : '1px solid #e2e2e2',
-                                            background: selectedCommit === entry.hash ? '#f7f7f7' : '#fff',
+                                            border: selectedCommit === entry.hash ? '1px solid rgba(167,199,231,0.35)' : '1px solid rgba(255,255,255,0.06)',
+                                            background: selectedCommit === entry.hash ? 'rgba(167,199,231,0.09)' : 'rgba(255,255,255,0.02)',
                                             borderRadius: 6,
                                             padding: 8,
                                             cursor: 'pointer',
+                                            transition: 'border 200ms ease, background 200ms ease',
+                                            color: '#F0F0F0',
                                         }}
                                     >
-                                        <div style={{ fontWeight: 600 }}>{entry.subject}</div>
-                                        <div style={{ fontSize: 12, color: '#666' }}>{entry.shortHash} • {entry.author}</div>
+                                        <div style={{ fontWeight: 600, color: '#F0F0F0' }}>{entry.subject}</div>
+                                        <div style={{ fontSize: 12, color: 'rgba(160,160,160,0.6)' }}>{entry.shortHash} • {entry.author}</div>
                                     </button>
                                 ))}
                             </div>
@@ -346,22 +352,22 @@ const ProjectPage = () => {
 
                     <div className={styles.commitDiffBody}>
                         {!selectedCommit ? (
-                            <p style={{ color: '#888' }}>Pick a commit above to view both semantic and MIDI note differences.</p>
+                            <p style={{ color: 'rgba(160,160,160,0.6)' }}>Pick a commit above to view both semantic and MIDI note differences.</p>
                         ) : (
                             <>
-                                <div style={{ border: '1px solid #e6e6e6', borderRadius: 8, overflow: 'hidden' }}>
-                                    <div style={{ padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #eee', fontWeight: 600 }}>
+                                <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden', background: 'rgba(20,20,20,0.55)', backdropFilter: 'blur(16px)' }}>
+                                    <div style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.025)', borderBottom: '1px solid rgba(255,255,255,0.06)', fontWeight: 600, color: '#F0F0F0' }}>
                                         Semantic Summary
                                     </div>
                                     <div style={{ padding: 12 }}>
                                         {selectedCommitSummary ? (
-                                            <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                                            <div style={{ padding: '8px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.04)' }}>
                                                 {selectedCommitSummary.split('\n').map((line: string, i: number) => (
                                                     <div key={i} style={{ marginBottom: '4px', whiteSpace: 'pre-wrap' }}>{line}</div>
                                                 ))}
                                             </div>
                                         ) : (
-                                            <p style={{ color: '#888' }}>No summary for this commit.</p>
+                                            <p style={{ color: 'rgba(160,160,160,0.6)' }}>No summary for this commit.</p>
                                         )}
                                     </div>
                                 </div>
@@ -385,8 +391,8 @@ const ProjectPage = () => {
                                     {hasNoteChanges ? (
                                         <PianoRollCanvas noteDiff={selectedNoteDiff} />
                                     ) : (
-                                        <div style={{ border: '1px solid #e6e6e6', borderRadius: 8, padding: 12, background: '#fff' }}>
-                                            <p style={{ color: '#888', margin: 0 }}>No MIDI note changes detected for this commit.</p>
+                                        <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 12, background: 'rgba(20,20,20,0.55)', backdropFilter: 'blur(16px)' }}>
+                                            <p style={{ color: 'rgba(160,160,160,0.6)', margin: 0 }}>No MIDI note changes detected for this commit.</p>
                                         </div>
                                     )}
                                 </div>

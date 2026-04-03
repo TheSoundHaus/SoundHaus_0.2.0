@@ -1567,22 +1567,7 @@ export default function RepoDetailClient({
               </button>
             </div>
 
-            {/* 7. Quick Settings Bar */}
-            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Quick Settings
-              </h3>
-              <div className="flex flex-wrap gap-3">
-                {/* Privacy toggle */}
-                <div className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5">
-                  <Lock size={14} className="text-zinc-400" />
-                  <span className="text-sm text-zinc-300">Private Project</span>
-                  <span className="ml-1 rounded bg-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
-                    Always
-                  </span>
-                </div>
-              </div>
-            </div>
+
           </div>
         </div>
       )}

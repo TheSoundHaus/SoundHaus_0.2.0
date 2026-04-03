@@ -281,9 +281,9 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
-    //mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools();
   } else if (isPreview) {
-    //mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools();
     mainWindow.loadFile("dist/index.html");
   } else {
     mainWindow.loadFile("dist/index.html");
