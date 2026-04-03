@@ -397,6 +397,35 @@ async function diffSnapshotsFromAlsBlobs(
   return await parseXmlFromBuffer(newBuf, oldBuf);
 }
 
+/**
+ * After a successful pull (fetch + rebase), restore the committed snapshot.json
+ * so the working tree stays clean.  Without this, refreshSnapshot would re-parse
+ * the (possibly dirty) ALS and leave an uncommitted snapshot.json that causes
+ * autostash conflicts on the next pull.
+ */
+async function restoreSnapshotFromHead(repoPath: string): Promise<void> {
+  try {
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    if (!alsFile) return;
+
+    const sessionName = path.basename(alsFile.name, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    await execFileP(gitBin, ['-C', repoPath, 'checkout', 'HEAD', '--', snapshotRelPath], {
+      encoding: 'utf8',
+    });
+    console.log('[restoreSnapshotFromHead] Restored', snapshotRelPath, 'from HEAD');
+  } catch {
+    // No HEAD or snapshot not tracked yet (first clone / legacy repo) — fall back
+    // to generating one from the current ALS so downstream code has a baseline.
+    const snap = await refreshSnapshot(repoPath);
+    if (snap.error) {
+      console.warn('[restoreSnapshotFromHead] Fallback refreshSnapshot also failed:', snap.error);
+    }
+  }
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
     width: 800,
@@ -493,13 +522,10 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   const pullResult = await pull(repoPath);
 
-  // Regenerate snapshot so changelog baseline matches the newly pulled ALS.
-  const snap = await refreshSnapshot(repoPath);
-  if (snap.error) {
-    console.warn('[pull-repo] Post-pull snapshot refresh failed (non-fatal):', snap.error);
-  } else if (snap.alsPath) {
-    console.log('[pull-repo] Snapshot refreshed for', path.basename(snap.alsPath, '.als'));
-  }
+  // Restore the committed snapshot so the working tree stays clean.
+  // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
+  // uncommitted snapshot.json that causes autostash conflicts on the next pull.
+  await restoreSnapshotFromHead(repoPath);
 
   return pullResult;
 });
