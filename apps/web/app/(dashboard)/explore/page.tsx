@@ -10,7 +10,7 @@ import {
     extractYouTubeVideoId,
     youtubeThumbnailHq,
 } from "@/lib/utils/youtube";
-import CursorGlow from "@/components/CursorGlow";
+
 import WaveformSpinner from "@/components/WaveformSpinner";
 
 export default function ExplorePage() {
@@ -117,8 +117,6 @@ export default function ExplorePage() {
 
     return (
         <div className="relative mx-auto max-w-[1400px] px-6 py-12">
-            <CursorGlow color="210, 60%, 78%" accent="280, 50%, 60%" radius={450} intensity={0.04} />
-
             {/* Page Header */}
             <div className="mb-10 animate-fade-in-up">
                 <h1 className="mb-2 text-4xl font-bold tracking-tight">

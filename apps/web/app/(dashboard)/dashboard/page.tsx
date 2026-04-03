@@ -16,7 +16,6 @@ import {
 import { useUser } from "@/lib/context/UserContext";
 import { getDashboardData } from "@/lib/api/dashboard";
 import type { DashboardData, DashboardActivity } from "@/lib/api/dashboard";
-import CursorGlow from "@/components/CursorGlow";
 import WaveformSpinner from "@/components/WaveformSpinner";
 
 function timeAgo(iso: string): string {
@@ -115,8 +114,6 @@ export default function DashboardPage() {
 
     return (
         <div className="relative mx-auto max-w-7xl px-6 py-12">
-            <CursorGlow color="210, 60%, 78%" accent="190, 70%, 65%" radius={500} intensity={0.05} />
-
             {/* Welcome Header */}
             <div className="mb-10 animate-fade-in-up">
                 <h1 className="mb-2 text-4xl font-bold tracking-tight">Dashboard</h1>

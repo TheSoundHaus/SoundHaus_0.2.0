@@ -38,9 +38,9 @@ export default function AmbientWaveform() {
 
       // Draw 3 layered waveforms with different speeds and opacities
       const waves = [
-        { amp: 40, freq: 0.003, speed: 0.008, opacity: 0.07, yOffset: 0.45 },
-        { amp: 25, freq: 0.005, speed: 0.012, opacity: 0.055, yOffset: 0.50 },
-        { amp: 55, freq: 0.002, speed: 0.005, opacity: 0.045, yOffset: 0.55 },
+        { amp: 40, freq: 0.003, speed: 0.0015, opacity: 0.07, yOffset: 0.45 },
+        { amp: 25, freq: 0.005, speed: 0.0025, opacity: 0.055, yOffset: 0.50 },
+        { amp: 55, freq: 0.002, speed: 0.001, opacity: 0.045, yOffset: 0.55 },
       ];
 
       for (const wave of waves) {
@@ -82,7 +82,7 @@ export default function AmbientWaveform() {
       }
 
       // Ambient glow orb — stationary, softly pulsing
-      const pulseRadius = 300 + Math.sin(t * 0.01) * 50;
+      const pulseRadius = 300 + Math.sin(t * 0.002) * 50;
       const orbGrad = ctx.createRadialGradient(
         w * 0.3, h * 0.4, 0,
         w * 0.3, h * 0.4, pulseRadius
