@@ -14,6 +14,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
+import { changesToProjectDiff } from './diffTransformer'
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
 // Without this, setup can launch the app at the wrong time and shortcut creation may fail.
@@ -508,7 +509,95 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
 })
 
 ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  return await push(repoPath);
+  const pushResult = await push(repoPath);
+
+  // ── Best-effort diff upload after successful push ──
+  try {
+    // 1. Get current and parent commit SHAs
+    const { stdout: headRaw } = await execFileP(gitBin, ['-C', repoPath, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+    const commitSha = headRaw.trim();
+
+    let beforeSha: string | undefined;
+    try {
+      const { stdout: parentRaw } = await execFileP(gitBin, ['-C', repoPath, 'rev-parse', 'HEAD^'], { encoding: 'utf8' });
+      beforeSha = parentRaw.trim();
+    } catch {
+      // First commit — no parent
+    }
+
+    // 2. Find ALS + compute diff
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    if (!alsFile) throw new Error('No .als file found — skipping diff upload');
+
+    const alsPath = path.join(repoPath, alsFile.name);
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    // Current snapshot (HEAD)
+    const { stdout: currentSnapshot } = await execFileP(
+      gitBin, ['-C', repoPath, 'show', `${commitSha}:${snapshotRelPath}`],
+      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+    );
+
+    // Parent snapshot
+    let parentSnapshot = '{"schema_version":1,"tracks":[]}';
+    if (beforeSha) {
+      try {
+        const { stdout: parentRaw } = await execFileP(
+          gitBin, ['-C', repoPath, 'show', `${beforeSha}:${snapshotRelPath}`],
+          { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+        );
+        parentSnapshot = parentRaw;
+      } catch { /* first snapshot — keep empty baseline */ }
+    }
+
+    // 3. Compute diff via Rust and transform to ProjectDiff
+    const rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
+    const report = JSON.parse(rawJson);
+    const summaryLines = buildTextSummary(report.changes || []);
+    const projectDiff = changesToProjectDiff(report, summaryLines.join('\n'));
+
+    // 4. Extract owner/repo from git remote
+    const { stdout: remoteUrl } = await execFileP(gitBin, ['-C', repoPath, 'remote', 'get-url', 'origin'], { encoding: 'utf8' });
+    const remoteMatch = remoteUrl.trim().match(/\/([^/]+)\/([^/.]+?)(?:\.git)?$/);
+    if (!remoteMatch) throw new Error('Could not parse owner/repo from remote URL');
+    const [, owner, repo] = remoteMatch;
+
+    // 5. Upload diff to backend
+    const pat = await getSoundHausCredentials();
+    if (!pat) throw new Error('No SoundHaus PAT — skipping diff upload');
+
+    const diffPayload = {
+      commit_sha: commitSha,
+      before_sha: beforeSha,
+      diff_data: projectDiff,
+      diff_summary: summaryLines.join('\n'),
+      diff_type: 'semantic',
+      desktop_version: app.getVersion(),
+    };
+
+    const res = await fetch(`${desktopEnv.supabasePublicUrl}/repos/${owner}/${repo}/diff`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `token ${pat}`,
+      },
+      body: JSON.stringify(diffPayload),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[push-repo] Diff upload failed (${res.status}): ${body.slice(0, 300)}`);
+    } else {
+      console.log(`[push-repo] Diff uploaded for ${commitSha.slice(0, 8)}`);
+    }
+  } catch (e: any) {
+    // Diff upload is non-blocking — push already succeeded
+    console.warn('[push-repo] Diff upload skipped:', e?.message || String(e));
+  }
+
+  return pushResult;
 });
 
 // TODO: Revamp file selection — the ALS session name is currently derived by auto-discovering

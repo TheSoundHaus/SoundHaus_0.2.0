@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine, Music, AlertTriangle, CheckCircle } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
@@ -28,6 +28,8 @@ const ProjectPage = () => {
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
     const { runPull, runCommit, runPush } = useProjectGitActions()
+
+    const commitDetailRef = useRef<HTMLElement>(null)
 
     const trackDiffs = selectedNoteDiff?.tracks ?? []
     const noteCounts = {
@@ -150,6 +152,13 @@ const ProjectPage = () => {
         handleLoadHistory()
     }, [handleLoadHistory])
 
+    // Scroll commit details into view when a commit is selected
+    useEffect(() => {
+        if (selectedCommit && commitDetailRef.current) {
+            commitDetailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+    }, [selectedCommit])
+
     useEffect(() => {
         const onRefreshRequest = (event: Event) => {
             const customEvent = event as CustomEvent<{ projectPath?: string }>
@@ -265,9 +274,19 @@ const ProjectPage = () => {
                                 </div>
                             ) : alsStruct.diffStatus === 'has-changes' ? (
                                 <div className="diff-panel rounded-lg p-3">
-                                    {alsStruct.summary.split('\n').map((line: string, i: number) => (
-                                        <div key={i} className="text-sm text-text-secondary py-0.5 font-mono">{line}</div>
-                                    ))}
+                                    {alsStruct.summary.split('\n').map((line: string, i: number) => {
+                                        const trimmed = line.trimStart()
+                                        const colorClass = trimmed.startsWith('+ ')
+                                            ? 'text-diff-added'
+                                            : trimmed.startsWith('- ')
+                                            ? 'text-diff-removed'
+                                            : trimmed.startsWith('~ ')
+                                            ? 'text-diff-modified'
+                                            : 'text-text-secondary'
+                                        return (
+                                            <div key={i} className={`text-sm py-0.5 font-mono ${colorClass}`}>{line}</div>
+                                        )
+                                    })}
                                 </div>
                             ) : (
                                 <p className="text-sm text-text-tertiary">Press ↻ to compare with last snapshot</p>
@@ -327,7 +346,7 @@ const ProjectPage = () => {
                     </div>
                 </div>
 
-                <section className={styles.commitDiffSection}>
+                <section ref={commitDetailRef} className={styles.commitDiffSection}>
                     <div className={styles.commitDiffHeader}>
                         <h3 className={styles.commitDiffTitle}>Selected Commit Details</h3>
                         {selectedCommit && (
@@ -347,9 +366,19 @@ const ProjectPage = () => {
                                     <div className="p-3">
                                         {selectedCommitSummary ? (
                                             <div className="p-2 bg-white/[0.03] rounded border border-white/[0.04]">
-                                                {selectedCommitSummary.split('\n').map((line: string, i: number) => (
-                                                    <div key={i} className="mb-1 whitespace-pre-wrap text-sm text-[#F0F0F0]">{line}</div>
-                                                ))}
+                                                {selectedCommitSummary.split('\n').map((line: string, i: number) => {
+                                                    const trimmed = line.trimStart()
+                                                    const colorClass = trimmed.startsWith('+ ')
+                                                        ? 'text-diff-added'
+                                                        : trimmed.startsWith('- ')
+                                                        ? 'text-diff-removed'
+                                                        : trimmed.startsWith('~ ')
+                                                        ? 'text-diff-modified'
+                                                        : 'text-[#F0F0F0]'
+                                                    return (
+                                                        <div key={i} className={`mb-1 whitespace-pre-wrap text-sm font-mono ${colorClass}`}>{line}</div>
+                                                    )
+                                                })}
                                             </div>
                                         ) : (
                                             <p className="text-sm text-white/40">No summary for this commit.</p>
