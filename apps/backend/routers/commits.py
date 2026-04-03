@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database import get_db
-from dependencies import limiter, verify_token
+from dependencies import limiter, verify_token, verify_token_or_pat
 from logging_config import get_logger
 from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
@@ -170,13 +170,13 @@ async def post_als_diff(
     request: Request,
     owner: str,
     repo: str,
-    token: str = Depends(verify_token),
+    user_info: dict = Depends(verify_token_or_pat),
     db: Session = Depends(get_db),
 ):
     """Accepts ALS diff JSON from Desktop app after a push. Uses upsert for retry safety."""
-    # Verify Desktop PAT auth
-    if not token or not token.startswith("soundh_"):
-        raise HTTPException(status_code=403, detail="Desktop PAT required")
+    # Accept both desktop PAT auth and web JWT auth
+    if not user_info or not user_info.get("user_id"):
+        raise HTTPException(status_code=403, detail="Valid authentication required")
 
     # Parse request body
     try:

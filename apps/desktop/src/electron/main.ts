@@ -533,12 +533,20 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
     const alsPath = path.join(repoPath, alsFile.name);
     const sessionName = path.basename(alsPath, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+    const snapshotDiskPath = path.join(repoPath, snapshotRelPath);
 
-    // Current snapshot (HEAD)
-    const { stdout: currentSnapshot } = await execFileP(
-      gitBin, ['-C', repoPath, 'show', `${commitSha}:${snapshotRelPath}`],
-      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
-    );
+    // Current snapshot — try git history first, fall back to disk
+    let currentSnapshot: string;
+    try {
+      const { stdout } = await execFileP(
+        gitBin, ['-C', repoPath, 'show', `${commitSha}:${snapshotRelPath}`],
+        { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+      );
+      currentSnapshot = stdout;
+    } catch {
+      // snapshot.json may not be in git yet (first commit or not staged) — read from disk
+      currentSnapshot = await fs.promises.readFile(snapshotDiskPath, 'utf8');
+    }
 
     // Parent snapshot
     let parentSnapshot = '{"schema_version":1,"tracks":[]}';

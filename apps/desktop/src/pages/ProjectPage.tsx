@@ -296,7 +296,7 @@ const ProjectPage = () => {
                 </div>
 
                 {/* Commit History */}
-                <div className="rounded-xl border border-white/[0.08] overflow-hidden bg-[rgba(20,20,20,0.55)] backdrop-blur-2xl shrink-0">
+                <div className="rounded-xl border border-white/[0.08] overflow-hidden bg-[rgba(20,20,20,0.82)] backdrop-blur-2xl shrink-0">
                     <div className="flex justify-between items-center w-full px-3 py-2 bg-white/[0.025] border-b border-white/[0.06]">
                         <span className="text-sm font-medium text-[#F0F0F0]">Commit History</span>
                         <span
@@ -359,7 +359,7 @@ const ProjectPage = () => {
                             <p className="text-sm text-white/40">Pick a commit above to view both semantic and MIDI note differences.</p>
                         ) : (
                             <>
-                                <div className="rounded-lg border border-white/[0.08] overflow-hidden bg-[rgba(20,20,20,0.55)] backdrop-blur-2xl">
+                                <div className="rounded-lg border border-white/[0.08] overflow-hidden bg-[rgba(20,20,20,0.82)] backdrop-blur-2xl">
                                     <div className="px-3 py-2 bg-white/[0.025] border-b border-white/[0.06] font-semibold text-sm text-[#F0F0F0]">
                                         Semantic Summary
                                     </div>
@@ -405,7 +405,7 @@ const ProjectPage = () => {
                                     {hasNoteChanges ? (
                                         <PianoRollCanvas noteDiff={selectedNoteDiff} />
                                     ) : (
-                                        <div className="rounded-lg border border-white/[0.08] p-3 bg-[rgba(20,20,20,0.55)] backdrop-blur-2xl">
+                                        <div className="rounded-lg border border-white/[0.08] p-3 bg-[rgba(20,20,20,0.82)] backdrop-blur-2xl">
                                             <p className="text-sm text-white/40 m-0">No MIDI note changes detected for this commit.</p>
                                         </div>
                                     )}
@@ -417,7 +417,7 @@ const ProjectPage = () => {
             </div>
 
             {/* Right panel — git actions */}
-            <div className="w-56 shrink-0 flex flex-col gap-2.5 p-5 border-l border-border-subtle bg-bg-secondary/50">
+            <div className="w-56 shrink-0 flex flex-col gap-2.5 p-5 border-l border-border-subtle bg-bg-secondary/50 overflow-y-auto min-h-0">
                 <h2 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-1">Actions</h2>
                 <button
                     onClick={handleGitPull}
