@@ -14,6 +14,8 @@ declare global {
       getAlsStruct: (alsPath: string) => Promise<any>
       findAls: (folderPath: string) => Promise<string | null>
       getChanges: (alsPath: string) => Promise<any>
+      getCommitHistory: (repoPath: string) => Promise<any[]>
+      getCommitDiff: (repoPath: string, commitHash: string, alsPath: string) => Promise<any>
     }
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>

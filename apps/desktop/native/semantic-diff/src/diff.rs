@@ -730,5 +730,133 @@ fn diff_single_clip(old: &ClipSummary, new: &ClipSummary) -> Vec<ChangeNode> {
         _ => {}
     }
 
+    let note_changes = diff_notes(&old.midi_notes, &new.midi_notes);
+    changes.extend(note_changes);
+
     changes
+}
+
+fn diff_notes(old: &[MidiNote], new: &[MidiNote]) -> Vec<ChangeNode> {
+    let mut changes = Vec::new();
+    let mut old_matched = vec![false; old.len()];
+    let mut new_matched = vec![false; new.len()];
+
+    // Build HashMap for O(1) note_id lookup: id -> index in new slice
+    let new_note_map: HashMap<&str, usize> = new.iter()
+        .enumerate()
+        .filter_map(|(j, n)| n.note_id.as_ref().map(|id| (id.as_str(), j)))
+        .collect();
+
+    // Pass 1: Match by note_id (highest fidelity) — now O(n) instead of O(n×m)
+    for (i, old_note) in old.iter().enumerate() {
+        if let Some(ref old_id) = old_note.note_id {
+            if let Some(&j) = new_note_map.get(old_id.as_str()) {
+                if !new_matched[j] {
+                    let new_note = &new[j];
+                    old_matched[i] = true;
+                    new_matched[j] = true;
+                    
+                    if (old_note.duration_beats - new_note.duration_beats).abs() > 0.001
+                        || old_note.velocity != new_note.velocity
+                        || old_note.pitch != new_note.pitch
+                        || (old_note.start_beat - new_note.start_beat).abs() > 0.001
+                    {
+                        let mut node = ChangeNode::new(
+                            "Note",
+                            &format!("Note {}", format_pitch(new_note.pitch)),
+                            "adjusted",
+                        );
+                        node.id = Some(old_id.clone());
+                        node.from = Some(serialize_note(old_note));
+                        node.to = Some(serialize_note(new_note));
+                        changes.push(node);
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 2: Fallback match by pitch and start time
+    for (i, old_note) in old.iter().enumerate() {
+        if !old_matched[i] {
+            for (j, new_note) in new.iter().enumerate() {
+                if !new_matched[j] 
+                    && old_note.pitch == new_note.pitch 
+                    && (old_note.start_beat - new_note.start_beat).abs() < 0.001 
+                {
+                    old_matched[i] = true;
+                    new_matched[j] = true;
+
+                    if (old_note.duration_beats - new_note.duration_beats).abs() > 0.001 || old_note.velocity != new_note.velocity {
+                        let mut node = ChangeNode::new(
+                            "Note",
+                            &format!("Note {}", format_pitch(new_note.pitch)),
+                            "adjusted",
+                        );
+                        if let Some(ref id) = new_note.note_id {
+                            node.id = Some(id.clone());
+                        }
+                        node.from = Some(serialize_note(old_note));
+                        node.to = Some(serialize_note(new_note));
+                        changes.push(node);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Pass 3: Unmatched remaining are considered added or removed
+    for (i, old_note) in old.iter().enumerate() {
+        if !old_matched[i] {
+            let mut node = ChangeNode::new(
+                "Note",
+                &format!("Note {} at {:.2}", format_pitch(old_note.pitch), old_note.start_beat),
+                "removed",
+            );
+            if let Some(ref id) = old_note.note_id {
+                node.id = Some(id.clone());
+            }
+            node.from = Some(serialize_note(old_note));
+            changes.push(node);
+        }
+    }
+
+    for (j, new_note) in new.iter().enumerate() {
+        if !new_matched[j] {
+            let mut node = ChangeNode::new(
+                "Note",
+                &format!("Note {} at {:.2}", format_pitch(new_note.pitch), new_note.start_beat),
+                "added",
+            );
+            if let Some(ref id) = new_note.note_id {
+                node.id = Some(id.clone());
+            }
+            node.to = Some(serialize_note(new_note));
+            changes.push(node);
+        }
+    }
+
+    changes
+}
+
+fn format_pitch(pitch: i32) -> String {
+    let pitch_clamped = pitch.clamp(0, 127);
+    let notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    // MIDI 60 is C3 in Ableton Standard
+    let octave = (pitch_clamped / 12) - 2; 
+    let note_name = notes[(pitch_clamped % 12) as usize];
+    format!("{}{}", note_name, octave)
+}
+
+fn serialize_note(note: &MidiNote) -> String {
+    serde_json::to_string(note).unwrap_or_else(|_| {
+        format!(
+            "{{\"pitch\":{},\"start_beat\":{},\"duration_beats\":{},\"velocity\":{},\"note_id\":null}}",
+            note.pitch,
+            note.start_beat,
+            note.duration_beats,
+            note.velocity
+        )
+    })
 }

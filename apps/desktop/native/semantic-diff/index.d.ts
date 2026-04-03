@@ -12,6 +12,14 @@
 export declare function diffFromSnapshot(snapshotJson: string, currentAlsPath: string): Promise<string>
 
 /**
+ * Diff two serialized Project snapshots directly.
+ *
+ * This is used for commit-to-parent history diffs where both sides come from
+ * `.soundhaus/{session}/snapshot.json` at different revisions.
+ */
+export declare function diffSnapshots(oldSnapshotJson: string, newSnapshotJson: string): Promise<string>
+
+/**
  * Generate a human-readable git commit message from a serialized DiffReport JSON string.
  * Mirrors the `buildCommitMessage` logic previously in `main.ts`.
  */

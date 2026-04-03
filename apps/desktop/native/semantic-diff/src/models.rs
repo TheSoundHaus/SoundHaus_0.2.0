@@ -247,6 +247,12 @@ pub struct SendInfo {
 /// Summary of a clip on a track.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ClipSummary {
+    /// Stable clip identity when available from XML @Id
+    #[serde(default)]
+    pub clip_id: Option<String>,
+    /// Source clip type: AudioClip or MidiClip
+    #[serde(default)]
+    pub clip_type: Option<String>,
     /// Clip name (if set)
     pub name: String,
     /// Start time in beats
@@ -255,8 +261,22 @@ pub struct ClipSummary {
     pub end_time: f64,
     /// Clip color index
     pub color: i32,
+    /// MIDI notes for MidiClip entries
+    #[serde(default)]
+    pub midi_notes: Vec<MidiNote>,
     /// Sample reference for audio clips
     pub sample_ref: Option<SampleReference>,
+}
+
+/// MIDI note summary extracted from a MidiClip.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct MidiNote {
+    pub pitch: i32,
+    pub start_beat: f64,
+    pub duration_beats: f64,
+    pub velocity: i32,
+    #[serde(default)]
+    pub note_id: Option<String>,
 }
 
 /// Reference to an audio sample file.
