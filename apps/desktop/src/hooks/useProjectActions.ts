@@ -89,16 +89,16 @@ export function useProjectActions() {
             try {
                 const result = await initRepo(folder, projectInfo);
                 alert(`Init complete:\n${result}`)
-            } catch(error) {
-                alert(`Init failed:\n${error}`)
-            }
 
-            // Backup check
-            const git = await hasGitFile(folder);
-            if(git) {
-                await window.electron?.setLastProjectPath(folder);
-                await trackRecentProject(folder, projectInfo.name);
-                navigate('/project', {state: {projectPath: folder}});
+                // Only navigate on success
+                const git = await hasGitFile(folder);
+                if(git) {
+                    await window.electron?.setLastProjectPath(folder);
+                    await trackRecentProject(folder, projectInfo.name);
+                    navigate('/project', {state: {projectPath: folder}});
+                }
+            } catch(error) {
+                alert(`Failed to create repository:\n${error instanceof Error ? error.message : String(error)}`)
             }
         }
     }

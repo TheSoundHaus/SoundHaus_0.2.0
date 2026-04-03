@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
 import { getAllowedCloneRemote, getGiteaCredentials, getSoundHausCredentials } from './login';
+import { desktopEnv } from './env';
 import { join } from 'path'
 import * as path from 'path';
 import * as fs from 'fs';
@@ -337,39 +338,20 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         const supabaseToken = await getSoundHausCredentials();
         if (supabaseToken) {
             try {
-                const registerPayload = JSON.stringify({
-                    name: finalRepoName,
-                    description: finalDescription,
-                    private: isPrivate,
+                const registerRes = await fetch(`${desktopEnv.supabasePublicUrl}/repos/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `token ${supabaseToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: finalRepoName,
+                        description: finalDescription,
+                        private: isPrivate,
+                    }),
                 });
-                await new Promise<void>((resolve, reject) => {
-                    const registerOptions = {
-                        hostname: 'localhost',
-                        port: 8000,
-                        path: '/repos/register',
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${supabaseToken}`,
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json',
-                            'Content-Length': Buffer.byteLength(registerPayload),
-                        },
-                    };
-                    const registerReq = http.request(registerOptions, (res) => {
-                        let body = '';
-                        res.on('data', (chunk) => { body += chunk; });
-                        res.on('end', () => {
-                            console.log('[init] Register response:', res.statusCode, body);
-                            resolve();
-                        });
-                    });
-                    registerReq.on('error', (err) => {
-                        console.warn('[init] Register request failed (non-fatal):', err.message);
-                        resolve();
-                    });
-                    registerReq.write(registerPayload);
-                    registerReq.end();
-                });
+                const registerBody = await registerRes.text().catch(() => '');
+                console.log('[init] Register response:', registerRes.status, registerBody);
                 console.log('[init] ✓ Repo registered in SoundHaus database');
             } catch (regErr: any) {
                 console.warn('[init] Could not register repo in database (non-fatal):', regErr.message);
@@ -438,6 +420,18 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
     } catch (error: any) {
         console.error('[init] ❌ Error during initialization:', error);
         console.error('[init] Error stack:', error.stack);
+
+        // Clean up orphaned .git directory so the folder isn't left in a half-initialized state
+        const gitPath = join(folderPath, '.git');
+        try {
+            if (fs.existsSync(gitPath)) {
+                fs.rmSync(gitPath, { recursive: true, force: true });
+                console.log('[init] Cleaned up orphaned .git directory');
+            }
+        } catch (cleanupErr) {
+            console.warn('[init] Could not clean up .git directory:', cleanupErr);
+        }
+
         throw new Error(`Failed to initialize repository: ${error.message}`);
     }
 }

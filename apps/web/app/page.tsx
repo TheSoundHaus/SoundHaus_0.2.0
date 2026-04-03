@@ -15,6 +15,7 @@ import {
     Monitor,
     Download,
 } from "lucide-react";
+import { GuitarScene, SynthScene, MicrophoneScene } from "@/components/Landing3DScenes";
 
 // ── Apple Logo SVG ─────────────────────────────────────────────────────────
 
@@ -948,6 +949,7 @@ export default function LandingPage() {
 
             {/* ── Features ───────────────────────────────── */}
             <section id="features" className="relative py-32 md:py-40 px-6">
+                <GuitarScene />
                 <FloatingParticles count={15} />
                 <div className="mx-auto max-w-6xl relative z-10">
                     <FadeInSection className="text-center mb-20">
@@ -1031,6 +1033,7 @@ export default function LandingPage() {
 
             {/* ── Human Collaboration Philosophy ─────────── */}
             <section id="philosophy" className="relative py-32 md:py-44 px-6 overflow-hidden">
+                <SynthScene />
                 <FloatingParticles count={14} color="140, 180, 220" />
                 <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 60% 50% at 50% 40%, rgba(167, 199, 231, 0.04) 0%, transparent 70%)" }} aria-hidden />
 
@@ -1219,6 +1222,7 @@ export default function LandingPage() {
 
             {/* ── Download + CTA (Combined Bottom Section) ── */}
             <section id="download" className="relative py-32 md:py-40 px-6">
+                <MicrophoneScene />
                 <FloatingParticles count={10} color="167, 199, 231" />
                 <div className="mx-auto max-w-6xl relative z-10">
                     <FadeInSection className="text-center mb-20">

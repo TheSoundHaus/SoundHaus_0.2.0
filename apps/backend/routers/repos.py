@@ -11,7 +11,7 @@ from typing import Optional
 
 from database import get_db
 from config import settings
-from dependencies import limiter, user_limiter, verify_token, get_auth
+from dependencies import limiter, user_limiter, verify_token, verify_token_or_pat, get_auth
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
@@ -153,7 +153,7 @@ async def create_repo(
 async def register_repo(
     request: Request,
     register_request: RegisterRepoRequest,
-    token: str = Depends(verify_token),
+    user_info: dict = Depends(verify_token_or_pat),
     db: Session = Depends(get_db),
 ):
     """Register an existing Gitea repo in the database.
@@ -162,11 +162,10 @@ async def register_repo(
     user API so that the repo_data row (needed for stars, clones, genres, etc.)
     also exists.  If the row already exists this is a no-op and returns success.
     """
-    user_res = await get_auth().get_user(token)
-    if not user_res.get("success"):
-        raise HTTPException(status_code=401, detail="Unable to fetch user")
+    if not user_info or not user_info.get("user_id"):
+        raise HTTPException(status_code=401, detail="Unable to identify user")
 
-    user_id = user_res["user"]["id"]
+    user_id = user_info["user_id"]
     gitea_username = _resolve_gitea_username(user_id, db)
     gitea_id = f"{gitea_username}/{register_request.name}"
 
