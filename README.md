@@ -434,3 +434,4 @@ For issues or questions:
 - Check the [Troubleshooting](#-troubleshooting) section
 - View logs: `docker compose --env-file .env.compose.local logs -f`
 - Open an issue on GitHub
+Trigger
