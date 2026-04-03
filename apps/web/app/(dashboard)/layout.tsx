@@ -32,16 +32,6 @@ export default function DashboardLayout({
         <UserProvider>
             <div className="min-h-screen bg-[#111318] text-zinc-100">
                 <AmbientWaveform />
-                {/* Frost layer — softly blurs the waveform before glass cards add their own blur */}
-                <div
-                    className="fixed inset-0 z-[5] pointer-events-none"
-                    style={{
-                        backdropFilter: 'blur(32px)',
-                        WebkitBackdropFilter: 'blur(32px)',
-                        background: 'rgba(15, 20, 28, 0.45)',
-                    }}
-                    aria-hidden="true"
-                />
                 <Navbar />
                 <main className="relative z-10">{children}</main>
                 <KeyboardShortcutsModal

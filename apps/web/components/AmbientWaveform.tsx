@@ -38,9 +38,9 @@ export default function AmbientWaveform() {
 
       // Draw 3 layered waveforms with different speeds and opacities
       const waves = [
-        { amp: 40, freq: 0.003, speed: 0.0015, opacity: 0.04, yOffset: 0.45 },
-        { amp: 25, freq: 0.005, speed: 0.0025, opacity: 0.03, yOffset: 0.50 },
-        { amp: 55, freq: 0.002, speed: 0.001, opacity: 0.025, yOffset: 0.55 },
+        { amp: 40, freq: 0.003, speed: 0.0015, opacity: 0.055, yOffset: 0.45 },
+        { amp: 25, freq: 0.005, speed: 0.0025, opacity: 0.04, yOffset: 0.50 },
+        { amp: 55, freq: 0.002, speed: 0.001, opacity: 0.035, yOffset: 0.55 },
       ];
 
       for (const wave of waves) {

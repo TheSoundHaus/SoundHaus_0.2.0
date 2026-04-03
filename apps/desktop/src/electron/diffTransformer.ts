@@ -78,7 +78,7 @@ interface TrackDiff {
     trackId: string;
     trackName: string;
     trackType: 'midi' | 'audio' | 'return' | 'group';
-    changeType: 'added' | 'removed' | 'modified' | 'unchanged';
+    changeType: 'added' | 'removed' | 'modified';
     instrument?: string;
     colorIndex?: number;
     midiClips?: MidiClipDiff[];
@@ -126,7 +126,7 @@ function mapTrackType(rustType: string): TrackDiff['trackType'] {
 function mapAction(action: string): TrackDiff['changeType'] {
     if (action === 'added') return 'added';
     if (action === 'removed') return 'removed';
-    return 'modified';
+    return 'modified'; // covers 'adjusted', 'value_change', etc.
 }
 
 /**
@@ -142,7 +142,7 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
             trackId: t.id,
             trackName: t.label || 'Unnamed Track',
             trackType: mapTrackType(t.track_type),
-            changeType: 'unchanged',
+            changeType: 'modified',
         });
     }
 
@@ -153,12 +153,15 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
                 trackId: id,
                 trackName: name || 'Unnamed Track',
                 trackType: mapTrackType(type),
-                changeType: 'unchanged',
+                changeType: 'modified',
             };
             trackMap.set(id, track);
         }
         return track;
     }
+
+    // Track which IDs were actually touched by the change tree
+    const touchedTrackIds = new Set<string>();
 
     function visitChanges(nodes: RustChange[], currentTrack: TrackDiff | null) {
         for (const node of nodes) {
@@ -169,6 +172,7 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
                 const trackMeta = projectTracks.find(t => t.id === trackId);
                 const track = ensureTrack(trackId, node.label, trackMeta?.track_type ?? 'MIDI');
                 track.changeType = mapAction(node.action);
+                touchedTrackIds.add(trackId);
                 nextTrack = track;
             } else if (node.type === 'Note' && nextTrack) {
                 // Aggregate notes into a single MidiClipDiff per track
@@ -240,8 +244,8 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
 
     visitChanges(report.changes || [], null);
 
-    // Filter to only tracks with actual changes
-    const tracks = Array.from(trackMap.values()).filter(t => t.changeType !== 'unchanged');
+    // Filter to only tracks that appeared in the change tree
+    const tracks = Array.from(trackMap.values()).filter(t => touchedTrackIds.has(t.trackId));
 
     return {
         tempo: {},
