@@ -24,6 +24,7 @@ const ProjectPage = () => {
     const [selectedCommit, setSelectedCommit] = useState<string | null>(null)
     const [selectedCommitSummary, setSelectedCommitSummary] = useState<string>('')
     const [selectedNoteDiff, setSelectedNoteDiff] = useState<NoteDiff | null>(null)
+    const [openingAbleton, setOpeningAbleton] = useState(false)
 
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
