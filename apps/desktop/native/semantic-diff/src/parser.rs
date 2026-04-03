@@ -721,7 +721,17 @@ fn parse_send_holder(
 // Clip / Sample parsing
 // ─────────────────────────────────────────────
 
+#[derive(Clone)]
+struct PendingMidiNote {
+    pitch: Option<i32>,
+    start_beat: f64,
+    duration_beats: f64,
+    velocity: i32,
+    note_id: Option<String>,
+}
+
 /// Parse the <MainSequencer> to extract clips.
+/// Handles nested container structures: ClipSlotList > ClipSlot > Clip > AudioClip/MidiClip.
 fn parse_main_sequencer(
     xml: &mut Reader<Box<dyn BufRead + '_>>,
     buf: &mut Vec<u8>,
@@ -736,12 +746,20 @@ fn parse_main_sequencer(
                 depth += 1;
                 let tag_bytes = e.name().as_ref().to_vec();
                 match tag_bytes.as_slice() {
-                    b"AudioClip" | b"MidiClip" if depth >= 2 => {
+                    b"ClipSlotList" | b"ClipSlot" | b"Clip" => {
+                        // Container tags — continue traversal without special action
+                    }
+                    b"AudioClip" | b"MidiClip" => {
+                        let clip_id = get_id(e);
+                        let clip_type = Some(String::from_utf8_lossy(&tag_bytes).into_owned());
                         let mut clip = ClipSummary {
+                            clip_id,
+                            clip_type,
                             name: String::new(),
                             start_time: 0.0,
                             end_time: 0.0,
                             color: -1,
+                            midi_notes: Vec::new(),
                             sample_ref: None,
                         };
                         parse_clip(xml, buf, &mut clip, &tag_bytes);
@@ -791,6 +809,25 @@ fn parse_clip(
                         clip.sample_ref = parse_sample_ref(xml, buf);
                         depth -= 1;
                     }
+                    b"KeyTrack" => {
+                        parse_keytrack(xml, buf, &mut clip.midi_notes);
+                        depth -= 1;
+                    }
+                    b"MidiNoteEvent" => {
+                        let start_owned = e.to_owned();
+                        if let Some(note) = parse_midi_note_event_start_pending(xml, buf, &start_owned, None) {
+                            if let Some(pitch) = note.pitch {
+                                clip.midi_notes.push(MidiNote {
+                                    pitch,
+                                    start_beat: note.start_beat,
+                                    duration_beats: note.duration_beats,
+                                    velocity: note.velocity,
+                                    note_id: note.note_id,
+                                });
+                            }
+                        }
+                        depth -= 1;
+                    }
                     _ => {}
                 }
             }
@@ -812,6 +849,19 @@ fn parse_clip(
                             clip.color = val.parse().unwrap_or(-1);
                         }
                     }
+                    b"MidiNoteEvent" => {
+                        if let Some(note) = parse_midi_note_event_pending(e, None) {
+                            if let Some(pitch) = note.pitch {
+                                clip.midi_notes.push(MidiNote {
+                                    pitch,
+                                    start_beat: note.start_beat,
+                                    duration_beats: note.duration_beats,
+                                    velocity: note.velocity,
+                                    note_id: note.note_id,
+                                });
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -826,6 +876,181 @@ fn parse_clip(
             _ => {}
         }
     }
+}
+
+fn parse_keytrack(
+    xml: &mut Reader<Box<dyn BufRead + '_>>,
+    buf: &mut Vec<u8>,
+    midi_notes: &mut Vec<MidiNote>,
+) {
+    let mut depth = 1u32;
+    let mut current_midi_key: Option<i32> = None;
+    let mut pending: Vec<PendingMidiNote> = Vec::new();
+
+    loop {
+        buf.clear();
+        match xml.read_event_into(buf) {
+            Ok(Event::Start(ref e)) => {
+                depth += 1;
+                match e.name().as_ref() {
+                    b"MidiNoteEvent" => {
+                        let start_owned = e.to_owned();
+                        if let Some(note) = parse_midi_note_event_start_pending(xml, buf, &start_owned, current_midi_key) {
+                            if let Some(pitch) = note.pitch.or(current_midi_key) {
+                                midi_notes.push(MidiNote {
+                                    pitch,
+                                    start_beat: note.start_beat,
+                                    duration_beats: note.duration_beats,
+                                    velocity: note.velocity,
+                                    note_id: note.note_id,
+                                });
+                            } else {
+                                pending.push(note);
+                            }
+                        }
+                        depth -= 1;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Empty(ref e)) => {
+                match e.name().as_ref() {
+                    b"MidiKey" => {
+                        if let Some(pitch) = parse_pitch_value(
+                            get_attr_value(e, b"Value")
+                                .or_else(|| get_attr_value(e, b"Pitch"))
+                                .as_deref(),
+                        ) {
+                            current_midi_key = Some(pitch);
+                            let drained: Vec<PendingMidiNote> = pending.drain(..).collect();
+                            for note in drained {
+                                midi_notes.push(MidiNote {
+                                    pitch,
+                                    start_beat: note.start_beat,
+                                    duration_beats: note.duration_beats,
+                                    velocity: note.velocity,
+                                    note_id: note.note_id,
+                                });
+                            }
+                        }
+                    }
+                    b"MidiNoteEvent" => {
+                        if let Some(note) = parse_midi_note_event_pending(e, current_midi_key) {
+                            if let Some(pitch) = note.pitch.or(current_midi_key) {
+                                midi_notes.push(MidiNote {
+                                    pitch,
+                                    start_beat: note.start_beat,
+                                    duration_beats: note.duration_beats,
+                                    velocity: note.velocity,
+                                    note_id: note.note_id,
+                                });
+                            } else {
+                                pending.push(note);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                depth -= 1;
+                if e.name().as_ref() == b"KeyTrack" && depth == 0 {
+                    if let Some(pitch) = current_midi_key {
+                        let drained: Vec<PendingMidiNote> = pending.drain(..).collect();
+                        for note in drained {
+                            midi_notes.push(MidiNote {
+                                pitch,
+                                start_beat: note.start_beat,
+                                duration_beats: note.duration_beats,
+                                velocity: note.velocity,
+                                note_id: note.note_id,
+                            });
+                        }
+                    }
+                    break;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+}
+
+fn parse_pitch_value(raw: Option<&str>) -> Option<i32> {
+    let raw = raw?.trim();
+    if let Ok(v) = raw.parse::<i32>() {
+        return Some(v);
+    }
+    raw.parse::<f64>().ok().map(|v| v.round() as i32)
+}
+
+fn parse_midi_note_event_start_pending(
+    xml: &mut Reader<Box<dyn BufRead + '_>>,
+    buf: &mut Vec<u8>,
+    start: &quick_xml::events::BytesStart<'_>,
+    current_midi_key: Option<i32>,
+) -> Option<PendingMidiNote> {
+    // Delegate attribute extraction to parse_midi_note_event_pending
+    let mut pending = parse_midi_note_event_pending(start, current_midi_key)?;
+
+    // Drain stream to matching </MidiNoteEvent> close tag
+    let mut depth = 1u32;
+    loop {
+        buf.clear();
+        match xml.read_event_into(buf) {
+            Ok(Event::Start(_)) => {
+                depth += 1;
+            }
+            Ok(Event::End(ref e)) => {
+                depth -= 1;
+                if e.name().as_ref() == b"MidiNoteEvent" && depth == 0 {
+                    break;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    Some(pending)
+}
+
+fn parse_midi_note_event_pending(
+    event: &quick_xml::events::BytesStart<'_>,
+    current_midi_key: Option<i32>,
+) -> Option<PendingMidiNote> {
+    let pitch = parse_pitch_value(
+        get_attr_value(event, b"Key")
+            .or_else(|| get_attr_value(event, b"MidiKey"))
+            .or_else(|| get_attr_value(event, b"Pitch"))
+            .as_deref(),
+    ).or(current_midi_key);
+
+    let start_beat = get_attr_value(event, b"Time")
+        .or_else(|| get_attr_value(event, b"Start"))
+        .and_then(|v| v.parse::<f64>().ok())?;
+
+    let duration_beats = get_attr_value(event, b"Duration")
+        .or_else(|| get_attr_value(event, b"Length"))
+        .and_then(|v| v.parse::<f64>().ok())?;
+
+    let velocity = get_attr_value(event, b"Velocity")
+        .or_else(|| get_attr_value(event, b"Vel"))
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(100);
+
+    let note_id = get_attr_value(event, b"NoteId")
+        .or_else(|| get_attr_value(event, b"Id"));
+
+    Some(PendingMidiNote {
+        pitch,
+        start_beat,
+        duration_beats,
+        velocity,
+        note_id,
+    })
 }
 
 /// Parse a <SampleRef> element, extracting the FileRef and OriginalCrc.

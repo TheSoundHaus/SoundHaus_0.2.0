@@ -5,6 +5,8 @@ export interface ElectronAPI {
   findAls: (folderPath: string) => Promise<string | null>
   getAlsContent: (alsPath: string) => Promise<any>
   getChanges: (alsPath: string) => Promise<any>
+  getCommitHistory: (repoPath: string) => Promise<any[]>
+  getCommitDiff: (repoPath: string, commitHash: string, alsPath: string) => Promise<any>
 }
 
 export interface GitService {
@@ -76,6 +78,35 @@ export interface RecentProject {
   path: string
   name: string
   lastOpened: string
+}
+
+// MIDI Diff types (used in ProjectPage and PianoRollCanvas)
+export type SnapshotNote = {
+  pitch: number
+  start_beat: number
+  duration_beats: number
+  velocity: number
+  note_id?: string | null
+}
+
+export type TrackNoteDiff = {
+  trackId: string
+  trackName: string
+  added: SnapshotNote[]
+  removed: SnapshotNote[]
+  adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>
+}
+
+export type NoteDiff = {
+  tracks: TrackNoteDiff[]
+}
+
+export type CommitEntry = {
+  hash: string
+  shortHash: string
+  subject: string
+  author: string
+  timestamp: string
 }
 
 declare global {
