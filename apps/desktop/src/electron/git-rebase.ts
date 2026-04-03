@@ -52,15 +52,16 @@ function parseConflictingFiles(repoPath: string): Promise<string[]> {
 }
 
 /**
- * Aborts an ongoing rebase operation
+ * Abort any in-progress rebase or merge so the repo is never left stuck.
+ * Both commands silently no-op when there is nothing to abort.
  */
-function abortRebase(repoPath: string): Promise<void> {
-  return new Promise((resolve) => {
-    execFile(gitBin, ['rebase', '--abort'], { cwd: repoPath }, () => {
-      // Ignore errors, rebase might not be in progress
-      resolve();
-    });
-  });
+async function ensureCleanGitState(repoPath: string): Promise<void> {
+  await new Promise<void>(resolve =>
+    execFile(gitBin, ['rebase', '--abort'], { cwd: repoPath }, () => resolve())
+  );
+  await new Promise<void>(resolve =>
+    execFile(gitBin, ['merge', '--abort'], { cwd: repoPath }, () => resolve())
+  );
 }
 
 /**
@@ -70,6 +71,9 @@ function abortRebase(repoPath: string): Promise<void> {
  * @returns Result object with success status and optional error/conflicting files
  */
 async function rebase(repoPath: string): Promise<RebaseResult> {
+  // Clear any pre-existing stuck state from a previous failed pull.
+  await ensureCleanGitState(repoPath);
+
   try {
     // Step 1: Fetch from remote
     console.log(`[Rebase] Starting fetch from origin/main in ${repoPath}`);
@@ -105,17 +109,16 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
       success: true,
     };
   } catch (error) {
-    // Check if this is a conflict error by looking at git status
-    console.log(`[Rebase] Checking for conflicts after error`);
+    // Always clean up first — covers mid-rebase conflicts, autostash pop
+    // failures, and any other unexpected state.
+    console.log(`[Rebase] Error during pull — cleaning up git state`);
+    await ensureCleanGitState(repoPath);
+    console.log(`[Rebase] Git state cleaned`);
+
     const conflictingFiles = await parseConflictingFiles(repoPath);
 
     if (conflictingFiles.length > 0) {
-      // Conflicts detected - abort rebase
       console.warn(`[Rebase] Conflicts detected in files: ${conflictingFiles.join(', ')}`);
-      console.log(`[Rebase] Aborting rebase operation`);
-      await abortRebase(repoPath);
-      console.log(`[Rebase] Rebase aborted`);
-
       return {
         success: false,
         error: `Unable to download changes. Your work has conflicts with recent changes from your collaborators.`,
@@ -123,7 +126,6 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
       };
     }
 
-    // Some other git error occurred
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[Rebase] Download operation failed: ${errorMsg}`);
     return {
