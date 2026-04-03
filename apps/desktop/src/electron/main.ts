@@ -13,7 +13,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseAls, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
+import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
 // Without this, setup can launch the app at the wrong time and shortcut creation may fail.
@@ -267,6 +267,124 @@ async function refreshSnapshot(repoPath: string): Promise<{ alsPath: string | nu
   }
 }
 
+function isLikelyLegacySnapshotWithoutMidi(snapshotRaw: string): boolean {
+  try {
+    const parsed = JSON.parse(snapshotRaw);
+    const tracks = Array.isArray(parsed?.tracks) ? parsed.tracks : [];
+    let sawAnyClip = false;
+    let sawMidiNotesField = false;
+
+    for (const track of tracks) {
+      const clips = Array.isArray(track?.clips) ? track.clips : [];
+      for (const clip of clips) {
+        sawAnyClip = true;
+        if (clip && typeof clip === 'object' && Object.prototype.hasOwnProperty.call(clip, 'midi_notes')) {
+          sawMidiNotesField = true;
+          const notes = (clip as any).midi_notes;
+          if (Array.isArray(notes) && notes.length > 0) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return sawAnyClip && !sawMidiNotesField;
+  } catch {
+    return false;
+  }
+}
+
+async function gitObjectExists(repoPath: string, objectSpec: string): Promise<boolean> {
+  try {
+    await execFileP(gitBin, ['-C', repoPath, 'cat-file', '-e', objectSpec], { encoding: 'utf8' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveAlsPathInRevision(
+  repoPath: string,
+  revision: string,
+  preferredAlsPathAbs?: string,
+): Promise<string | null> {
+  const preferredRel = preferredAlsPathAbs
+    ? path.relative(repoPath, preferredAlsPathAbs).split(path.sep).join('/')
+    : null;
+
+  if (preferredRel && preferredRel.length > 0 && !preferredRel.startsWith('..')) {
+    const exists = await gitObjectExists(repoPath, `${revision}:${preferredRel}`);
+    if (exists) return preferredRel;
+  }
+
+  const { stdout } = await execFileP(
+    gitBin,
+    ['-C', repoPath, 'ls-tree', '-r', '--name-only', revision],
+    { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 },
+  );
+
+  const alsFiles = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.toLowerCase().endsWith('.als'));
+
+  if (alsFiles.length === 0) return null;
+  if (alsFiles.length === 1) return alsFiles[0];
+
+  if (preferredRel) {
+    const preferredBase = path.basename(preferredRel).toLowerCase();
+    const basenameMatch = alsFiles.find((candidate) => path.basename(candidate).toLowerCase() === preferredBase);
+    if (basenameMatch) return basenameMatch;
+  }
+
+  return alsFiles[0];
+}
+
+async function getGitBlobBuffer(repoPath: string, revision: string, relPath: string): Promise<Buffer> {
+  const { stdout } = await execFileP(
+    gitBin,
+    ['-C', repoPath, 'show', `${revision}:${relPath}`],
+    { encoding: 'buffer', maxBuffer: 100 * 1024 * 1024 },
+  ) as { stdout: Buffer; stderr: Buffer };
+  return stdout;
+}
+
+async function diffCurrentAlsAgainstRevision(
+  repoPath: string,
+  revision: string,
+  alsPath: string,
+): Promise<string | null> {
+  const relAlsPath = await resolveAlsPathInRevision(repoPath, revision, alsPath);
+  if (!relAlsPath) return null;
+
+  const [currentAlsBuffer, oldAlsBuffer] = await Promise.all([
+    fs.promises.readFile(alsPath),
+    getGitBlobBuffer(repoPath, revision, relAlsPath),
+  ]);
+
+  return await parseXmlFromBuffer(currentAlsBuffer, oldAlsBuffer);
+}
+
+async function diffSnapshotsFromAlsBlobs(
+  repoPath: string,
+  oldRevision: string,
+  newRevision: string,
+  preferredAlsPathAbs: string,
+): Promise<string | null> {
+  const oldRel = await resolveAlsPathInRevision(repoPath, oldRevision, preferredAlsPathAbs);
+  if (!oldRel) return null;
+
+  let newRel = await resolveAlsPathInRevision(repoPath, newRevision, preferredAlsPathAbs);
+  if (!newRel) newRel = oldRel;
+
+  const [oldBuf, newBuf] = await Promise.all([
+    getGitBlobBuffer(repoPath, oldRevision, oldRel),
+    getGitBlobBuffer(repoPath, newRevision, newRel),
+  ]);
+
+  return await parseXmlFromBuffer(newBuf, oldBuf);
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
     width: 800,
@@ -410,7 +528,17 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
           );
           snapshotRaw = stdout;
         }
-        const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+        let rawJson: string | null = null;
+
+        if (isLikelyLegacySnapshotWithoutMidi(snapshotRaw)) {
+          console.log('[commit-changes] Detected legacy snapshot baseline; using HEAD ALS blob fallback diff');
+          rawJson = await diffCurrentAlsAgainstRevision(repoPath, 'HEAD', alsPath);
+        }
+
+        if (!rawJson) {
+          rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+        }
+
         commitMessage = await generateCommitMessage(rawJson);
       } catch (e) {
         // No HEAD yet, or no snapshot in HEAD (first commit / legacy repo)
@@ -480,7 +608,17 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
       );
       snapshotRaw = stdout;
     }
-    const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    let rawJson: string | null = null;
+
+    if (isLikelyLegacySnapshotWithoutMidi(snapshotRaw)) {
+      console.log('[get-changes] Detected legacy snapshot baseline; using HEAD ALS blob fallback diff');
+      rawJson = await diffCurrentAlsAgainstRevision(repoRoot, 'HEAD', alsPath);
+    }
+
+    if (!rawJson) {
+      rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    }
+
     const report = JSON.parse(rawJson);
 
     // Build a flat summary string for the Changes panel
@@ -547,13 +685,14 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
     );
 
     let parentSnapshot = '{}';
+    let parentHash: string | null = null;
     try {
       const { stdout: parentCommit } = await execFileP(
         gitBin,
         ['-C', repoPath, 'rev-parse', `${commitHash}^`],
         { encoding: 'utf8' }
       );
-      const parentHash = parentCommit.trim();
+      parentHash = parentCommit.trim();
       const { stdout: parentRaw } = await execFileP(
         gitBin,
         ['-C', repoPath, 'show', `${parentHash}:${snapshotRelPath}`],
@@ -565,7 +704,17 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
     }
 
     // Get the full semantic diff from Rust (including track/device/clip structure)
-    const rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
+    let rawJson: string | null = null;
+
+    if (parentHash && (isLikelyLegacySnapshotWithoutMidi(parentSnapshot) || isLikelyLegacySnapshotWithoutMidi(currentSnapshot))) {
+      console.log('[get-commit-diff] Detected legacy snapshot(s); using commit ALS blob fallback diff');
+      rawJson = await diffSnapshotsFromAlsBlobs(repoPath, parentHash, commitHash, alsPath);
+    }
+
+    if (!rawJson) {
+      rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
+    }
+
     const report = JSON.parse(rawJson);
     const summaryLines = buildTextSummary(report.changes || []);
 
