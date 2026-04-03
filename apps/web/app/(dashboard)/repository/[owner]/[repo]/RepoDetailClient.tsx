@@ -7,6 +7,7 @@ import {
   User,
   Users,
   Lock,
+  LockOpen,
   GitCommit,
   Download,
   Music,
@@ -426,7 +427,7 @@ export default function RepoDetailClient({
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
-              <Lock size={14} /> {isPrivate ? "Private" : "Public"}
+              {isPrivate ? <Lock size={14} /> : <LockOpen size={14} />} {isPrivate ? "Private" : "Public"}
             </span>
             {!isPrivate && (
               <>

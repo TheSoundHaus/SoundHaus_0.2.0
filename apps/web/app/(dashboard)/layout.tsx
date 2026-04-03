@@ -30,7 +30,7 @@ export default function DashboardLayout({
 
     return (
         <UserProvider>
-            <div className="min-h-screen bg-[#111318] text-zinc-100">
+            <div className="min-h-screen bg-[#121212] text-zinc-100">
                 <AmbientWaveform />
                 <Navbar />
                 <main className="relative z-10">{children}</main>

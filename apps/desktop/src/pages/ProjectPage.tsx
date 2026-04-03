@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine, Music, AlertTriangle, CheckCircle } from 'lucide-react'
+import { ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine, Music, AlertTriangle, CheckCircle, ExternalLink } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
@@ -16,7 +16,7 @@ const ProjectPage = () => {
     const selectedProject = (location.state as any)?.projectPath || null
 
     const [alsStruct, setAlsStruct] = useState<any | null>(null)
-    const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
+    const [showTrackInfo, setShowTrackInfo] = useState<boolean>(true)
     const [showChanges, setShowChanges] = useState<boolean>(true)
     const [refreshing, setRefreshing] = useState(false)
     const [historyLoading, setHistoryLoading] = useState(false)
@@ -24,6 +24,7 @@ const ProjectPage = () => {
     const [selectedCommit, setSelectedCommit] = useState<string | null>(null)
     const [selectedCommitSummary, setSelectedCommitSummary] = useState<string>('')
     const [selectedNoteDiff, setSelectedNoteDiff] = useState<NoteDiff | null>(null)
+    const [openingAbleton, setOpeningAbleton] = useState(false)
 
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
@@ -188,8 +189,10 @@ const ProjectPage = () => {
 
     return (
         <div className="flex w-full h-screen bg-bg-primary text-text-primary overflow-hidden animate-fade-in">
-            {/* Left panel — track info + changes */}
-            <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-5 space-y-3">
+            {/* Main content — top/bottom split */}
+            <div className="flex-1 flex flex-col min-h-0">
+                {/* Top: Browse (track info, changes, commit history) */}
+                <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
                 {/* Project title */}
                 <div className="flex items-center gap-3 mb-2 shrink-0">
                     <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10">
@@ -270,7 +273,7 @@ const ProjectPage = () => {
                         </button>
                     </div>
                     {showChanges && (
-                        <div className="p-4 bg-bg-secondary border-t border-border-subtle">
+                        <div className="p-4 bg-bg-secondary border-t border-border-subtle max-h-60 overflow-y-auto">
                             {alsStruct == null ? (
                                 <p className="text-sm text-text-tertiary">No ALS loaded</p>
                             ) : alsStruct.ok === false ? (
@@ -358,7 +361,13 @@ const ProjectPage = () => {
                         )}
                     </div>
                 </div>
+                </div>
 
+                {/* Divider */}
+                <div className="shrink-0 border-t border-white/[0.06]" />
+
+                {/* Bottom: Commit Details */}
+                <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3">
                 <section ref={commitDetailRef} className={styles.commitDiffSection}>
                     <div className={styles.commitDiffHeader}>
                         <h3 className={styles.commitDiffTitle}>Selected Commit Details</h3>
@@ -376,7 +385,7 @@ const ProjectPage = () => {
                                     <div className="px-3 py-2 bg-white/[0.025] border-b border-white/[0.06] font-semibold text-sm text-[#F0F0F0]">
                                         Semantic Summary
                                     </div>
-                                    <div className="p-3">
+                                    <div className="p-3 max-h-48 overflow-y-auto">
                                         {selectedCommitSummary ? (
                                             <div className="p-2 bg-white/[0.03] rounded border border-white/[0.04]">
                                                 {selectedCommitSummary.split('\n').map((line: string, i: number) => {
@@ -427,6 +436,7 @@ const ProjectPage = () => {
                         )}
                     </div>
                 </section>
+                </div>
             </div>
 
             {/* Right panel — git actions */}
@@ -459,6 +469,18 @@ const ProjectPage = () => {
                 >
                     <ArrowUpFromLine className="w-4 h-4 text-accent" />
                     Push Changes
+                </button>
+                <button
+                    onClick={handleOpenInAbleton}
+                    disabled={openingAbleton}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               bg-bg-elevated border border-border-default text-text-primary
+                               hover:border-accent/30 hover:bg-bg-tertiary/60
+                               disabled:opacity-40 disabled:cursor-not-allowed
+                               transition-all duration-200 cursor-pointer"
+                >
+                    <ExternalLink className="w-4 h-4 text-accent" />
+                    {openingAbleton ? 'Opening...' : 'Open in Ableton'}
                 </button>
             </div>
         </div>

@@ -19,13 +19,13 @@ const config: Config = {
     extend: {
       // SoundHaus Brand Palette (Extracted)
       colors: {
-        // Background layers - deep midnight navy gradient
-        navy: '#0B1622',
+        // Background layers - neutral dark gray
+        navy: '#0E0E0E',
         midnight: {
-          DEFAULT: '#0E1C2B',
-          400: '#2A3E52', // Steel Blue depth layer
+          DEFAULT: '#121212',
+          400: '#2D2D2D', // Medium gray depth layer
         },
-        charcoal: '#2A3E52', // Secondary background
+        charcoal: '#2D2D2D', // Secondary background
 
         // Brand accent - Icy Blue with glow
         'glass-blue': {

@@ -430,7 +430,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                         position: 'fixed',
                         left: Math.min(tooltip.x + 14, window.innerWidth - 240),
                         top: Math.min(tooltip.y + 14, window.innerHeight - 56),
-                        background: 'rgba(17, 24, 39, 0.96)',
+                        background: 'rgba(20, 20, 20, 0.96)',
                         color: '#fff',
                         borderRadius: 8,
                         padding: '6px 10px',
