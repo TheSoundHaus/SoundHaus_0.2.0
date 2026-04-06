@@ -17,11 +17,10 @@ from pathlib import Path
 
 import httpx
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=True)
-except ImportError:
-    pass
+# Load profile-aware .env.local/.env.remote when run directly
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from load_env import load_env as _load_env
+_load_env()
 
 
 def fail(message: str) -> None:
@@ -58,19 +57,22 @@ def main() -> None:
         if not supabase.get("success"):
             fail(f"supabase signup failed: {supabase}")
 
-        supabase_user_id = supabase.get("user", {}).get("id")
-        if not supabase_user_id:
-            fail("supabase user created but no id returned")
+        # When email confirmation is required, Supabase returns no user object yet.
+        # Gitea provisioning is skipped in that path, so we can only verify the flag.
+        requires_confirmation = supabase.get("requires_confirmation", False)
+        supabase_user_id = supabase.get("user", {}).get("id") if not requires_confirmation else None
 
         gitea = body.get("gitea", {})
-        if not gitea.get("success"):
-            fail(f"gitea provisioning failed: {gitea}")
-
-        if gitea.get("username") != supabase_user_id:
-            fail(
-                f"gitea username should match supabase user id: got {gitea.get('username')!r} "
-                f"expected {supabase_user_id!r}"
-            )
+        if not requires_confirmation:
+            if not supabase_user_id:
+                fail("supabase user created but no id returned")
+            if not gitea.get("success"):
+                fail(f"gitea provisioning failed: {gitea}")
+            if gitea.get("username") != supabase_user_id:
+                fail(
+                    f"gitea username should match supabase user id: got {gitea.get('username')!r} "
+                    f"expected {supabase_user_id!r}"
+                )
 
         print(
             json.dumps(
@@ -78,9 +80,10 @@ def main() -> None:
                     "test": "auth_signup",
                     "status": "ok",
                     "email": email,
+                    "requires_confirmation": requires_confirmation,
                     "supabase_user_id": supabase_user_id,
-                    "gitea_username": gitea.get("username"),
-                    "gitea_is_new": gitea.get("is_new"),
+                    "gitea_username": gitea.get("username") if not requires_confirmation else None,
+                    "gitea_is_new": gitea.get("is_new") if not requires_confirmation else None,
                 }
             )
         )
