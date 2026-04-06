@@ -12,6 +12,7 @@ import {
 } from "@/lib/utils/youtube";
 
 import WaveformSpinner from "@/components/WaveformSpinner";
+import AudioPlayer from "@/components/AudioPlayer";
 
 /** Filter out raw UUIDs that legacy users have as their Gitea username */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -321,9 +322,12 @@ export default function ExplorePage() {
                                                 </div>
                                             </div>
                                         ) : repo.audio_snippet ? (
-                                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-zinc-900/85 text-zinc-400">
-                                                <AudioLines className="w-10 h-10 text-glass-blue-400/80" />
-                                                <span className="text-xs font-medium text-zinc-500">Audio preview</span>
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/85"
+                                                onClick={(e) => e.preventDefault()}>
+                                                <AudioLines className="w-8 h-8 text-glass-blue-400/60" />
+                                                <div className="w-4/5">
+                                                    <AudioPlayer src={repo.audio_snippet} compact />
+                                                </div>
                                             </div>
                                         ) : (
                                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-zinc-600">

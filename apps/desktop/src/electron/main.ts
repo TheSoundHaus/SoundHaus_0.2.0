@@ -388,6 +388,110 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return pushResult;
 });
 
+// ── Commit history from local git log ──
+ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath: string) => {
+  const format = '--format=%H%n%h%n%s%n%an%n%aI'; // hash, shortHash, subject, author, ISO date
+  const result = await gitExec(['log', format, '--no-merges', '-100'], repoPath);
+  if (result.exitCode !== 0) return [];
+  const lines = result.stdout.trim().split('\n');
+  const commits: Array<{ hash: string; shortHash: string; subject: string; author: string; timestamp: string }> = [];
+  for (let i = 0; i + 4 < lines.length; i += 5) {
+    commits.push({
+      hash: lines[i],
+      shortHash: lines[i + 1],
+      subject: lines[i + 2],
+      author: lines[i + 3],
+      timestamp: lines[i + 4],
+    });
+  }
+  return commits;
+});
+
+// ── Per-commit diff: diff the committed ALS against its parent ──
+ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: string, commitHash: string, alsPath: string) => {
+  try {
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    // Get the snapshot at this commit
+    let currentSnapshot: string;
+    try {
+      const { stdout } = await gitExec(['show', `${commitHash}:${snapshotRelPath}`], repoPath, { maxBuffer: 20 * 1024 * 1024 });
+      currentSnapshot = stdout;
+    } catch {
+      return { ok: false, reason: 'No snapshot found for this commit' };
+    }
+
+    // Get the parent commit's snapshot (the "before" state)
+    let parentSnapshot = '{"schema_version":1,"tracks":[]}';
+    try {
+      const { stdout: parentSnap } = await gitExec(
+        ['show', `${commitHash}~1:${snapshotRelPath}`],
+        repoPath,
+        { maxBuffer: 20 * 1024 * 1024 }
+      );
+      parentSnapshot = parentSnap;
+    } catch { /* first commit — no parent, use empty baseline */ }
+
+    // Diff the two snapshots using the Rust semantic-differ
+    // diffFromSnapshot expects (beforeJson, alsPathOrAfterJson)
+    // For committed snapshots we write the "after" snapshot to a temp file
+    const tmpDir = path.join(repoPath, '.soundhaus', '.tmp');
+    await fs.promises.mkdir(tmpDir, { recursive: true });
+    const tmpFile = path.join(tmpDir, `diff-${commitHash.slice(0, 8)}.json`);
+    await fs.promises.writeFile(tmpFile, currentSnapshot, 'utf8');
+
+    let rawJson: string;
+    try {
+      rawJson = await diffFromSnapshot(parentSnapshot, tmpFile);
+    } finally {
+      fs.promises.unlink(tmpFile).catch(() => {});
+    }
+
+    const report = JSON.parse(rawJson);
+
+    // Build summary
+    const summaryLines: string[] = [];
+    for (const change of (report.changes || [])) {
+      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
+      let line = `${prefix}${change.type}: ${change.label}`;
+      if (change.from && change.to) line += ` (${change.from} → ${change.to})`;
+      summaryLines.push(line);
+    }
+
+    // Convert to NoteDiff format for the desktop PianoRollCanvas
+    const noteDiff = { tracks: [] as any[] };
+    for (const change of (report.changes || [])) {
+      if (change.type !== 'Track') continue;
+      const trackId = change.id || `track:${change.label}`;
+      const track = { trackId, trackName: change.label, added: [] as any[], removed: [] as any[], adjusted: [] as any[] };
+      for (const child of (change.children || [])) {
+        if (child.type !== 'Note') continue;
+        if (child.action === 'added' && child.to) {
+          try { const n = JSON.parse(child.to); track.added.push(n); } catch {}
+        } else if (child.action === 'removed' && child.from) {
+          try { const n = JSON.parse(child.from); track.removed.push(n); } catch {}
+        } else if (child.action === 'adjusted' && child.from && child.to) {
+          try { track.adjusted.push({ from: JSON.parse(child.from), to: JSON.parse(child.to) }); } catch {}
+        }
+      }
+      if (track.added.length || track.removed.length || track.adjusted.length) {
+        noteDiff.tracks.push(track);
+      }
+    }
+
+    return {
+      ok: true,
+      summary: summaryLines.join('\n'),
+      noteDiff,
+      report,
+    };
+  } catch (e: any) {
+    console.error('[get-commit-diff]', e);
+    return { ok: false, reason: e?.message || String(e) };
+  }
+});
+
 // TODO: Revamp file selection — the ALS session name is currently derived by auto-discovering
 // the first .als file in the project folder. In a future ticket, the user will select a
 // specific ALS file directly; all naming decisions (e.g. .soundhaus/{als_session_name}/)

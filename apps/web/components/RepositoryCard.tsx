@@ -184,7 +184,7 @@ export default function RepositoryCard({
   return (
     <Link
       href={`/repository/${id}`}
-      className="group relative block rounded-xl border border-zinc-800 p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] no-underline">
+      className="group relative block rounded-xl border border-white/[0.08] bg-[rgba(20,20,20,0.88)] backdrop-blur-xl p-6 transition-all duration-300 hover:border-glass-blue-500/40 hover:bg-[rgba(30,30,30,0.92)] hover:shadow-[0_0_20px_rgba(167,199,231,0.12)] no-underline">
 
       {/* Context menu (owner only) */}
       {isOwner && (
