@@ -1,368 +1,545 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { useUser } from "@/lib/context/UserContext";
-import { mockExploreRepos, type MockExploreRepository } from "@/lib/mockData/repositories";
+import { getPublicRepos } from "@/lib/api/repos";
+import type { PublicRepo } from "@/lib/types/api";
+import { Compass, TrendingUp, AudioLines, Music, Clock, X } from "lucide-react";
+import {
+    extractYouTubeVideoId,
+    youtubeThumbnailHq,
+} from "@/lib/utils/youtube";
 
-/**
- * Explore Page - GitHub-inspired three-column layout
- * Left: User profile card with starred repos
- * Center (50%): Repository feed with search and filters
- * Right: Trending repositories sidebar
- *
- * API Call: Get Top N Repos (returns array of repo overviews)
- * Currently using mock data from lib/mockData/repositories.ts
- */
+import WaveformSpinner from "@/components/WaveformSpinner";
+import AudioPlayer from "@/components/AudioPlayer";
+
+// ── Search History (localStorage) ────────────────────────────────────────────
+const SEARCH_HISTORY_KEY = "soundhaus_search_history";
+const MAX_HISTORY = 8;
+
+function getSearchHistory(): string[] {
+    try {
+        const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveSearchTerm(term: string): string[] {
+    const trimmed = term.trim();
+    if (trimmed.length < 2) return getSearchHistory();
+    const history = getSearchHistory().filter((h) => h !== trimmed);
+    history.unshift(trimmed);
+    const updated = history.slice(0, MAX_HISTORY);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated));
+    return updated;
+}
+
+function removeSearchTerm(term: string): string[] {
+    const history = getSearchHistory().filter((h) => h !== term);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+    return history;
+}
+
+function clearSearchHistory(): string[] {
+    localStorage.removeItem(SEARCH_HISTORY_KEY);
+    return [];
+}
+
+/** Filter out raw UUIDs that legacy users have as their Gitea username */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function ownerLabel(display?: string | null, username?: string | null, fallback?: string | null): string {
+    for (const v of [display, username, fallback]) {
+        if (v && !UUID_RE.test(v)) return v;
+    }
+    return 'SoundHaus User';
+}
+
 export default function ExplorePage() {
-  const { user, loading } = useUser();
-  const [sortBy, setSortBy] = useState<"top" | "recent" | "trending">("top");
-  const [searchQuery, setSearchQuery] = useState("");
+    const { user, loading } = useUser();
+    const [sortBy, setSortBy] = useState<"top" | "recent" | "trending">("top");
+    const [searchQuery, setSearchQuery] = useState("");
+    const [repos, setRepos] = useState<PublicRepo[]>([]);
+    const [reposLoading, setReposLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+    const [searchHistory, setSearchHistory] = useState<string[]>([]);
+    const [searchFocused, setSearchFocused] = useState(false);
+    const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Filter and sort repositories
-  const filteredAndSortedRepos = useMemo(() => {
-    let filtered = mockExploreRepos;
+    // Load search history from localStorage on mount
+    useEffect(() => {
+        setSearchHistory(getSearchHistory());
+    }, []);
 
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (repo) =>
-          repo.title.toLowerCase().includes(query) ||
-          repo.author.toLowerCase().includes(query)
-      );
-    }
+    // Save search on Enter key
+    const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter" && searchQuery.trim().length >= 2) {
+            setSearchHistory(saveSearchTerm(searchQuery));
+        }
+    }, [searchQuery]);
 
-    // Apply sorting
-    const sorted = [...filtered];
-    switch (sortBy) {
-      case "top":
-        sorted.sort((a, b) => (b.stats.stars || 0) - (a.stats.stars || 0));
-        break;
-      case "recent":
-        sorted.sort(
-          (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        );
-        break;
-      case "trending":
-        // Trending: combination of stars and recency
-        sorted.sort((a, b) => {
-          const aScore =
-            (a.stats.stars || 0) *
-            (1 + 1 / (Date.now() - new Date(a.updatedAt).getTime()));
-          const bScore =
-            (b.stats.stars || 0) *
-            (1 + 1 / (Date.now() - new Date(b.updatedAt).getTime()));
-          return bScore - aScore;
-        });
-        break;
-    }
+    // Idle timer: save after 1.5s of no typing
+    useEffect(() => {
+        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        if (searchQuery.trim().length >= 2) {
+            idleTimerRef.current = setTimeout(() => {
+                setSearchHistory(saveSearchTerm(searchQuery));
+            }, 1500);
+        }
+        return () => {
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        };
+    }, [searchQuery]);
 
-    return sorted;
-  }, [sortBy, searchQuery]);
+    // Collect all unique genres from loaded repos for the filter pills
+    const allGenres = useMemo(() => {
+        const set = new Set<string>();
+        repos.forEach((r) => r.genres?.forEach((g) => set.add(g)));
+        return Array.from(set).sort();
+    }, [repos]);
 
-  // Get top 5 trending repos (by stars)
-  const trendingRepos = useMemo(() => {
-    return [...mockExploreRepos]
-      .sort((a, b) => (b.stats.stars || 0) - (a.stats.stars || 0))
-      .slice(0, 5);
-  }, []);
+    useEffect(() => {
+        let cancelled = false;
+        async function fetchRepos() {
+            setReposLoading(true);
+            setError(null);
+            const result = await getPublicRepos();
+            if (cancelled) return;
+            if (result.success) {
+                setRepos(result.data);
+            } else {
+                setError(result.error);
+            }
+            setReposLoading(false);
+        }
+        fetchRepos();
+        return () => { cancelled = true; };
+    }, []);
 
-  // Format relative time
-  const formatRelativeTime = (isoString: string): string => {
-    const now = new Date();
-    const date = new Date(isoString);
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const filteredAndSortedRepos = useMemo(() => {
+        let filtered = repos;
 
-    if (diffDays === 0) return "today";
-    if (diffDays === 1) return "yesterday";
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-    return `${Math.floor(diffDays / 365)} years ago`;
-  };
+        // Genre tag filter
+        if (selectedGenres.length > 0) {
+            filtered = filtered.filter((repo) =>
+                selectedGenres.every((g) => repo.genres?.includes(g))
+            );
+        }
 
-  // Calculate starred repos count (placeholder - would come from API)
-  const starredCount = 24; // TODO: Implement actual starred repos tracking
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter((repo) => {
+                const dn = (repo.owner_display_name || "").toLowerCase();
+                const un = (repo.owner_username || "").toLowerCase();
+                return (
+                    repo.repo_name.toLowerCase().includes(query) ||
+                    repo.owner.toLowerCase().includes(query) ||
+                    dn.includes(query) ||
+                    un.includes(query)
+                );
+            });
+        }
+        const sorted = [...filtered];
+        switch (sortBy) {
+            case "top":
+                sorted.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
+                break;
+            case "recent":
+                sorted.sort(
+                    (a, b) =>
+                        new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime()
+                );
+                break;
+            case "trending":
+                sorted.sort((a, b) => {
+                    const aScore =
+                        (a.stars ?? 0) *
+                        (1 + 1 / (Date.now() - new Date(a.updated_at ?? 0).getTime()));
+                    const bScore =
+                        (b.stars ?? 0) *
+                        (1 + 1 / (Date.now() - new Date(b.updated_at ?? 0).getTime()));
+                    return bScore - aScore;
+                });
+                break;
+        }
+        return sorted;
+    }, [repos, sortBy, searchQuery, selectedGenres]);
 
-  return (
-    <main className="mx-auto max-w-[1400px] px-6 py-8">
-      {/* Three-column grid layout */}
-      <div className="grid grid-cols-1 md:grid-cols-[20%_60%_20%] lg:grid-cols-[25%_50%_25%] gap-6">
-        {/* LEFT SIDEBAR: Profile Card */}
-        <aside className="lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)]">
-          <div className="rounded-lg border border-zinc-800/60 bg-gradient-to-br from-zinc-900/90 to-zinc-900/50 p-6 backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-            {loading ? (
-              <div className="flex flex-col items-center space-y-4 animate-pulse">
-                <div className="w-20 h-20 rounded-full bg-zinc-800"></div>
-                <div className="h-4 w-32 bg-zinc-800 rounded"></div>
-                <div className="h-3 w-40 bg-zinc-800 rounded"></div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center text-center space-y-4">
-                {/* Avatar with electric glow ring */}
-                <div className="relative group">
-                  <div className="absolute inset-0 rounded-full bg-gradient-to-br from-glass-blue-500/20 via-glass-cyan-500/20 to-glass-blue-400/20 blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-                  <div className="relative w-20 h-20 rounded-full overflow-hidden ring-2 ring-glass-blue-500/30 ring-offset-2 ring-offset-zinc-900">
-                    {user?.avatar_url ? (
-                      <img
-                        src={user.avatar_url}
-                        alt={user.username}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-glass-blue-600 to-glass-blue-700 flex items-center justify-center">
-                        <span className="text-2xl font-bold text-white">
-                          {user?.username?.[0]?.toUpperCase() || "?"}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+    const trendingRepos = useMemo(() => {
+        return [...repos]
+            .sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0))
+            .slice(0, 5);
+    }, [repos]);
 
-                {/* Username */}
-                <h2 className="text-lg font-semibold tracking-wide bg-gradient-to-r from-zinc-100 to-zinc-300 bg-clip-text text-transparent">
-                  {user?.username || "Guest"}
-                </h2>
+    const formatRelativeTime = (isoString: string): string => {
+        const now = new Date();
+        const date = new Date(isoString);
+        const diffMs = now.getTime() - date.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        if (diffDays === 0) return "today";
+        if (diffDays === 1) return "yesterday";
+        if (diffDays < 7) return `${diffDays} days ago`;
+        if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+        if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+        return `${Math.floor(diffDays / 365)} years ago`;
+    };
 
-                {/* Starred count */}
-                <div className="flex items-center gap-2 text-sm text-zinc-400">
-                  <svg
-                    className="w-4 h-4 text-glass-cyan-500"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                  <span className="font-medium">{starredCount}</span>
-                  <span>starred</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {/* CENTER COLUMN: Repository Feed */}
-        <section className="space-y-6">
-          {/* Search and Filters */}
-          <div className="space-y-4">
-            {/* Search bar */}
-            <div className="relative">
-              <input
-                type="search"
-                placeholder="Search projects..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700/50 bg-zinc-900/50 backdrop-blur-sm px-4 py-2.5 pl-10 text-sm placeholder:text-zinc-500 focus:border-glass-blue-500/50 focus:ring-2 focus:ring-glass-blue-500/20 focus:outline-none transition-all duration-300"
-              />
-              <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
+    return (
+        <div className="relative mx-auto max-w-[1400px] px-6 py-12">
+            {/* Page Header */}
+            <div className="mb-10 animate-fade-in-up">
+                <h1 className="mb-2 text-4xl font-bold tracking-tight">
+                    Explore
+                </h1>
+                <p className="text-lg text-zinc-400">
+                    Discover public Ableton projects from the community
+                </p>
             </div>
 
-            {/* Filter buttons */}
-            <div className="flex gap-2">
-              {(
-                [
-                  { key: "top", label: "Top Rated" },
-                  { key: "recent", label: "Recent" },
-                  { key: "trending", label: "Trending" },
-                ] as const
-              ).map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setSortBy(key)}
-                  className={`relative px-4 py-2 text-sm font-medium rounded-md transition-all duration-300 ${
-                    sortBy === key
-                      ? "bg-glass-blue-500 text-white shadow-lg shadow-glass-blue-500/50"
-                      : "bg-zinc-800/50 text-zinc-300 hover:bg-zinc-700/50 hover:text-zinc-100"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+            {/* Three-column grid */}
+            <div className="grid grid-cols-1 md:grid-cols-[20%_1fr_20%] lg:grid-cols-[22%_1fr_22%] gap-8">
 
-          {/* Repository Cards */}
-          <div className="space-y-4">
-            {filteredAndSortedRepos.length === 0 ? (
-              <div className="text-center py-12 text-zinc-500">
-                <svg
-                  className="w-12 h-12 mx-auto mb-4 text-zinc-700"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <p className="text-lg">No projects found</p>
-                <p className="text-sm mt-1">Try adjusting your search</p>
-              </div>
-            ) : (
-              filteredAndSortedRepos.map((repo) => (
-                <article
-                  key={repo.id}
-                  className="group relative rounded-lg border border-zinc-800/60 bg-gradient-to-br from-zinc-900/90 to-zinc-900/50 overflow-hidden backdrop-blur-sm transition-all duration-500 hover:border-glass-blue-500/40 hover:bg-zinc-800/50 hover:shadow-[0_0_40px_rgba(167,199,231,0.15)] cursor-pointer"
-                >
-                  {/* Thumbnail */}
-                  <div className="relative h-48 overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-black">
-                    {/* Waveform-inspired pattern overlay */}
-                    <div className="absolute inset-0 opacity-30">
-                      <svg
-                        className="w-full h-full"
-                        viewBox="0 0 400 200"
-                        preserveAspectRatio="none"
-                      >
-                        <path
-                          d="M0 100 Q100 50 200 100 T400 100"
-                          fill="none"
-                          stroke="url(#waveGradient)"
-                          strokeWidth="2"
-                        />
-                        <path
-                          d="M0 100 Q100 150 200 100 T400 100"
-                          fill="none"
-                          stroke="url(#waveGradient)"
-                          strokeWidth="2"
-                        />
-                        <defs>
-                          <linearGradient
-                            id="waveGradient"
-                            x1="0%"
-                            y1="0%"
-                            x2="100%"
-                            y2="0%"
-                          >
-                            <stop offset="0%" stopColor="#A7C7E7" />
-                            <stop offset="100%" stopColor="#7099C3" />
-                          </linearGradient>
-                        </defs>
-                      </svg>
+                {/* LEFT SIDEBAR: Profile Card */}
+                <aside className="lg:sticky lg:top-6 lg:self-start">
+                    <div className="glass-card rounded-xl p-6 animate-fade-in-up delay-100">
+                        {loading ? (
+                            <div className="flex flex-col items-center space-y-4 animate-pulse">
+                                <div className="w-20 h-20 rounded-full bg-zinc-800" />
+                                <div className="h-4 w-32 bg-zinc-800 rounded" />
+                                <div className="h-3 w-40 bg-zinc-800 rounded" />
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center text-center space-y-4">
+                                <div className="relative group">
+                                    <div className="absolute -inset-2 rounded-full bg-gradient-to-br from-glass-blue-500/10 to-glass-blue-400/5 blur-xl opacity-50 group-hover:opacity-100 transition-opacity duration-500" />
+                                    <div className="relative w-20 h-20 rounded-full overflow-hidden ring-2 ring-zinc-700 ring-offset-2 ring-offset-zinc-900">
+                                        {user?.avatar_url ? (
+                                            <img
+                                                src={user.avatar_url}
+                                                alt={user.username}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full bg-gradient-to-br from-glass-blue-500 to-glass-blue-600 flex items-center justify-center">
+                                                <span className="text-2xl font-bold text-white">
+                                                    {user?.username?.[0]?.toUpperCase() || "?"}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <h2 className="text-lg font-semibold text-zinc-100">
+                                    {user?.display_name || user?.username || "Guest"}
+                                </h2>
+                                <div className="flex items-center gap-2 text-sm text-zinc-400">
+                                    <svg className="w-4 h-4 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                    </svg>
+                                    <span className="font-medium text-glass-cyan-500">0</span>
+                                    <span>starred</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    {/* Electric glow texture */}
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(167,199,231,0.1),transparent_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                  </div>
+                </aside>
 
-                  {/* Content */}
-                  <div className="p-5 space-y-3">
-                    {/* Title */}
-                    <h3 className="text-lg font-semibold text-zinc-100 group-hover:text-glass-blue-400 transition-all duration-300">
-                      {repo.title}
-                    </h3>
+                {/* CENTER COLUMN: Repository Feed */}
+                <section className="space-y-6">
+                    {/* Search and Filters */}
+                    <div className="space-y-4">
+                        <div className="relative">
+                            <input
+                                type="search"
+                                placeholder="Search projects..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={handleSearchKeyDown}
+                                onFocus={() => setSearchFocused(true)}
+                                onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+                                className="glass-card w-full rounded-lg px-4 py-3 pl-10 text-sm text-zinc-100 placeholder:text-zinc-400 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all duration-300"
+                            />
+                            <svg
+                                className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
 
-                    {/* Author and timestamp */}
-                    <p className="text-sm text-zinc-400">
-                      <span className="font-medium text-zinc-300">
-                        {repo.author}
-                      </span>
-                      <span className="mx-2">•</span>
-                      <span>Updated {formatRelativeTime(repo.updatedAt)}</span>
-                    </p>
+                        {/* Recent Search History */}
+                        {searchFocused && !searchQuery && searchHistory.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 animate-fade-in-up">
+                                <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                                {searchHistory.map((term) => (
+                                    <button
+                                        key={term}
+                                        className="group/pill flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800/50 px-3 py-1 text-xs text-zinc-300 hover:border-glass-blue-500/40 hover:text-glass-blue-300 transition-all duration-200 cursor-pointer"
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            setSearchQuery(term);
+                                        }}
+                                    >
+                                        {term}
+                                        <span
+                                            className="opacity-0 group-hover/pill:opacity-100 transition-opacity duration-150"
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setSearchHistory(removeSearchTerm(term));
+                                            }}
+                                        >
+                                            <X className="w-3 h-3 text-zinc-500 hover:text-zinc-200" />
+                                        </span>
+                                    </button>
+                                ))}
+                                <button
+                                    className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-200 cursor-pointer"
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setSearchHistory(clearSearchHistory());
+                                    }}
+                                >
+                                    Clear all
+                                </button>
+                            </div>
+                        )}
+                        <div className="flex gap-2">
+                            {([
+                                { key: "top", label: "Top Rated" },
+                                { key: "recent", label: "Recent" },
+                                { key: "trending", label: "Trending" },
+                            ] as const).map(({ key, label }) => (
+                                <button
+                                    key={key}
+                                    onClick={() => setSortBy(key)}
+                                    className={`rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 ${
+                                        sortBy === key
+                                            ? "btn btn-primary"
+                                            : "bg-zinc-800 hover:bg-zinc-700 text-zinc-100"
+                                    }`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
 
-                    {/* Stats */}
-                    <div className="flex gap-4 text-sm">
-                      <span className="flex items-center gap-1.5 text-glass-cyan-500">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                        </svg>
-                        {repo.stats.stars || 0}
-                      </span>
-                      <span className="flex items-center gap-1.5 text-glass-blue-400">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" />
-                        </svg>
-                        {repo.stats.tracks} tracks
-                      </span>
-                      <span className="flex items-center gap-1.5 text-zinc-400">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
-                        </svg>
-                        {repo.stats.collaborators}
-                      </span>
+                        {/* Genre tag filters */}
+                        {allGenres.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {allGenres.map((genre) => {
+                                    const active = selectedGenres.includes(genre);
+                                    return (
+                                        <button
+                                            key={genre}
+                                            onClick={() =>
+                                                setSelectedGenres((prev) =>
+                                                    active ? prev.filter((g) => g !== genre) : [...prev, genre]
+                                                )
+                                            }
+                                            className={`rounded-full px-3 py-1 text-xs font-medium border transition-all duration-200 ${
+                                                active
+                                                    ? "border-glass-blue-500 bg-glass-blue-500/20 text-glass-blue-300"
+                                                    : "border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300"
+                                            }`}
+                                        >
+                                            {genre}
+                                        </button>
+                                    );
+                                })}
+                                {selectedGenres.length > 0 && (
+                                    <button
+                                        onClick={() => setSelectedGenres([])}
+                                        className="rounded-full px-3 py-1 text-xs font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
+                                    >
+                                        Clear filters
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-        </section>
 
-        {/* RIGHT SIDEBAR: Trending */}
-        <aside className="lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-          <div className="rounded-lg border border-zinc-800/60 bg-gradient-to-br from-zinc-900/90 to-zinc-900/50 p-4 backdrop-blur-sm shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-            {/* Header with trending icon */}
-            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-zinc-800/60">
-              <svg
-                className="w-5 h-5 text-glass-blue-500"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <h2 className="text-lg font-semibold text-glass-blue-400">
-                Trending
-              </h2>
-            </div>
+                    {/* Repository Cards */}
+                    <div className="space-y-5">
+                        {reposLoading ? (
+                            <div className="flex flex-col items-center justify-center py-20">
+                                <WaveformSpinner size="lg" bars={7} label="Discovering projects..." />
+                            </div>
+                        ) : error ? (
+                            <div className="text-center py-16">
+                                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-zinc-800/60 border border-zinc-700/50 backdrop-blur-sm flex items-center justify-center">
+                                    <svg className="w-6 h-6 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                    </svg>
+                                </div>
+                                <p className="text-sm text-zinc-400">Failed to load projects</p>
+                                <p className="text-xs mt-1 text-zinc-500">{error}</p>
+                            </div>
+                        ) : filteredAndSortedRepos.length === 0 ? (
+                            <div className="text-center py-16">
+                                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-zinc-800/60 border border-zinc-700/50 backdrop-blur-sm flex items-center justify-center">
+                                    <Compass className="w-6 h-6 text-zinc-500" />
+                                </div>
+                                <p className="text-sm text-zinc-400">No projects found</p>
+                                <p className="text-xs mt-1 text-zinc-500">Try adjusting your search</p>
+                            </div>
+                        ) : (
+                            filteredAndSortedRepos.map((repo) => {
+                                const ytId =
+                                    repo.thumbnail_type === "youtube" && repo.thumbnail_url
+                                        ? extractYouTubeVideoId(repo.thumbnail_url)
+                                        : null;
+                                const ownerShown = ownerLabel(
+                                    repo.owner_display_name,
+                                    repo.owner_username,
+                                    repo.owner,
+                                );
+                                return (
+                                <Link
+                                    key={repo.gitea_id}
+                                    href={`/explore/${repo.owner}/${repo.repo_name}`}
+                                    className="group block glass-card rounded-xl overflow-hidden transition-all duration-300 hover:border-glass-blue-500/40 hover:shadow-[0_0_24px_rgba(167,199,231,0.15)] no-underline animate-fade-in-up"
+                                >
+                                    {/* Thumbnail: image, YouTube still (hqdefault), audio hint, or placeholder */}
+                                    <div className="relative h-48 overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-800/80 to-zinc-900">
+                                        {repo.thumbnail_url && repo.thumbnail_type === "image" ? (
+                                            <img
+                                                src={repo.thumbnail_url}
+                                                alt={repo.repo_name}
+                                                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                            />
+                                        ) : ytId ? (
+                                            <div className="relative w-full h-full">
+                                                <img
+                                                    src={youtubeThumbnailHq(ytId)}
+                                                    alt=""
+                                                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                                />
+                                                {/* Play overlay */}
+                                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity duration-300 group-hover:bg-black/10">
+                                                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 backdrop-blur-md border border-white/20 shadow-lg shadow-black/20 transition-all duration-300 group-hover:scale-110 group-hover:bg-white/15">
+                                                        <svg viewBox="0 0 24 24" fill="white" className="w-4.5 h-4.5 ml-0.5 drop-shadow-sm"><path d="M8 5v14l11-7z"/></svg>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : repo.audio_snippet ? (
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/85"
+                                                onClick={(e) => e.preventDefault()}>
+                                                <AudioLines className="w-8 h-8 text-glass-blue-400/60" />
+                                                <div className="w-4/5">
+                                                    <AudioPlayer src={repo.audio_snippet} compact />
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-zinc-600">
+                                                <Music className="w-12 h-12 opacity-40" />
+                                                <div className="absolute inset-x-6 bottom-4 flex items-end justify-center gap-[1px] opacity-20">
+                                                    {Array.from({ length: 40 }).map((_, i) => {
+                                                        const h = 15 + Math.sin(i * 0.35 + (repo.stars ?? 0)) * 28 + Math.cos(i * 0.8) * 18;
+                                                        return (
+                                                            <div
+                                                                key={i}
+                                                                className="flex-1 rounded-t-sm bg-glass-blue-400"
+                                                                style={{ height: `${Math.max(h, 8)}%` }}
+                                                            />
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
 
-            {/* Trending list */}
-            <div className="space-y-3">
-              {trendingRepos.map((repo, index) => (
-                <div
-                  key={repo.id}
-                  className="group pb-3 border-b border-zinc-800/40 last:border-0 last:pb-0 hover:bg-zinc-800/30 cursor-pointer rounded px-2 -mx-2 py-2 transition-all duration-300"
-                >
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs font-bold text-zinc-600 mt-0.5 min-w-[1.5rem]">
-                      {index + 1}.
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-medium text-zinc-200 group-hover:text-glass-blue-400 transition-colors truncate">
-                        {repo.title}
-                      </h3>
-                      <p className="text-xs text-zinc-500 mt-1">
-                        @{repo.author}
-                      </p>
-                      <div className="flex items-center gap-1 mt-1.5">
-                        <svg
-                          className="w-3 h-3 text-glass-cyan-500"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                        </svg>
-                        <span className="text-xs font-medium text-glass-cyan-500">
-                          {repo.stats.stars}
-                        </span>
-                      </div>
+                                    {/* Content */}
+                                    <div className="p-5 space-y-3">
+                                        <h3 className="text-lg font-semibold text-zinc-100 group-hover:text-glass-blue-400 transition-colors duration-300">
+                                            {repo.repo_name}
+                                        </h3>
+                                        <p className="text-sm text-zinc-400">
+                                            <span className="font-medium text-zinc-300">{ownerShown}</span>
+                                            {repo.updated_at && (
+                                                <>
+                                                    <span className="mx-2 text-zinc-600">&middot;</span>
+                                                    <span>Updated {formatRelativeTime(repo.updated_at)}</span>
+                                                </>
+                                            )}
+                                        </p>
+                                        {repo.genres.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {repo.genres.map((genre) => (
+                                                    <span key={genre} className="text-[10px] text-glass-blue-400 bg-zinc-800/60 rounded-full px-2 py-0.5 border border-zinc-700/50 backdrop-blur-sm">
+                                                        {genre}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="flex gap-4 text-sm text-glass-cyan-500">
+                                            <span className="flex items-center gap-1.5">
+                                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                                </svg>
+                                                {repo.stars ?? 0}
+                                            </span>
+                                            <span className="flex items-center gap-1.5 text-zinc-400">
+                                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
+                                                </svg>
+                                                {repo.clone_count} clones
+                                            </span>
+                                            {repo.audio_snippet && (
+                                                <span className="flex items-center gap-1.5 text-zinc-400">
+                                                    <AudioLines className="w-3.5 h-3.5" />
+                                                    Audio
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </Link>
+                            );
+                            })
+                        )}
                     </div>
-                  </div>
-                </div>
-              ))}
+                </section>
+
+                {/* RIGHT SIDEBAR: Trending */}
+                <aside className="lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
+                    <div className="glass-card rounded-xl p-5 transition-all duration-300 hover:border-glass-blue-500/40 hover:shadow-[0_0_24px_rgba(167,199,231,0.15)]">
+                        <div className="flex items-center gap-2 mb-5 pb-3 border-b border-zinc-800">
+                            <TrendingUp className="w-4 h-4 text-glass-blue-400" />
+                            <h2 className="text-sm font-semibold text-glass-blue-400 tracking-wide">Trending</h2>
+                        </div>
+                        <div className="space-y-1">
+                            {trendingRepos.map((repo, index) => (
+                                <Link
+                                    key={repo.gitea_id}
+                                    href={`/explore/${repo.owner}/${repo.repo_name}`}
+                                    className="group flex items-start gap-2.5 rounded-lg px-2 py-2.5 -mx-2 transition-colors hover:bg-zinc-800/50 no-underline"
+                                >
+                                    <span className="text-xs font-bold text-zinc-600 mt-0.5 min-w-[1.25rem]">
+                                        {index + 1}.
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="text-sm font-medium text-zinc-300 group-hover:text-glass-blue-400 transition-colors truncate">
+                                            {repo.repo_name}
+                                        </h3>
+                                        <p className="text-xs text-zinc-500 mt-0.5">
+                                            {ownerLabel(repo.owner_display_name, repo.owner_username, repo.owner)}
+                                        </p>
+                                        <div className="flex items-center gap-1 mt-1">
+                                            <svg className="w-3 h-3 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                            </svg>
+                                            <span className="text-xs font-medium text-glass-cyan-500">{repo.stars ?? 0}</span>
+                                        </div>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    </div>
+
+                </aside>
             </div>
-          </div>
-        </aside>
-      </div>
-    </main>
-  );
+        </div>
+    );
 }
