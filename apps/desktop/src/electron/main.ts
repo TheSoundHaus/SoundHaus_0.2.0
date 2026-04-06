@@ -349,12 +349,16 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 
     // Auto-register repo in SoundHaus DB (idempotent — handles repos created before registration was fixed)
     try {
-      await fetch(`${desktopEnv.supabasePublicUrl}/repos/register`, {
+      const regRes = await fetch(`${desktopEnv.supabasePublicUrl}/repos/register`, {
         method: 'POST',
         headers: { 'Authorization': `token ${pat}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: repo, description: '', private: false }),
       });
-    } catch { /* non-fatal */ }
+      const regBody = await regRes.text().catch(() => '');
+      console.log(`[push-repo] Register response (${regRes.status}): ${regBody.slice(0, 200)}`);
+    } catch (regErr: any) {
+      console.warn('[push-repo] Register request failed (non-fatal):', regErr?.message || String(regErr));
+    }
 
     // Upload diff
     const diffPayload = {

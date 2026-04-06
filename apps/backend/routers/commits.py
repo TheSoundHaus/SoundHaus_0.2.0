@@ -13,6 +13,7 @@ from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
 from models.repo_models import RepoData
 from models.profile_models import Profile
+from sqlalchemy.exc import IntegrityError
 
 logger = get_logger(__name__)
 
@@ -192,10 +193,27 @@ async def post_als_diff(
 
     repo_id = f"{owner}/{repo}"
 
-    # Verify repo exists
+    # Verify repo exists — auto-create the row if it's missing (the push already
+    # succeeded on Gitea, so the repo is real even if registration was skipped)
     repo_row = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_row:
-        raise HTTPException(status_code=404, detail=f"Repository {repo_id} not found")
+        user_id = user_info["user_id"]
+        try:
+            repo_row = RepoData(
+                gitea_id=repo_id,
+                audio_snippet=None,
+                clone_count=0,
+                owner_id=user_id,
+            )
+            db.add(repo_row)
+            db.commit()
+            db.refresh(repo_row)
+            logger.info("auto_created_repo_for_diff", repo_id=repo_id, user_id=user_id)
+        except IntegrityError:
+            db.rollback()
+            repo_row = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+        if not repo_row:
+            raise HTTPException(status_code=404, detail=f"Repository {repo_id} not found")
 
     # Upsert: check if diff already exists for this SHA
     existing = (

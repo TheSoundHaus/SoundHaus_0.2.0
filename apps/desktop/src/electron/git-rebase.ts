@@ -30,15 +30,50 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
 
   try {
     // Detect the tracking branch (e.g. origin/main or origin/master)
+    let remoteBranch: string | undefined;
+
+    // 1st try: upstream tracking ref (set by push -u)
     const upstreamResult = await exec(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], repoPath);
-    let remoteBranch = 'origin/main';
     if (upstreamResult.exitCode === 0 && upstreamResult.stdout.trim()) {
       remoteBranch = upstreamResult.stdout.trim();
-    } else {
-      // Fallback: detect the local branch name
+    }
+
+    // 2nd try: local HEAD branch name
+    if (!remoteBranch) {
       const branchResult = await exec(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
-      const localBranch = branchResult.exitCode === 0 ? branchResult.stdout.trim() : 'main';
-      remoteBranch = `origin/${localBranch}`;
+      if (branchResult.exitCode === 0 && branchResult.stdout.trim() && branchResult.stdout.trim() !== 'HEAD') {
+        remoteBranch = `origin/${branchResult.stdout.trim()}`;
+      }
+    }
+
+    // 3rd try: ask the remote what its default branch is via ls-remote
+    if (!remoteBranch) {
+      const lsRemote = await exec(['ls-remote', '--symref', 'origin', 'HEAD'], repoPath);
+      if (lsRemote.exitCode === 0 && lsRemote.stdout) {
+        // Output looks like: "ref: refs/heads/main\tHEAD\n..."
+        const symMatch = lsRemote.stdout.match(/ref:\s+refs\/heads\/(\S+)/);
+        if (symMatch) {
+          remoteBranch = `origin/${symMatch[1]}`;
+        }
+      }
+    }
+
+    // 4th try: pick the first branch listed on the remote
+    if (!remoteBranch) {
+      const lsHeads = await exec(['ls-remote', '--heads', 'origin'], repoPath);
+      if (lsHeads.exitCode === 0 && lsHeads.stdout.trim()) {
+        const firstRef = lsHeads.stdout.trim().split('\n')[0];
+        const refMatch = firstRef.match(/refs\/heads\/(\S+)/);
+        if (refMatch) {
+          remoteBranch = `origin/${refMatch[1]}`;
+        }
+      }
+    }
+
+    // If we still have nothing, the remote is completely empty — nothing to pull
+    if (!remoteBranch) {
+      console.log('[Rebase] No local HEAD and no remote branches — nothing to pull');
+      return { success: true };
     }
 
     // Extract just the branch name for fetch (e.g. 'main' from 'origin/main')
