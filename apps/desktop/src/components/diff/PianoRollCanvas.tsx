@@ -176,6 +176,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                     ...track.added,
                     ...track.removed,
                     ...track.adjusted.flatMap((pair) => [pair.from, pair.to]),
+                    ...(track.unchanged ?? []),
                 ];
 
                 if (allTrackNotes.length === 0) return null;
@@ -305,6 +306,15 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                     );
                                 })}
 
+                                {/* Unchanged notes — gray, rendered behind everything */}
+                                {(track.unchanged ?? []).map((note, i) => {
+                                    const noteKey = `${track.trackId}:unchanged:${i}`;
+                                    return renderRect(note, 'rgba(140,140,150,0.3)', noteKey, {
+                                        noteKey,
+                                        opacity: 0.35,
+                                    });
+                                })}
+
                                 {adjustedPairs.map((pair) => {
                                     const samePitch = pair.from.pitch === pair.to.pitch;
                                     const label = getPairLabel(pair.from, pair.to);
@@ -328,16 +338,16 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                 <>
                                                     {renderRect(pair.from, 'none', `${pair.pairKey}-from-outline`, {
                                                         opacity: 1,
-                                                        stroke: '#f59e0b',
+                                                        stroke: 'rgba(140,140,150,0.5)',
                                                         strokeWidth: active ? 2.5 : 1.5,
                                                         dash: '5 3',
                                                         cursor: 'pointer',
                                                         title: label,
                                                         ...handlers,
                                                     })}
-                                                    {renderRect(pair.to, '#A7C7E7', `${pair.pairKey}-to-solid`, {
+                                                    {renderRect(pair.to, '#3b82f6', `${pair.pairKey}-to-solid`, {
                                                         opacity: active ? 1 : 0.92,
-                                                        stroke: active ? 'rgba(167,199,231,0.6)' : 'transparent',
+                                                        stroke: active ? 'rgba(59,130,246,0.6)' : 'transparent',
                                                         strokeWidth: active ? 2 : 0,
                                                         cursor: 'pointer',
                                                         title: label,
@@ -349,7 +359,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                             y={yForPitch(pair.to.pitch) - noteHeight}
                                                             width={deltaWidth}
                                                             height={noteHeight}
-                                                            fill="#60a5fa"
+                                                            fill="#3b82f6"
                                                             opacity={0.95}
                                                             rx={2}
                                                         />
@@ -360,7 +370,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                             y={yForPitch(pair.from.pitch) - noteHeight}
                                                             width={deltaWidth}
                                                             height={noteHeight}
-                                                            fill="#f59e0b"
+                                                            fill="rgba(140,140,150,0.5)"
                                                             opacity={0.45}
                                                             rx={2}
                                                         />
@@ -368,17 +378,17 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                                 </>
                                             ) : (
                                                 <>
-                                                    {renderRect(pair.from, '#f59e0b', `${pair.pairKey}-from`, {
+                                                    {renderRect(pair.from, 'rgba(140,140,150,0.5)', `${pair.pairKey}-from`, {
                                                         opacity: active ? 0.95 : 0.72,
-                                                        stroke: active ? 'rgba(167,199,231,0.6)' : 'transparent',
+                                                        stroke: active ? 'rgba(59,130,246,0.6)' : 'transparent',
                                                         strokeWidth: active ? 2 : 0,
                                                         cursor: 'pointer',
                                                         title: label,
                                                         ...handlers,
                                                     })}
-                                                    {renderRect(pair.to, '#A7C7E7', `${pair.pairKey}-to`, {
+                                                    {renderRect(pair.to, '#3b82f6', `${pair.pairKey}-to`, {
                                                         opacity: active ? 1 : 0.92,
-                                                        stroke: active ? 'rgba(167,199,231,0.6)' : 'transparent',
+                                                        stroke: active ? 'rgba(59,130,246,0.6)' : 'transparent',
                                                         strokeWidth: active ? 2 : 0,
                                                         cursor: 'pointer',
                                                         title: label,

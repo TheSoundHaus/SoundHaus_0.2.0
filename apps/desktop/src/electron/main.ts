@@ -127,6 +127,7 @@ type TrackNoteDiff = {
   added: SnapshotNote[];
   removed: SnapshotNote[];
   adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
+  unchanged?: SnapshotNote[];
 };
 
 type GroupedNoteDiff = {
@@ -646,6 +647,57 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
     }
     const projectDiff = changesToProjectDiff(report, summaryLines.join('\n'));
 
+    // Inject unchanged notes from the snapshot into the projectDiff so
+    // the web piano roll can render the full track context.
+    try {
+      const snapshotPath = path.join(repoPath, '.soundhaus', sessionName, 'snapshot.json');
+      const snapRaw = await fs.promises.readFile(snapshotPath, 'utf8');
+      const snapshot = JSON.parse(snapRaw);
+      if (Array.isArray(snapshot?.tracks)) {
+        for (const diffTrack of projectDiff.tracks) {
+          const snapTrack = snapshot.tracks.find((st: any) => st.id === diffTrack.trackId);
+          if (!snapTrack?.clips?.length || !diffTrack.midiClips?.length) continue;
+          const clip = diffTrack.midiClips[0];
+
+          // Build signature set from changed notes (camelCase keys for ProjectDiff format)
+          const changedSet = new Set<string>();
+          for (const n of clip.addedNotes) {
+            changedSet.add(`${n.pitch}:${n.startBeat}:${n.durationBeats}:${n.velocity}`);
+          }
+          for (const m of clip.modifiedNotes) {
+            changedSet.add(`${m.after.pitch}:${m.after.startBeat}:${m.after.durationBeats}:${m.after.velocity}`);
+          }
+
+          // Collect unchanged = snapshot notes NOT in added/modified (convert snake_case → camelCase)
+          const unchanged: { pitch: number; startBeat: number; durationBeats: number; velocity: number }[] = [];
+          for (const snapClip of snapTrack.clips) {
+            if (!Array.isArray(snapClip.midi_notes)) continue;
+            for (const n of snapClip.midi_notes) {
+              const vel = typeof n.velocity === 'number' ? n.velocity : 100;
+              const sig = `${n.pitch}:${n.start_beat}:${n.duration_beats}:${vel}`;
+              if (!changedSet.has(sig)) {
+                unchanged.push({
+                  pitch: n.pitch,
+                  startBeat: n.start_beat,
+                  durationBeats: n.duration_beats,
+                  velocity: vel,
+                });
+              }
+            }
+          }
+
+          if (unchanged.length > 0) {
+            clip.unchangedNotes = unchanged;
+            for (const n of unchanged) {
+              clip.endBeat = Math.max(clip.endBeat, n.startBeat + n.durationBeats);
+            }
+          }
+        }
+      }
+    } catch (unchErr: any) {
+      console.warn('[push-repo] Failed to inject unchanged notes (non-fatal):', unchErr?.message || String(unchErr));
+    }
+
     // Get owner/repo from git remote
     const remoteResult = await gitExec(['remote', 'get-url', 'origin'], repoPath);
     const remoteUrl = remoteResult.stdout.trim();
@@ -871,6 +923,52 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
           .filter((id: string | null): id is string => id !== null)
       : [];
     const noteDiff = extractNoteDiffFromChanges(report.changes || [], trackOrder);
+
+    // Inject unchanged notes from the current snapshot so the piano roll
+    // can render the full track context (not just the diff).
+    try {
+      const currentSnapshotObj = JSON.parse(currentSnapshot);
+      if (Array.isArray(currentSnapshotObj?.tracks)) {
+        for (const trackDiff of noteDiff.tracks) {
+          const snapTrack = currentSnapshotObj.tracks.find((st: any) => st.id === trackDiff.trackId);
+          if (!snapTrack || !Array.isArray(snapTrack.clips)) continue;
+
+          // Build a signature set from changed notes (added + adjusted-to)
+          const changedSet = new Set<string>();
+          for (const n of trackDiff.added) {
+            changedSet.add(`${n.pitch}:${n.start_beat}:${n.duration_beats}:${n.velocity}`);
+          }
+          for (const pair of trackDiff.adjusted) {
+            changedSet.add(`${pair.to.pitch}:${pair.to.start_beat}:${pair.to.duration_beats}:${pair.to.velocity}`);
+          }
+
+          // Collect unchanged = snapshot notes NOT in the changed set
+          const unchanged: SnapshotNote[] = [];
+          for (const snapClip of snapTrack.clips) {
+            if (!Array.isArray(snapClip.midi_notes)) continue;
+            for (const n of snapClip.midi_notes) {
+              const vel = typeof n.velocity === 'number' ? n.velocity : 100;
+              const sig = `${n.pitch}:${n.start_beat}:${n.duration_beats}:${vel}`;
+              if (!changedSet.has(sig)) {
+                unchanged.push({
+                  pitch: n.pitch,
+                  start_beat: n.start_beat,
+                  duration_beats: n.duration_beats,
+                  velocity: vel,
+                  note_id: typeof n.note_id === 'string' ? n.note_id : null,
+                });
+              }
+            }
+          }
+
+          if (unchanged.length > 0) {
+            trackDiff.unchanged = unchanged;
+          }
+        }
+      }
+    } catch (unchErr: any) {
+      console.warn('[get-commit-diff] Failed to inject unchanged notes (non-fatal):', unchErr?.message || String(unchErr));
+    }
 
     return {
       ok: true,
