@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from typing import Optional
 import json as _json
+from starlette.requests import ClientDisconnect
 
 from database import get_db
 from dependencies import limiter, verify_token
@@ -31,11 +32,16 @@ async def receive_gitea_webhook(
     DESKTOP TEAM: Do NOT call this endpoint from the desktop app.
     This is called exclusively by Gitea when git events occur.
     """
-    body = await request.body()
-
+    # Read headers first (available even if body stream disconnects)
     event_type = request.headers.get("X-Gitea-Event") or request.headers.get("x-gitea-event", "unknown")
     delivery_id = request.headers.get("X-Gitea-Delivery") or request.headers.get("x-gitea-delivery", "unknown")
     signature = request.headers.get("X-Gitea-Signature") or request.headers.get("x-gitea-signature", "")
+
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        logger.error("webhook_client_disconnect", event_type=event_type, delivery_id=delivery_id)
+        return {"status": "error", "detail": "Client disconnected before body could be read"}
 
     logger.info("webhook_received", event_type=event_type, delivery_id=delivery_id, body_size=len(body))
 

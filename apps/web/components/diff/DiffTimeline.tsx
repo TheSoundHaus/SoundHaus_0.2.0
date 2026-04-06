@@ -51,6 +51,34 @@ const PITCH_ROW_HEIGHT = 12;
 const PITCH_PADDING = 3;
 
 /**
+ * Derive totalBeats from actual clip/note data when the value is 0 or missing.
+ * Scans all clips across all tracks to find the maximum endBeat / note position.
+ */
+function deriveTotalBeats(tracks: TrackDiff[]): number {
+    let maxBeat = 0;
+    for (const track of tracks) {
+        for (const clip of track.midiClips ?? []) {
+            if (clip.endBeat > maxBeat) maxBeat = clip.endBeat;
+            const allNotes = [
+                ...(clip.addedNotes ?? []),
+                ...(clip.removedNotes ?? []),
+                ...(clip.modifiedNotes?.map(m => m.after) ?? []),
+                ...(clip.unchangedNotes ?? []),
+            ];
+            for (const n of allNotes) {
+                const noteEnd = (clip.startBeat ?? 0) + n.startBeat + n.durationBeats;
+                if (noteEnd > maxBeat) maxBeat = noteEnd;
+            }
+        }
+        for (const clip of track.audioClips ?? []) {
+            if (clip.endBeat > maxBeat) maxBeat = clip.endBeat;
+        }
+    }
+    // Round up to next multiple of 4 for clean bar boundaries, minimum 4 beats
+    return Math.max(4, Math.ceil(maxBeat / 4) * 4);
+}
+
+/**
  * Compute a global pitch range across ALL MIDI tracks in the project.
  * This ensures every MIDI track renders notes at the same size.
  */
@@ -235,6 +263,13 @@ export function DiffTimeline({
         return diffData.tempo.after ?? diffData.tempo.before;
     }, [diffData?.tempo]);
 
+    // When totalBeats is 0 or missing, derive it from actual clip/note data
+    const effectiveTotalBeats = useMemo(() => {
+        if (diffData?.totalBeats && diffData.totalBeats > 0) return diffData.totalBeats;
+        if (!diffData?.tracks) return 16;
+        return deriveTotalBeats(diffData.tracks);
+    }, [diffData?.totalBeats, diffData?.tracks]);
+
     // Compute a global pitch range across all MIDI tracks so every piano roll
     // renders notes at the same size (consistent pitchRowHeight).
     const globalPitch = useMemo(() => {
@@ -333,7 +368,7 @@ export function DiffTimeline({
                 <div className="flex-1 overflow-x-auto">
                     {/* TimeRuler */}
                     <TimeRuler
-                        totalBeats={diffData.totalBeats}
+                        totalBeats={effectiveTotalBeats}
                         tempo={displayTempo}
                         timeSignature={diffData.timeSignature}
                         pixelsPerBeat={pixelsPerBeat}
@@ -405,7 +440,7 @@ export function DiffTimeline({
                                         ) : track.trackType === "midi" ? (
                                             <PianoRollTrack
                                                 midiClips={track.midiClips ?? []}
-                                                totalBeats={diffData.totalBeats}
+                                                totalBeats={effectiveTotalBeats}
                                                 changeType={track.changeType}
                                                 height={trackHeight}
                                                 pixelsPerBeat={pixelsPerBeat}
@@ -417,7 +452,7 @@ export function DiffTimeline({
                                         ) : (
                                             <AudioTrackRow
                                                 track={track}
-                                                totalBeats={diffData.totalBeats}
+                                                totalBeats={effectiveTotalBeats}
                                                 pixelsPerBeat={pixelsPerBeat}
                                                 repoOwner={repoOwner}
                                                 repoName={repoName}
