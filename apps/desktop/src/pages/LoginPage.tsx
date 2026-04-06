@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, Waves } from 'lucide-react';
+import WaveformSpinner from '../components/WaveformSpinner';
 
 const AUTO_LOGIN_PHRASES = [
     'Tuning the instruments…',
@@ -102,19 +103,7 @@ const LoginPage = () => {
                     </div>
 
                     {/* Waveform spinner */}
-                    <div className="flex items-end gap-[3px] h-8">
-                        {[0.6, 0.9, 1.2, 0.9, 0.6, 1.1, 0.8, 1.0, 0.7, 1.2].map((height, i) => (
-                            <div
-                                key={i}
-                                className="w-[3px] rounded-full bg-accent/70"
-                                style={{
-                                    height: `${height * 100}%`,
-                                    animation: `barBounce 1.1s ease-in-out infinite`,
-                                    animationDelay: `${i * 0.09}s`,
-                                }}
-                            />
-                        ))}
-                    </div>
+                    <WaveformSpinner bars={7} size="lg" />
 
                     {/* Rotating phrase */}
                     <p
@@ -126,10 +115,6 @@ const LoginPage = () => {
                 </div>
 
                 <style>{`
-                    @keyframes barBounce {
-                        0%, 100% { transform: scaleY(0.4); opacity: 0.5; }
-                        50%       { transform: scaleY(1);   opacity: 1;   }
-                    }
                     @keyframes fade-in {
                         from { opacity: 0; transform: translateY(4px); }
                         to   { opacity: 1; transform: translateY(0);   }

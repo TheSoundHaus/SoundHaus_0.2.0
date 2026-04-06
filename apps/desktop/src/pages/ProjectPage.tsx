@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine, Music, AlertTriangle, CheckCircle, ExternalLink } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
+import WaveformSpinner from '../components/WaveformSpinner'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
 import type { GitError } from '../hooks/useProjectGitActions'
 import type { CommitEntry, NoteDiff } from '../types'
@@ -338,7 +339,9 @@ const ProjectPage = () => {
                     </div>
                     <div className="p-3 max-h-60 overflow-y-auto">
                         {historyLoading ? (
-                            <p className="text-sm text-white/40">Loading commit history...</p>
+                            <div className="flex justify-center py-4">
+                                <WaveformSpinner size="sm" label="Loading commit history..." />
+                            </div>
                         ) : history.length === 0 ? (
                             <p className="text-sm text-white/40">No commits found.</p>
                         ) : (

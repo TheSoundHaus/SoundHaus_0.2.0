@@ -469,7 +469,28 @@ ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) =>
 });
 
 ipcMain.handle('init-repo', async(_event: IpcMainInvokeEvent, folderPath: string, projectInfo?: any) => {
-  return init(folderPath, projectInfo);
+  const remoteUrl = await init(folderPath, projectInfo);
+
+  // Create initial snapshot + commit so HEAD exists immediately.
+  // Without this, commit-changes fails the HEAD check and get-commit-diff
+  // cannot find a parent snapshot, causing deserialization errors.
+  try {
+    const snap = await refreshSnapshot(folderPath);
+    if (snap.alsPath) {
+      await gitExec(['add', '.'], folderPath);
+      const sessionName = path.basename(snap.alsPath, '.als');
+      await gitExec(['commit', '-m', `Initial snapshot: ${sessionName}`], folderPath);
+      console.log('[init-repo] Initial commit created for', sessionName);
+    } else {
+      // No ALS file yet — create an empty initial commit so HEAD exists
+      await gitExec(['commit', '--allow-empty', '-m', 'Initialize repository'], folderPath);
+      console.log('[init-repo] Empty initial commit created (no ALS found)');
+    }
+  } catch (e: any) {
+    console.warn('[init-repo] Initial commit failed (non-fatal):', e?.message || String(e));
+  }
+
+  return remoteUrl;
 })
 
 ipcMain.handle('show-project-setup', async (event: IpcMainInvokeEvent) => {
@@ -675,6 +696,7 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 
   return pushResult;
 });
+
 
 // TODO: Revamp file selection — the ALS session name is currently derived by auto-discovering
 // the first .als file in the project folder. In a future ticket, the user will select a
