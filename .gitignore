@@ -164,6 +164,9 @@ dist/types
 bin/git
 apps/desktop/vendor/git/
 
+# NAPI-RS native addon binaries (built by CI)
+apps/desktop/native/semantic-diff/*.node
+
 # yarn v3
 .pnp.*
 .yarn/*

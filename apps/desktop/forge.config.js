@@ -26,6 +26,13 @@ module.exports = {
       platforms: ['darwin'],
     },
     {
+      name: '@electron-forge/maker-dmg',
+      config: {
+        icon: path.join(__dirname, 'assets/icons/icon.icns'),
+        format: 'ULFO',
+      },
+    },
+    {
       name: '@electron-forge/maker-deb',
       config: {
         options: {
