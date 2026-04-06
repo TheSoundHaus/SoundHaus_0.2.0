@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useUser } from "@/lib/context/UserContext";
 import { getPublicRepos } from "@/lib/api/repos";
 import type { PublicRepo } from "@/lib/types/api";
-import { Compass, TrendingUp, AudioLines, Music } from "lucide-react";
+import { Compass, TrendingUp, AudioLines, Music, Clock, X } from "lucide-react";
 import {
     extractYouTubeVideoId,
     youtubeThumbnailHq,
@@ -13,6 +13,40 @@ import {
 
 import WaveformSpinner from "@/components/WaveformSpinner";
 import AudioPlayer from "@/components/AudioPlayer";
+
+// ── Search History (localStorage) ────────────────────────────────────────────
+const SEARCH_HISTORY_KEY = "soundhaus_search_history";
+const MAX_HISTORY = 8;
+
+function getSearchHistory(): string[] {
+    try {
+        const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveSearchTerm(term: string): string[] {
+    const trimmed = term.trim();
+    if (trimmed.length < 2) return getSearchHistory();
+    const history = getSearchHistory().filter((h) => h !== trimmed);
+    history.unshift(trimmed);
+    const updated = history.slice(0, MAX_HISTORY);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(updated));
+    return updated;
+}
+
+function removeSearchTerm(term: string): string[] {
+    const history = getSearchHistory().filter((h) => h !== term);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+    return history;
+}
+
+function clearSearchHistory(): string[] {
+    localStorage.removeItem(SEARCH_HISTORY_KEY);
+    return [];
+}
 
 /** Filter out raw UUIDs that legacy users have as their Gitea username */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,6 +65,34 @@ export default function ExplorePage() {
     const [reposLoading, setReposLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+    const [searchHistory, setSearchHistory] = useState<string[]>([]);
+    const [searchFocused, setSearchFocused] = useState(false);
+    const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Load search history from localStorage on mount
+    useEffect(() => {
+        setSearchHistory(getSearchHistory());
+    }, []);
+
+    // Save search on Enter key
+    const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter" && searchQuery.trim().length >= 2) {
+            setSearchHistory(saveSearchTerm(searchQuery));
+        }
+    }, [searchQuery]);
+
+    // Idle timer: save after 1.5s of no typing
+    useEffect(() => {
+        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        if (searchQuery.trim().length >= 2) {
+            idleTimerRef.current = setTimeout(() => {
+                setSearchHistory(saveSearchTerm(searchQuery));
+            }, 1500);
+        }
+        return () => {
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        };
+    }, [searchQuery]);
 
     // Collect all unique genres from loaded repos for the filter pills
     const allGenres = useMemo(() => {
@@ -194,6 +256,9 @@ export default function ExplorePage() {
                                 placeholder="Search projects..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={handleSearchKeyDown}
+                                onFocus={() => setSearchFocused(true)}
+                                onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
                                 className="glass-card w-full rounded-lg px-4 py-3 pl-10 text-sm text-zinc-100 placeholder:text-zinc-400 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all duration-300"
                             />
                             <svg
@@ -203,6 +268,44 @@ export default function ExplorePage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                         </div>
+
+                        {/* Recent Search History */}
+                        {searchFocused && !searchQuery && searchHistory.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 animate-fade-in-up">
+                                <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                                {searchHistory.map((term) => (
+                                    <button
+                                        key={term}
+                                        className="group/pill flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800/50 px-3 py-1 text-xs text-zinc-300 hover:border-glass-blue-500/40 hover:text-glass-blue-300 transition-all duration-200 cursor-pointer"
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            setSearchQuery(term);
+                                        }}
+                                    >
+                                        {term}
+                                        <span
+                                            className="opacity-0 group-hover/pill:opacity-100 transition-opacity duration-150"
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setSearchHistory(removeSearchTerm(term));
+                                            }}
+                                        >
+                                            <X className="w-3 h-3 text-zinc-500 hover:text-zinc-200" />
+                                        </span>
+                                    </button>
+                                ))}
+                                <button
+                                    className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors duration-200 cursor-pointer"
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setSearchHistory(clearSearchHistory());
+                                    }}
+                                >
+                                    Clear all
+                                </button>
+                            </div>
+                        )}
                         <div className="flex gap-2">
                             {([
                                 { key: "top", label: "Top Rated" },
@@ -434,6 +537,7 @@ export default function ExplorePage() {
                             ))}
                         </div>
                     </div>
+
                 </aside>
             </div>
         </div>
