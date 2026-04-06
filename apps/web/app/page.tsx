@@ -949,7 +949,6 @@ export default function LandingPage() {
 
             {/* ── Features ───────────────────────────────── */}
             <section id="features" className="relative py-32 md:py-40 px-6">
-                <GuitarScene />
                 <FloatingParticles count={15} />
                 <div className="mx-auto max-w-6xl relative z-10">
                     <FadeInSection className="text-center mb-20">
@@ -1033,7 +1032,6 @@ export default function LandingPage() {
 
             {/* ── Human Collaboration Philosophy ─────────── */}
             <section id="philosophy" className="relative py-32 md:py-44 px-6 overflow-hidden">
-                <SynthScene />
                 <FloatingParticles count={14} color="140, 180, 220" />
                 <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 60% 50% at 50% 40%, rgba(167, 199, 231, 0.04) 0%, transparent 70%)" }} aria-hidden />
 
@@ -1051,6 +1049,10 @@ export default function LandingPage() {
 
                     {/* Philosophy cards - text with animated decorative accents */}
                     <div className="space-y-6">
+                        {/* "Real people, real music" — mic on left, keyboard on right */}
+                        <div className="relative">
+                            <MicrophoneScene />
+                            <SynthScene />
                         <FadeInSection delay={100} variant="left">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
                                 {/* Decorative - mixing console faders */}
@@ -1092,6 +1094,7 @@ export default function LandingPage() {
                                 </div>
                             </div>
                         </FadeInSection>
+                        </div>
 
                         <FadeInSection delay={200} variant="right">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
@@ -1144,6 +1147,9 @@ export default function LandingPage() {
                             </div>
                         </FadeInSection>
 
+                        {/* "Unmistakably human" — Strat guitar on the right */}
+                        <div className="relative">
+                            <GuitarScene />
                         <FadeInSection delay={300} variant="left">
                             <div className="relative rounded-2xl border border-white/[0.06] bg-zinc-900/50 p-8 md:p-12 overflow-hidden transition-all duration-700 hover:border-white/[0.1] hover:shadow-[0_0_60px_rgba(167,199,231,0.05)]">
                                 {/* Decorative - soundwave fingerprint */}
@@ -1191,6 +1197,7 @@ export default function LandingPage() {
                                 </div>
                             </div>
                         </FadeInSection>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1222,7 +1229,6 @@ export default function LandingPage() {
 
             {/* ── Download + CTA (Combined Bottom Section) ── */}
             <section id="download" className="relative py-32 md:py-40 px-6">
-                <MicrophoneScene />
                 <FloatingParticles count={10} color="167, 199, 231" />
                 <div className="mx-auto max-w-6xl relative z-10">
                     <FadeInSection className="text-center mb-20">
