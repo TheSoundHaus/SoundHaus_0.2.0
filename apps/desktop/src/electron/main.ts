@@ -460,6 +460,25 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
   return null;
 });
 
+ipcMain.handle('open-als-file', async (_event: IpcMainInvokeEvent, folderPath: string) => {
+  if (!folderPath) {
+    return { ok: false, error: 'No project path provided' };
+  }
+  try {
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+    for (const ent of entries) {
+      if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+        const alsPath = path.join(folderPath, ent.name);
+        await shell.openPath(alsPath);
+        return { ok: true };
+      }
+    }
+    return { ok: false, error: 'No .als file found in this project' };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Failed to open file' };
+  }
+});
+
 ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) => {
   const projectJson = await parseAls(alsPath);
   return JSON.parse(projectJson);

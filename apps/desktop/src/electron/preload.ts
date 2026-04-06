@@ -53,4 +53,5 @@ contextBridge.exposeInMainWorld('electron', {
 
 	getSearchMenuEntries: () => ipcRenderer.invoke('search-menu-get-entries'),
 	openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+	openAlsFile: (projectPath: string) => ipcRenderer.invoke('open-als-file', projectPath),
 });
