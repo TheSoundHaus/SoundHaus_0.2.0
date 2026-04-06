@@ -1,5 +1,4 @@
-import { exec, spawn } from 'child_process';
-import { promisify } from 'util';
+import { exec as gitExec } from 'dugite';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
 import { getAllowedCloneRemote, getGiteaCredentials } from './login';
@@ -9,19 +8,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
+import * as os from 'os';
 
-const execAsync = promisify(exec);
-
-const platformMap: Partial<Record<NodeJS.Platform, string>> = {
-  win32: 'windows',
-  darwin: 'macos',
-  linux: 'linux',
-};
-
-const platformDir = platformMap[process.platform] || process.platform;
-const envGit = process.env.SOUNDHAUS_GIT_BIN;
 const giteaApiBaseUrl = desktopEnv.giteaPublicUrl;
-let gitBin: string;
 
 function getGiteaApiRequestOptions(): { protocol: string; hostname: string; port: number; basePath: string } {
     const parsed = new URL(giteaApiBaseUrl);
@@ -37,77 +26,19 @@ async function approveGitCredentials(
     params: { protocol: string; host: string; username: string; password: string },
     cwd?: string,
 ): Promise<{ stdout: string; stderr: string }> {
-    return await new Promise((resolve, reject) => {
-        const child = spawn(gitBin, ['credential', 'approve'], {
-            cwd,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            windowsHide: true,
-        });
+    const stdinInput =
+        `protocol=${params.protocol}\n` +
+        `host=${params.host}\n` +
+        `username=${params.username}\n` +
+        `password=${params.password}\n\n`;
 
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout.on('data', (chunk) => {
-            stdout += chunk.toString();
-        });
-
-        child.stderr.on('data', (chunk) => {
-            stderr += chunk.toString();
-        });
-
-        child.on('error', (err) => {
-            reject(err);
-        });
-
-        child.on('close', (code) => {
-            if (code === 0) {
-                resolve({ stdout, stderr });
-                return;
-            }
-            reject(new Error(`git credential approve exited with code ${code}: ${stderr || stdout}`));
-        });
-
-        const input =
-            `protocol=${params.protocol}\n` +
-            `host=${params.host}\n` +
-            `username=${params.username}\n` +
-            `password=${params.password}\n\n`;
-
-        child.stdin.write(input);
-        child.stdin.end();
-    });
-}
-
-// Try to use bundled git, but fall back to system git if it fails
-if (envGit) {
-  gitBin = envGit;
-  console.log('[git] Using git from SOUNDHAUS_GIT_BIN:', gitBin);
-} else {
-  const bundledGit = path.join(__dirname, '..', 'vendor', 'git', platformDir, process.platform === 'win32' ? 'git.exe' : 'git');
-  
-  try {
-    if (fs.existsSync(bundledGit)) {
-      // Test if bundled git actually works
-      const { execSync } = require('child_process');
-      try {
-        execSync(`"${bundledGit}" --version`, { timeout: 2000, stdio: 'pipe' });
-        gitBin = bundledGit;
-        console.log('[git] Using bundled git:', gitBin);
-      } catch (testErr) {
-        console.warn('[git] Bundled git failed test, falling back to system git');
-        gitBin = 'git';
-      }
-    } else {
-      console.warn('[git] Bundled git not found at', bundledGit, '— using system git');
-      gitBin = 'git';
+    const workDir = cwd || os.homedir();
+    const result = await gitExec(['credential', 'approve'], workDir, { stdin: stdinInput });
+    if (result.exitCode !== 0) {
+        throw new Error(`git credential approve exited with code ${result.exitCode}: ${result.stderr || result.stdout}`);
     }
-  } catch (e) {
-    console.warn('[git] Error checking bundled git, using system git:', e);
-    gitBin = 'git';
-  }
+    return { stdout: result.stdout, stderr: result.stderr };
 }
-
-console.log('[git] Final git binary:', gitBin);
 
 async function chooseFolder(mainWindow?: BrowserWindow): Promise<string | null> {
     const options: OpenDialogOptions = {
@@ -219,10 +150,12 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
     try {
         // Step 1: Initialize git repository
         console.log('[init] Step 1: Running git init...');
-        const gitCmd = `"${gitBin}" init -b main`;
-        const { stdout: gitStdout, stderr: gitStderr } = await execAsync(gitCmd, { cwd: folderPath });
-        console.log('[init] Git init stdout:', gitStdout);
-        if (gitStderr) console.warn('[init] Git init stderr:', gitStderr);
+        const initResult = await gitExec(['init', '-b', 'main'], folderPath);
+        console.log('[init] Git init stdout:', initResult.stdout);
+        if (initResult.stderr) console.warn('[init] Git init stderr:', initResult.stderr);
+        if (initResult.exitCode !== 0) {
+            throw new Error(`git init failed: ${initResult.stderr}`);
+        }
         
         // Verify .git folder was created
         const gitPath = join(folderPath, '.git');
@@ -341,11 +274,10 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         console.log('[init] Repository owner:', repoOwner);
 
         // Set credential helper to store
-        const setHelperCmd = `"${gitBin}" config --local credential.helper store`;
-        console.log('[init] Running:', setHelperCmd);
-        const { stdout: helperStdout, stderr: helperStderr } = await execAsync(setHelperCmd, { cwd: folderPath });
-        if (helperStdout) console.log('[init] Credential helper stdout:', helperStdout);
-        if (helperStderr) console.warn('[init] Credential helper stderr:', helperStderr);
+        console.log('[init] Running: git config --local credential.helper store');
+        const helperResult = await gitExec(['config', '--local', 'credential.helper', 'store'], folderPath);
+        if (helperResult.stdout) console.log('[init] Credential helper stdout:', helperResult.stdout);
+        if (helperResult.stderr) console.warn('[init] Credential helper stderr:', helperResult.stderr);
         console.log('[init] ✓ Credential helper configured');
 
         // Approve credentials for this repository
@@ -362,23 +294,21 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
 
         // Step 6: Add remote origin
         console.log('[init] Step 6: Adding remote origin...');
-        const setRemoteCmd = `"${gitBin}" remote add origin ${remoteURL}`;
-        console.log('[init] Running:', setRemoteCmd);
-        const { stdout: remoteStdout, stderr: remoteStderr } = await execAsync(setRemoteCmd, { cwd: folderPath });
-        if (remoteStdout) console.log('[init] Remote add stdout:', remoteStdout);
-        if (remoteStderr) console.warn('[init] Remote add stderr:', remoteStderr);
+        console.log('[init] Running: git remote add origin', remoteURL);
+        const remoteResult = await gitExec(['remote', 'add', 'origin', remoteURL], folderPath);
+        if (remoteResult.stdout) console.log('[init] Remote add stdout:', remoteResult.stdout);
+        if (remoteResult.stderr) console.warn('[init] Remote add stderr:', remoteResult.stderr);
         console.log('[init] ✓ Remote origin added');
 
         // Step 7: Set upstream tracking (may fail if no commits yet - that's okay)
         console.log('[init] Step 7: Setting upstream tracking...');
-        const setUpstreamCmd = `"${gitBin}" branch --set-upstream-to=origin/main main`;
-        try {
-            const { stdout: upstreamStdout, stderr: upstreamStderr } = await execAsync(setUpstreamCmd, { cwd: folderPath });
-            if (upstreamStdout) console.log('[init] Upstream stdout:', upstreamStdout);
-            if (upstreamStderr) console.warn('[init] Upstream stderr:', upstreamStderr);
+        const upstreamResult = await gitExec(['branch', '--set-upstream-to=origin/main', 'main'], folderPath);
+        if (upstreamResult.exitCode === 0) {
+            if (upstreamResult.stdout) console.log('[init] Upstream stdout:', upstreamResult.stdout);
+            if (upstreamResult.stderr) console.warn('[init] Upstream stderr:', upstreamResult.stderr);
             console.log('[init] ✓ Upstream tracking configured');
-        } catch (upstreamErr: any) {
-            console.warn('[init] Could not set upstream tracking (will be set on first push):', upstreamErr.message);
+        } else {
+            console.warn('[init] Could not set upstream tracking (will be set on first push):', upstreamResult.stderr);
         }
 
         console.log('[init] ✅ Repository initialization complete!');
@@ -432,10 +362,9 @@ async function cloneRepo(cloneUrl: string, destinationPath: string): Promise<str
 
             // Configure credential helper to store credentials
             console.log('[clone] Setting up credential helper...');
-            const setHelperCmd = `"${gitBin}" config --global credential.helper store`;
-            const { stdout: helperStdout, stderr: helperStderr } = await execAsync(setHelperCmd);
-            if (helperStdout) console.log('[clone] Credential helper stdout:', helperStdout);
-            if (helperStderr) console.warn('[clone] Credential helper stderr:', helperStderr);
+            const cloneHelperResult = await gitExec(['config', '--global', 'credential.helper', 'store'], os.homedir());
+            if (cloneHelperResult.stdout) console.log('[clone] Credential helper stdout:', cloneHelperResult.stdout);
+            if (cloneHelperResult.stderr) console.warn('[clone] Credential helper stderr:', cloneHelperResult.stderr);
             console.log('[clone] ✓ Credential helper configured');
 
             // Approve credentials for this host
@@ -453,12 +382,14 @@ async function cloneRepo(cloneUrl: string, destinationPath: string): Promise<str
 
         // Run git clone - this will create the subdirectory automatically
         console.log('[clone] Running git clone...');
-        const cloneCmd = `"${gitBin}" clone "${cloneUrl}" "${fullDestinationPath}"`;
-        console.log('[clone] Command:', cloneCmd);
-        const { stdout: cloneStdout, stderr: cloneStderr } = await execAsync(cloneCmd);
+        console.log('[clone] Command: git clone', cloneUrl, fullDestinationPath);
+        const cloneResult = await gitExec(['clone', cloneUrl, fullDestinationPath], destinationPath);
         
-        if (cloneStdout) console.log('[clone] Clone stdout:', cloneStdout);
-        if (cloneStderr) console.warn('[clone] Clone stderr:', cloneStderr);
+        if (cloneResult.stdout) console.log('[clone] Clone stdout:', cloneResult.stdout);
+        if (cloneResult.stderr) console.warn('[clone] Clone stderr:', cloneResult.stderr);
+        if (cloneResult.exitCode !== 0) {
+            throw new Error(`git clone failed: ${cloneResult.stderr}`);
+        }
         
         console.log('[clone] ✅ Repository cloned successfully!');
         console.log('[clone] Summary:');
