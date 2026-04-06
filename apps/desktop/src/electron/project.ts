@@ -22,6 +22,12 @@ async function commit(repoPath: string, message?: string) {
 
   const commitResult = await exec(['commit', '-m', msg], repoPath);
   if (commitResult.exitCode !== 0) {
+    // "nothing to commit" is a normal condition, not an error
+    const combined = `${commitResult.stdout}\n${commitResult.stderr}`.toLowerCase();
+    if (combined.includes('nothing to commit')) {
+      console.log('[commit] Nothing to commit — working tree clean');
+      return 'nothing to commit';
+    }
     throw new Error(commitResult.stderr || 'git commit failed');
   }
 

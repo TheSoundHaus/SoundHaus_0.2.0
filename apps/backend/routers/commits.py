@@ -280,6 +280,25 @@ async def post_als_diff(
         db.commit()
         logger.info("diff_pending_cleared", repo_id=repo_id, commit_sha=commit_sha[:8])
 
+    # Clear any older pending commits in this repo — the desktop only uploads
+    # a diff for HEAD, so earlier commits in the same push would stay "pending"
+    # forever.  Mark them "none" so the web polling stops.
+    stale_rows = (
+        db.query(CommitDetail)
+        .filter(
+            CommitDetail.repo_id == repo_id,
+            CommitDetail.diff_pending == "pending",
+            CommitDetail.sha != commit_sha,
+        )
+        .all()
+    )
+    for row in stale_rows:
+        row.diff_pending = "none"
+        row.diff_pending_since = None
+    if stale_rows:
+        db.commit()
+        logger.info("stale_pending_cleared", repo_id=repo_id, count=len(stale_rows))
+
     return {"success": True, "diff_id": diff_id}
 
 

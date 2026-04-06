@@ -400,27 +400,57 @@ export default function RepoDetailClient({
 
   // Poll for pending diffs — when commits have diff_status="pending", poll the
   // lightweight /diff-status endpoint every 3s until they resolve to "ready".
+  // Stop after 2 minutes to avoid infinite polling if diff never arrives.
+  const pendingStartRef = useRef<number | null>(null);
   useEffect(() => {
     const pendingShas = commits
       .filter((c) => c.diff_status === "pending")
       .map((c) => c.sha);
 
-    if (pendingShas.length === 0) return;
+    if (pendingShas.length === 0) {
+      pendingStartRef.current = null;
+      return;
+    }
+
+    if (pendingStartRef.current === null) {
+      pendingStartRef.current = Date.now();
+    }
+
+    const POLL_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
     const interval = setInterval(async () => {
+      // Stop polling after timeout
+      if (pendingStartRef.current && Date.now() - pendingStartRef.current > POLL_TIMEOUT_MS) {
+        setCommits((prev) =>
+          prev.map((c) =>
+            pendingShas.includes(c.sha)
+              ? { ...c, diff_status: "none" as DiffStatus }
+              : c
+          )
+        );
+        pendingStartRef.current = null;
+        return;
+      }
+
       const result = await getDiffStatus(owner, repo, pendingShas);
       if (!result.success || !result.data) return;
 
       const { statuses } = result.data;
-      const updatedShas = Object.entries(statuses)
-        .filter(([, s]) => s === "ready")
-        .map(([sha]) => sha);
+      const resolvedShas: string[] = [];
+      const readyShas: string[] = [];
 
-      if (updatedShas.length > 0) {
+      for (const [sha, s] of Object.entries(statuses)) {
+        if (s === "ready") { resolvedShas.push(sha); readyShas.push(sha); }
+        else if (s === "none") { resolvedShas.push(sha); }
+      }
+
+      if (resolvedShas.length > 0) {
         setCommits((prev) =>
           prev.map((c) =>
-            updatedShas.includes(c.sha)
+            readyShas.includes(c.sha)
               ? { ...c, has_diff: true, diff_status: "ready" as DiffStatus }
+              : resolvedShas.includes(c.sha)
+              ? { ...c, diff_status: "none" as DiffStatus }
               : c
           )
         );
