@@ -3,14 +3,13 @@ import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { desktopEnv } from './env';
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
-import { gitBin, pull, commit, push } from "./project";
+import { exec as gitExec } from 'dugite';
+import { pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
 import { recentProjectsManager } from './recentProjectsManager';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
@@ -510,7 +509,8 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
 
       // Check if HEAD exists — no commit message generation on first commit
       try {
-        await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+        const headCheck = await gitExec(['rev-parse', '--verify', 'HEAD'], repoPath);
+        if (headCheck.exitCode !== 0) throw new Error('No HEAD');
 
         // Diff current ALS against local snapshot (refreshed after pull/commit).
         // Falls back to HEAD copy when no working-tree file exists.
@@ -521,12 +521,12 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
         try {
           snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
         } catch {
-          const { stdout } = await execFileP(
-            gitBin,
-            ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`],
-            { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 }
+          const showResult = await gitExec(
+            ['show', `HEAD:${snapshotRelPath}`],
+            repoPath,
+            { maxBuffer: 50 * 1024 * 1024 }
           );
-          snapshotRaw = stdout;
+          snapshotRaw = showResult.stdout;
         }
         let rawJson: string | null = null;
 
@@ -571,12 +571,13 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string) => {
   try {
     const startDir = path.dirname(alsPath);
-    const { stdout: rootStdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    const repoRoot = rootStdout.trim();
+    const rootResult = await gitExec(['rev-parse', '--show-toplevel'], startDir);
+    const repoRoot = rootResult.stdout.trim();
 
     // Check if any commits exist
     try {
-      await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+      const headResult = await gitExec(['rev-parse', '--verify', 'HEAD'], repoRoot);
+      if (headResult.exitCode !== 0) throw new Error('No HEAD');
     } catch {
       // No commits yet — return a no-commits baseline built from the current file
       const projectJson = await parseAls(alsPath);
@@ -601,12 +602,12 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     try {
       snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
     } catch {
-      const { stdout } = await execFileP(
-        gitBin,
-        ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`],
-        { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+      const showResult = await gitExec(
+        ['show', `HEAD:${snapshotRelPath}`],
+        repoRoot,
+        { maxBuffer: 10 * 1024 * 1024 }
       );
-      snapshotRaw = stdout;
+      snapshotRaw = showResult.stdout;
     }
     let rawJson: string | null = null;
 
