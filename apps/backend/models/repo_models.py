@@ -91,7 +91,8 @@ class RepoData(Base):
     webhook_config = relationship(
         "WebhookConfig",
         back_populates="repo",
-        uselist=False  # One-to-one relationship
+        uselist=False,  # One-to-one relationship
+        cascade="all, delete-orphan"
     )
 
     commit_details = relationship(
