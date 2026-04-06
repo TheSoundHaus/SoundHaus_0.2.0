@@ -1,6 +1,9 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
+import { updateElectronApp } from 'update-electron-app';
 import { desktopEnv } from './env';
+
+updateElectronApp({ repo: 'TheSoundHaus/SoundHaus_0.2.0' });
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
 import { exec as gitExec } from 'dugite';
