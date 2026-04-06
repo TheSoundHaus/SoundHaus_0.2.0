@@ -80,6 +80,18 @@ async def get_commit_list(
     for c in commits:
         # Resolve author profile: try email first, then display_name match
         author_profile = profile_by_email.get(c.author_email) or profile_by_name.get(c.author_name)
+
+        # Determine diff status:
+        #   "ready"   — AlsDiff row exists, diff is viewable
+        #   "pending" — .als changed but desktop hasn't uploaded the diff yet
+        #   "none"    — no .als changes in this commit
+        if c.sha in diff_shas:
+            diff_status = "ready"
+        elif getattr(c, "diff_pending", "none") == "pending":
+            diff_status = "pending"
+        else:
+            diff_status = "none"
+
         commits_out.append({
             "id": c.id,
             "sha": c.sha,
@@ -93,6 +105,7 @@ async def get_commit_list(
             "files_modified": c.files_modified or [],
             "files_removed": c.files_removed or [],
             "has_diff": c.sha in diff_shas,
+            "diff_status": diff_status,
         })
 
     return {
@@ -191,6 +204,12 @@ async def post_als_diff(
     if not commit_sha or not diff_data:
         raise HTTPException(status_code=400, detail="commit_sha and diff_data are required")
 
+    # Validate diff_data has meaningful content (guard against empty/corrupt payloads)
+    if not isinstance(diff_data, dict):
+        raise HTTPException(status_code=400, detail="diff_data must be a JSON object")
+    if "tracks" not in diff_data:
+        raise HTTPException(status_code=400, detail="diff_data must contain a 'tracks' key")
+
     repo_id = f"{owner}/{repo}"
 
     # Verify repo exists — auto-create the row if it's missing (the push already
@@ -249,6 +268,18 @@ async def post_als_diff(
         diff_id = new_diff.id
         logger.info("als_diff_created", repo_id=repo_id, commit_sha=commit_sha[:8])
 
+    # Clear diff_pending flag on the CommitDetail row
+    commit_row = (
+        db.query(CommitDetail)
+        .filter(CommitDetail.repo_id == repo_id, CommitDetail.sha == commit_sha)
+        .first()
+    )
+    if commit_row and commit_row.diff_pending == "pending":
+        commit_row.diff_pending = "ready"
+        commit_row.diff_pending_since = None
+        db.commit()
+        logger.info("diff_pending_cleared", repo_id=repo_id, commit_sha=commit_sha[:8])
+
     return {"success": True, "diff_id": diff_id}
 
 
@@ -295,3 +326,51 @@ async def get_commit_diff(
             "created_at": diff_row.created_at.isoformat() if diff_row.created_at else None,
         }
     }
+
+
+@router.get("/repos/{owner}/{repo}/diff-status")
+@limiter.limit("120/minute")
+async def get_diff_status(
+    request: Request,
+    owner: str,
+    repo: str,
+    shas: str = Query(..., description="Comma-separated SHAs to check"),
+    db: Session = Depends(get_db),
+):
+    """
+    Lightweight polling endpoint — returns diff_status for a list of commit SHAs.
+    Used by the web UI to check if pending diffs have arrived without refetching
+    the full commit list.
+    """
+    repo_id = f"{owner}/{repo}"
+    sha_list = [s.strip() for s in shas.split(",") if s.strip()]
+
+    if not sha_list or len(sha_list) > 50:
+        raise HTTPException(status_code=400, detail="Provide 1-50 comma-separated SHAs")
+
+    # Batch check: which SHAs have an AlsDiff row
+    diff_rows = (
+        db.query(AlsDiff.commit_sha)
+        .filter(AlsDiff.repo_id == repo_id, AlsDiff.commit_sha.in_(sha_list))
+        .all()
+    )
+    diff_shas = {row[0] for row in diff_rows}
+
+    # Batch check: which SHAs are still pending
+    pending_rows = (
+        db.query(CommitDetail.sha, CommitDetail.diff_pending)
+        .filter(CommitDetail.repo_id == repo_id, CommitDetail.sha.in_(sha_list))
+        .all()
+    )
+    pending_map = {row[0]: row[1] for row in pending_rows}
+
+    statuses = {}
+    for sha in sha_list:
+        if sha in diff_shas:
+            statuses[sha] = "ready"
+        elif pending_map.get(sha) == "pending":
+            statuses[sha] = "pending"
+        else:
+            statuses[sha] = "none"
+
+    return {"success": True, "statuses": statuses}

@@ -7,7 +7,7 @@ stores delivery records, and updates RepoData activity timestamps.
 import hmac
 import hashlib
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 from sqlalchemy.orm import Session
 from logging_config import get_logger
 from config import settings
@@ -209,7 +209,16 @@ class WebhookService:
             db.flush()
 
             # Create CommitDetail rows from push payload
+            now = datetime.now(timezone.utc)
             for commit in commits:
+                # Check if any .als files were touched in this commit
+                all_files: List[str] = (
+                    commit.get("added", [])
+                    + commit.get("modified", [])
+                    + commit.get("removed", [])
+                )
+                has_als = any(f.lower().endswith(".als") for f in all_files)
+
                 cd = CommitDetail(
                     push_event_id=push_event.id,
                     repo_id=repo_full_name,
@@ -222,6 +231,8 @@ class WebhookService:
                     files_added=commit.get("added", []),
                     files_modified=commit.get("modified", []),
                     files_removed=commit.get("removed", []),
+                    diff_pending="pending" if has_als else "none",
+                    diff_pending_since=now if has_als else None,
                 )
                 db.add(cd)
 

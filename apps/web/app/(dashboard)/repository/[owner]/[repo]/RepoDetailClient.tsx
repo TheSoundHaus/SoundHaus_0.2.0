@@ -47,7 +47,7 @@ import { useUser } from "@/lib/context/UserContext";
 import { getReadme, updateReadme } from "@/lib/api/readme";
 import { deleteRepoAction, renameRepoAction, updateVisibilityAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
-import { getCommits, getCommitDiff } from "@/lib/api/commits";
+import { getCommits, getCommitDiff, getDiffStatus } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
 import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
@@ -64,7 +64,7 @@ import type {
   SnippetVersion,
   SnippetComment,
 } from "@/lib/types/api";
-import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
+import type { CommitListResponse, CommitSummary, AlsDiffData, DiffStatus } from "@/lib/api/commits";
 
 interface RepoDetailClientProps {
   owner: string;
@@ -397,6 +397,38 @@ export default function RepoDetailClient({
     }
     setDiffLoading(null);
   }, [owner, repo, expandedSha, diffCache]);
+
+  // Poll for pending diffs — when commits have diff_status="pending", poll the
+  // lightweight /diff-status endpoint every 3s until they resolve to "ready".
+  useEffect(() => {
+    const pendingShas = commits
+      .filter((c) => c.diff_status === "pending")
+      .map((c) => c.sha);
+
+    if (pendingShas.length === 0) return;
+
+    const interval = setInterval(async () => {
+      const result = await getDiffStatus(owner, repo, pendingShas);
+      if (!result.success || !result.data) return;
+
+      const { statuses } = result.data;
+      const updatedShas = Object.entries(statuses)
+        .filter(([, s]) => s === "ready")
+        .map(([sha]) => sha);
+
+      if (updatedShas.length > 0) {
+        setCommits((prev) =>
+          prev.map((c) =>
+            updatedShas.includes(c.sha)
+              ? { ...c, has_diff: true, diff_status: "ready" as DiffStatus }
+              : c
+          )
+        );
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [owner, repo, commits]);
 
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
@@ -818,7 +850,7 @@ export default function RepoDetailClient({
                     {/* Commit row */}
                     <div
                       className="flex items-start gap-4 px-4 py-3 hover:bg-zinc-800/30 transition-colors cursor-pointer"
-                      onClick={() => compareMode ? handleCompareSelect(c.sha) : (c.has_diff && handleToggleDiff(c.sha))}
+                      onClick={() => compareMode ? handleCompareSelect(c.sha) : ((c.has_diff || c.diff_status === "ready") && handleToggleDiff(c.sha))}
                     >
                       {/* Compare checkbox */}
                       {compareMode && (
@@ -886,6 +918,12 @@ export default function RepoDetailClient({
                             )}
                             {isExpanded ? "Hide Diff" : "View Changes"}
                           </button>
+                        )}
+                        {c.diff_status === "pending" && !c.has_diff && (
+                          <span className="flex items-center gap-1.5 rounded border border-zinc-700/60 px-2 py-1 text-[11px] text-zinc-500">
+                            <span className="inline-block h-2 w-2 rounded-full bg-amber-400/70 animate-pulse" />
+                            Processing…
+                          </span>
                         )}
                       </div>
                     </div>

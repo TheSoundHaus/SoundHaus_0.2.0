@@ -10,6 +10,9 @@ import { authFetch } from "./client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+/** Diff lifecycle status: none → pending → ready */
+export type DiffStatus = "none" | "pending" | "ready";
+
 /** A single commit as returned by the commits endpoint. */
 export interface CommitSummary {
     id: string;
@@ -24,6 +27,7 @@ export interface CommitSummary {
     files_modified: string[];
     files_removed: string[];
     has_diff: boolean;
+    diff_status: DiffStatus;
 }
 
 /** Paginated list response from GET /repos/{owner}/{repo}/commits. */
@@ -87,6 +91,19 @@ export async function getCommitDiff(
 ): Promise<ApiResponse<{ diff: AlsDiffData | null }>> {
     const result = await authFetch<{ diff: AlsDiffData | null }>(
         `/repos/${_owner}/${_repo}/commits/${_sha}/diff`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
+
+/** Lightweight polling — checks diff_status for a list of SHAs. */
+export async function getDiffStatus(
+    _owner: string,
+    _repo: string,
+    _shas: string[],
+): Promise<ApiResponse<{ statuses: Record<string, DiffStatus> }>> {
+    const result = await authFetch<{ statuses: Record<string, DiffStatus> }>(
+        `/repos/${_owner}/${_repo}/diff-status?shas=${_shas.join(",")}`
     );
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data! };
