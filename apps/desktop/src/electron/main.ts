@@ -928,7 +928,7 @@ app.whenReady().then(() => {
         {
           id: 'browse-public',
           label: 'Browse Public Projects',
-          click: () => shell.openExternal('http://www.rickleinecker.com/')
+          click: () => shell.openExternal('https://www.thesound.haus/')
         },
         { type: 'separator' },
         { label: 'Options' },
@@ -1009,7 +1009,7 @@ app.whenReady().then(() => {
         { 
           id: 'view-on-soundhaus',
           label: 'View On SoundHaus',
-          click: () => shell.openExternal('http://www.rickleinecker.com/')
+          click: () => shell.openExternal('https://www.thesound.haus/')
         },
         { label: 'Project Settings' }
       ]
@@ -1048,7 +1048,7 @@ app.whenReady().then(() => {
         return { projectPath: lastSelectedProjectPath };
       }
       if (['browse-public', 'view-on-soundhaus'].includes(action)) {
-        return { url: 'http://www.rickleinecker.com/' };
+        return { url: 'https://www.thesound.haus/' };
       }
       return undefined;
     }).filter(e => e.action !== 'help-search'); // Exclude search itself (circular)
