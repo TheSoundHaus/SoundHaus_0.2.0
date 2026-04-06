@@ -23,6 +23,7 @@ export function createProjectSetupDialog(parentWindow: BrowserWindow): Promise<P
       autoHideMenuBar: true,
       webPreferences: {
         preload: path.join(__dirname, '../preload.js'),
+        spellcheck: false,
       },
     });
 

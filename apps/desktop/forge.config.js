@@ -4,7 +4,9 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
 module.exports = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/node_modules/dugite/git/**',
+    },
     name: 'SoundHaus',
     executableName: 'SoundHaus',
     icon: path.join(__dirname, 'assets/icons/icon'),
@@ -22,6 +24,13 @@ module.exports = {
     {
       name: '@electron-forge/maker-zip',
       platforms: ['darwin'],
+    },
+    {
+      name: '@electron-forge/maker-dmg',
+      config: {
+        icon: path.join(__dirname, 'assets/icons/icon.icns'),
+        format: 'ULFO',
+      },
     },
     {
       name: '@electron-forge/maker-deb',
