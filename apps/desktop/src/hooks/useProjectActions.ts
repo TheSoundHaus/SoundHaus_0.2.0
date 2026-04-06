@@ -72,7 +72,7 @@ export function useProjectActions() {
     }
 
     const handleServerExplore = async () => {
-        window.open("http://www.rickleinecker.com/", "_blank");
+        window.open("https://www.thesound.haus/", "_blank");
     }
 
     const handleAbletonImport = async () => {

@@ -15,7 +15,8 @@
   },
   "scripts": {
     "build": "napi build --platform --release",
-    "build:debug": "napi build --platform"
+    "build:debug": "napi build --platform",
+    "postinstall": "napi build --platform --release"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.2.0"
