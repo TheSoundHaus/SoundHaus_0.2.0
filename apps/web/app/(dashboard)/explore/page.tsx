@@ -13,6 +13,15 @@ import {
 
 import WaveformSpinner from "@/components/WaveformSpinner";
 
+/** Filter out raw UUIDs that legacy users have as their Gitea username */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function ownerLabel(display?: string | null, username?: string | null, fallback?: string | null): string {
+    for (const v of [display, username, fallback]) {
+        if (v && !UUID_RE.test(v)) return v;
+    }
+    return 'SoundHaus User';
+}
+
 export default function ExplorePage() {
     const { user, loading } = useUser();
     const [sortBy, setSortBy] = useState<"top" | "recent" | "trending">("top");
@@ -278,10 +287,11 @@ export default function ExplorePage() {
                                     repo.thumbnail_type === "youtube" && repo.thumbnail_url
                                         ? extractYouTubeVideoId(repo.thumbnail_url)
                                         : null;
-                                const ownerShown =
-                                    repo.owner_display_name ||
-                                    repo.owner_username ||
-                                    repo.owner;
+                                const ownerShown = ownerLabel(
+                                    repo.owner_display_name,
+                                    repo.owner_username,
+                                    repo.owner,
+                                );
                                 return (
                                 <Link
                                     key={repo.gitea_id}
@@ -407,7 +417,7 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-xs text-zinc-500 mt-0.5">
-                                            {repo.owner_display_name || repo.owner_username || repo.owner}
+                                            {ownerLabel(repo.owner_display_name, repo.owner_username, repo.owner)}
                                         </p>
                                         <div className="flex items-center gap-1 mt-1">
                                             <svg className="w-3 h-3 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">

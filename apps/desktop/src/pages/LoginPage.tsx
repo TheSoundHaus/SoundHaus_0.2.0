@@ -2,12 +2,38 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, Waves } from 'lucide-react';
 
+const AUTO_LOGIN_PHRASES = [
+    'Tuning the instruments…',
+    'Finding your groove…',
+    'Loading your sessions…',
+    'Warming up the amps…',
+    'Syncing with the studio…',
+    'Checking for new tracks…',
+    'Connecting to the cloud…',
+    'Almost ready to rock…',
+    'Setting the tempo…',
+    'Mixing it all together…',
+];
+
 const LoginPage = () => {
     console.log('[SoundHaus] LoginPage: rendering')
     const navigate = useNavigate();
     const autoLoginAttempted = useRef(false);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [autoLoginPending, setAutoLoginPending] = useState(true);
+    const [phraseIndex, setPhraseIndex] = useState(() =>
+        Math.floor(Math.random() * AUTO_LOGIN_PHRASES.length)
+    );
+
+    // Rotate phrases while auto-login is pending
+    useEffect(() => {
+        if (!autoLoginPending) return;
+        const id = setInterval(() => {
+            setPhraseIndex(i => (i + 1) % AUTO_LOGIN_PHRASES.length);
+        }, 1800);
+        return () => clearInterval(id);
+    }, [autoLoginPending]);
 
     useEffect(() => {
         if (autoLoginAttempted.current) return;
@@ -15,6 +41,7 @@ const LoginPage = () => {
 
         const attemptPATLogin = async () => {
             const result = await window.patService?.autoLogin();
+            setAutoLoginPending(false);
             if (!result) return;
 
             if (result.success) {
@@ -56,6 +83,63 @@ const LoginPage = () => {
             setLoading(false);
         }
     };
+
+    if (autoLoginPending) {
+        return (
+            <div className="flex flex-col items-center justify-center w-full h-screen bg-bg-primary relative overflow-hidden">
+                {/* Ambient glows */}
+                <div className="absolute top-1/4 left-1/3 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px]
+                                bg-accent/[0.06] rounded-full blur-[140px] pointer-events-none" />
+                <div className="absolute bottom-1/4 right-1/4 w-[350px] h-[350px]
+                                bg-accent/[0.03] rounded-full blur-[120px] pointer-events-none" />
+
+                <div className="relative z-10 flex flex-col items-center gap-8">
+                    {/* Animated logo */}
+                    <div className="flex items-center justify-center w-20 h-20 rounded-3xl bg-accent/10
+                                    shadow-[0_0_60px_rgba(167,199,231,0.15),0_0_120px_rgba(167,199,231,0.06)]
+                                    animate-pulse-slow">
+                        <Waves className="w-10 h-10 text-accent" />
+                    </div>
+
+                    {/* Waveform spinner */}
+                    <div className="flex items-end gap-[3px] h-8">
+                        {[0.6, 0.9, 1.2, 0.9, 0.6, 1.1, 0.8, 1.0, 0.7, 1.2].map((height, i) => (
+                            <div
+                                key={i}
+                                className="w-[3px] rounded-full bg-accent/70"
+                                style={{
+                                    height: `${height * 100}%`,
+                                    animation: `barBounce 1.1s ease-in-out infinite`,
+                                    animationDelay: `${i * 0.09}s`,
+                                }}
+                            />
+                        ))}
+                    </div>
+
+                    {/* Rotating phrase */}
+                    <p
+                        key={phraseIndex}
+                        className="text-sm text-text-secondary tracking-wide animate-fade-in"
+                    >
+                        {AUTO_LOGIN_PHRASES[phraseIndex]}
+                    </p>
+                </div>
+
+                <style>{`
+                    @keyframes barBounce {
+                        0%, 100% { transform: scaleY(0.4); opacity: 0.5; }
+                        50%       { transform: scaleY(1);   opacity: 1;   }
+                    }
+                    @keyframes fade-in {
+                        from { opacity: 0; transform: translateY(4px); }
+                        to   { opacity: 1; transform: translateY(0);   }
+                    }
+                    .animate-fade-in { animation: fade-in 0.4s ease both; }
+                    .animate-pulse-slow { animation: pulse 2.6s cubic-bezier(0.4,0,0.6,1) infinite; }
+                `}</style>
+            </div>
+        );
+    }
 
     return (
         <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-6 relative overflow-hidden">

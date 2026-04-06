@@ -2,6 +2,8 @@ import { getPublicProfile } from "@/lib/api/profile";
 import UserAvatar from "@/components/UserAvatar";
 import { Calendar, User } from "lucide-react";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 interface Params {
   username: string;
 }
@@ -56,9 +58,11 @@ export default async function PublicProfilePage({
           />
           <div className="flex-1">
             <h1 className="text-3xl font-bold tracking-tight">
-              {profile.display_name || profile.username}
+              {profile.display_name || (!UUID_RE.test(profile.username) ? profile.username : 'SoundHaus User')}
             </h1>
-            <p className="mt-1 text-lg text-zinc-400">@{profile.username}</p>
+            <p className="mt-1 text-lg text-zinc-400">
+              {UUID_RE.test(profile.username) ? '@soundhaususer' : `@${profile.username}`}
+            </p>
 
             {profile.bio && (
               <p className="mt-4 text-sm leading-relaxed text-zinc-300">
