@@ -4,7 +4,9 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
 module.exports = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/node_modules/dugite/git/**',
+    },
     name: 'SoundHaus',
     executableName: 'SoundHaus',
     icon: path.join(__dirname, 'assets/icons/icon'),

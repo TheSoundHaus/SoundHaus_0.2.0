@@ -1,10 +1,7 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { exec as gitExec } from 'dugite';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-
-const execAsync = promisify(exec);
 const soundhausDir = path.join(os.homedir(), '.soundhaus');
 const soundhausCredPath = path.join(soundhausDir, '.soundhaus-credentials');
 const giteaCredPath = path.join(soundhausDir, '.gitea-credentials');
@@ -31,7 +28,7 @@ function setSoundHausCredentials(token: string): Promise<string> {
     return new Promise(async (resolve, reject) => {
         try {
             // Configure credential helper globally
-            await execAsync('git config --global credential.helper store');
+            await gitExec(['config', '--global', 'credential.helper', 'store'], os.homedir());
 
             fs.mkdirSync(soundhausDir, { recursive: true });
 

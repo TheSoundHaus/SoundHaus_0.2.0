@@ -3,17 +3,16 @@ import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { desktopEnv } from './env';
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
-import { gitBin, pull, commit, push } from "./project";
+import { exec as gitExec } from 'dugite';
+import { pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
 import { recentProjectsManager } from './recentProjectsManager';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseAls, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
+import { parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
 import { changesToProjectDiff } from './diffTransformer'
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
@@ -96,153 +95,6 @@ function updateMenuForRoute(route: string) {
   }
 }
 
-const execFileP = promisify(execFile);
-
-type SnapshotNote = {
-  pitch: number;
-  start_beat: number;
-  duration_beats: number;
-  velocity: number;
-  note_id?: string | null;
-};
-
-type TrackNoteDiff = {
-  trackId: string;
-  trackName: string;
-  added: SnapshotNote[];
-  removed: SnapshotNote[];
-  adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
-};
-
-type GroupedNoteDiff = {
-  tracks: TrackNoteDiff[];
-};
-
-type CommitMeta = {
-  hash: string;
-  shortHash: string;
-  subject: string;
-  author: string;
-  timestamp: string;
-};
-
-function buildTextSummary(changes: any[], depth = 0): string[] {
-  const lines: string[] = [];
-  const indent = '  '.repeat(depth);
-  for (const node of changes) {
-    if (node?.type === 'Note') {
-      continue;
-    }
-    const prefix = node.action === 'added' ? '+ ' : node.action === 'removed' ? '- ' : '~ ';
-    let line = `${indent}${prefix}${node.type}: ${node.label}`;
-    if (node.from && node.to && node.action === 'value_change') {
-      line += ` (${node.from} -> ${node.to})`;
-    }
-    lines.push(line);
-    if (node.children && node.children.length > 0) {
-      lines.push(...buildTextSummary(node.children, depth + 1));
-    }
-  }
-  return lines;
-}
-
-function parseNotePayload(raw: unknown): SnapshotNote | null {
-  if (typeof raw !== 'string' || raw.length === 0) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed?.pitch !== 'number') return null;
-    if (typeof parsed?.start_beat !== 'number') return null;
-    if (typeof parsed?.duration_beats !== 'number') return null;
-    return {
-      pitch: parsed.pitch,
-      start_beat: parsed.start_beat,
-      duration_beats: parsed.duration_beats,
-      velocity: typeof parsed?.velocity === 'number' ? parsed.velocity : 100,
-      note_id: typeof parsed?.note_id === 'string' ? parsed.note_id : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function extractNoteDiffFromChanges(changes: any[], trackOrder: string[] = []): GroupedNoteDiff {
-  const byTrack = new Map<string, TrackNoteDiff>();
-  const orderIndex = new Map<string, number>();
-
-  trackOrder.forEach((id, index) => {
-    if (typeof id === 'string' && id.length > 0) {
-      orderIndex.set(id, index);
-    }
-  });
-
-  const ensureTrack = (trackId: string, trackName: string) => {
-    const existing = byTrack.get(trackId);
-    if (existing) {
-      if (!existing.trackName && trackName) {
-        existing.trackName = trackName;
-      }
-      return existing;
-    }
-
-    const created: TrackNoteDiff = {
-      trackId,
-      trackName: trackName || 'Unnamed Track',
-      added: [],
-      removed: [],
-      adjusted: [],
-    };
-    byTrack.set(trackId, created);
-    return created;
-  };
-
-  const visit = (nodes: any[], currentTrack: TrackNoteDiff | null) => {
-    for (const node of nodes || []) {
-      let nextTrack = currentTrack;
-
-      if (node?.type === 'Track') {
-        const trackId = typeof node?.id === 'string' && node.id.length > 0
-          ? node.id
-          : `track:${typeof node?.label === 'string' ? node.label : 'unknown'}`;
-        const trackName = typeof node?.label === 'string' && node.label.length > 0
-          ? node.label
-          : 'Unnamed Track';
-        nextTrack = ensureTrack(trackId, trackName);
-      } else if (node?.type === 'Note' && currentTrack) {
-        if (node.action === 'added') {
-          const note = parseNotePayload(node.to);
-          if (note) currentTrack.added.push(note);
-        } else if (node.action === 'removed') {
-          const note = parseNotePayload(node.from);
-          if (note) currentTrack.removed.push(note);
-        } else if (node.action === 'adjusted') {
-          const from = parseNotePayload(node.from);
-          const to = parseNotePayload(node.to);
-          if (from && to) currentTrack.adjusted.push({ from, to });
-        }
-      }
-
-      if (Array.isArray(node?.children) && node.children.length > 0) {
-        visit(node.children, nextTrack);
-      }
-    }
-  };
-
-  visit(changes || [], null);
-
-  const tracks = Array.from(byTrack.values()).filter((track) => {
-    return track.added.length + track.removed.length + track.adjusted.length > 0;
-  });
-
-  tracks.sort((a, b) => {
-    const ai = orderIndex.has(a.trackId) ? orderIndex.get(a.trackId)! : Number.MAX_SAFE_INTEGER;
-    const bi = orderIndex.has(b.trackId) ? orderIndex.get(b.trackId)! : Number.MAX_SAFE_INTEGER;
-    if (ai !== bi) return ai - bi;
-    return a.trackName.localeCompare(b.trackName);
-  });
-
-  return { tracks };
-}
-
 /**
  * Find the first .als file in a directory, parse it, and write/overwrite
  * .soundhaus/{sessionName}/snapshot.json.  Returns the alsPath on success
@@ -268,52 +120,20 @@ async function refreshSnapshot(repoPath: string): Promise<{ alsPath: string | nu
   }
 }
 
-/**
- * After a successful pull (fetch + rebase), restore the committed snapshot.json
- * so the working tree stays clean.  Without this, refreshSnapshot would re-parse
- * the (possibly dirty) ALS and leave an uncommitted snapshot.json that causes
- * autostash conflicts on the next pull.
- */
-async function restoreSnapshotFromHead(repoPath: string): Promise<void> {
-  try {
-    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
-    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
-    if (!alsFile) return;
-
-    const sessionName = path.basename(alsFile.name, '.als');
-    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-
-    await execFileP(gitBin, ['-C', repoPath, 'checkout', 'HEAD', '--', snapshotRelPath], {
-      encoding: 'utf8',
-    });
-    console.log('[restoreSnapshotFromHead] Restored', snapshotRelPath, 'from HEAD');
-  } catch {
-    // No HEAD or snapshot not tracked yet (first clone / legacy repo) — fall back
-    // to generating one from the current ALS so downstream code has a baseline.
-    const snap = await refreshSnapshot(repoPath);
-    if (snap.error) {
-      console.warn('[restoreSnapshotFromHead] Fallback refreshSnapshot also failed:', snap.error);
-    }
-  }
-}
-
 function createWindow() {
     mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
-    backgroundColor: '#18181B',
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
-      webSecurity: false,
-      spellcheck: false,
     },
   });
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
+    //mainWindow.webContents.openDevTools();
   } else if (isPreview) {
-    mainWindow.webContents.openDevTools();
+    //mainWindow.webContents.openDevTools();
     mainWindow.loadFile("dist/index.html");
   } else {
     mainWindow.loadFile("dist/index.html");
@@ -349,75 +169,17 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
     return null;
   }
   try {
-    const findFirstAls = async (root: string, maxDepth = 6): Promise<string | null> => {
-      // Breadth-first search for the first .als under root.
-      // Skips common irrelevant / huge directories.
-      const skipDirs = new Set([
-        '.git',
-        '.soundhaus',
-        'node_modules',
-        '.next',
-        'dist',
-        'build',
-        'target',
-      ]);
-
-      type QueueItem = { dir: string; depth: number };
-      const queue: QueueItem[] = [{ dir: root, depth: 0 }];
-
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        let entries: fs.Dirent[];
-        try {
-          entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-
-        // Prefer files in the current folder first.
-        for (const ent of entries) {
-          if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
-            return path.join(current.dir, ent.name);
-          }
-        }
-
-        // Then enqueue subfolders (bounded by maxDepth).
-        if (current.depth >= maxDepth) continue;
-        for (const ent of entries) {
-          if (!ent.isDirectory()) continue;
-          if (skipDirs.has(ent.name)) continue;
-          queue.push({ dir: path.join(current.dir, ent.name), depth: current.depth + 1 });
-        }
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes:  true });
+    for(const ent of entries) {
+      if(ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+        return path.join(folderPath, ent.name);
       }
-
-      return null;
-    };
-
-    return await findFirstAls(folderPath);
+    }
   }
   catch(e) {
     // Ignore errors
   }
   return null;
-});
-
-ipcMain.handle('open-als-file', async (_event: IpcMainInvokeEvent, folderPath: string) => {
-  if (!folderPath) {
-    return { ok: false, error: 'No project path provided' };
-  }
-  try {
-    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
-    for (const ent of entries) {
-      if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
-        const alsPath = path.join(folderPath, ent.name);
-        await shell.openPath(alsPath);
-        return { ok: true };
-      }
-    }
-    return { ok: false, error: 'No .als file found in this project' };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Failed to open file' };
-  }
 });
 
 ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) => {
@@ -453,10 +215,13 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   const pullResult = await pull(repoPath);
 
-  // Restore the committed snapshot so the working tree stays clean.
-  // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
-  // uncommitted snapshot.json that causes autostash conflicts on the next pull.
-  await restoreSnapshotFromHead(repoPath);
+  // Regenerate snapshot so changelog baseline matches the newly pulled ALS.
+  const snap = await refreshSnapshot(repoPath);
+  if (snap.error) {
+    console.warn('[pull-repo] Post-pull snapshot refresh failed (non-fatal):', snap.error);
+  } else if (snap.alsPath) {
+    console.log('[pull-repo] Snapshot refreshed for', path.basename(snap.alsPath, '.als'));
+  }
 
   return pullResult;
 });
@@ -466,54 +231,21 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
   let commitMessage: string | undefined;
   let alsPath: string | undefined;
   try {
-    const findFirstAls = async (root: string, maxDepth = 6): Promise<string | null> => {
-      const skipDirs = new Set([
-        '.git',
-        '.soundhaus',
-        'node_modules',
-        '.next',
-        'dist',
-        'build',
-        'target',
-      ]);
-      type QueueItem = { dir: string; depth: number };
-      const queue: QueueItem[] = [{ dir: root, depth: 0 }];
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        let entries: fs.Dirent[];
-        try {
-          entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-        for (const ent of entries) {
-          if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
-            return path.join(current.dir, ent.name);
-          }
-        }
-        if (current.depth >= maxDepth) continue;
-        for (const ent of entries) {
-          if (!ent.isDirectory()) continue;
-          if (skipDirs.has(ent.name)) continue;
-          queue.push({ dir: path.join(current.dir, ent.name), depth: current.depth + 1 });
-        }
-      }
-      return null;
-    };
-
-    // Find the ALS file in the repo (can be nested)
+    // Find the ALS file in the repo
     // TODO: Revamp file selection — the ALS session name is currently derived by
     // auto-discovering the first .als file in the project folder. In a future ticket,
     // the user will select a specific ALS file directly; all naming decisions
     // (e.g. .soundhaus/{als_session_name}/) will be based on that explicit selection.
-    alsPath = await findFirstAls(repoPath);
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
 
-    if (alsPath) {
-      const alsFileName = path.basename(alsPath);
+    if (alsFile) {
+      alsPath = path.join(repoPath, alsFile.name);
 
       // Check if HEAD exists — no commit message generation on first commit
       try {
-        await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+        const headCheck = await gitExec(['rev-parse', '--verify', 'HEAD'], repoPath);
+        if (headCheck.exitCode !== 0) throw new Error('No HEAD');
 
         // Diff current ALS against local snapshot (refreshed after pull/commit).
         // Falls back to HEAD copy when no working-tree file exists.
@@ -524,19 +256,19 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
         try {
           snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
         } catch {
-          const { stdout } = await execFileP(
-            gitBin,
-            ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`],
-            { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 }
+          const showResult = await gitExec(
+            ['show', `HEAD:${snapshotRelPath}`],
+            repoPath,
+            { maxBuffer: 50 * 1024 * 1024 }
           );
-          snapshotRaw = stdout;
+          snapshotRaw = showResult.stdout;
         }
         const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
         commitMessage = await generateCommitMessage(rawJson);
       } catch (e) {
         // No HEAD yet, or no snapshot in HEAD (first commit / legacy repo)
         console.warn('[commit-changes] Falling back to initial snapshot message:', e);
-        commitMessage = `Initial snapshot: ${alsFileName.replace(/\.als$/i, '')}`;
+        commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
       }
 
       // Write snapshot before committing so git add . stages it alongside the .als file.
@@ -558,69 +290,70 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 
   // ── Best-effort diff upload after successful push ──
   try {
-    // 1. Get current and parent commit SHAs
-    const { stdout: headRaw } = await execFileP(gitBin, ['-C', repoPath, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+    const { stdout: headRaw } = await gitExec(['rev-parse', 'HEAD'], repoPath);
     const commitSha = headRaw.trim();
 
     let beforeSha: string | undefined;
     try {
-      const { stdout: parentRaw } = await execFileP(gitBin, ['-C', repoPath, 'rev-parse', 'HEAD^'], { encoding: 'utf8' });
+      const { stdout: parentRaw } = await gitExec(['rev-parse', 'HEAD^'], repoPath);
       beforeSha = parentRaw.trim();
-    } catch {
-      // First commit — no parent
-    }
+    } catch { /* first commit — no parent */ }
 
-    // 2. Find ALS + compute diff
+    // Find ALS file
     const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
     const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
     if (!alsFile) throw new Error('No .als file found — skipping diff upload');
-
     const alsPath = path.join(repoPath, alsFile.name);
     const sessionName = path.basename(alsPath, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-    const snapshotDiskPath = path.join(repoPath, snapshotRelPath);
 
-    // Current snapshot — try git history first, fall back to disk
-    let currentSnapshot: string;
-    try {
-      const { stdout } = await execFileP(
-        gitBin, ['-C', repoPath, 'show', `${commitSha}:${snapshotRelPath}`],
-        { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
-      );
-      currentSnapshot = stdout;
-    } catch {
-      // snapshot.json may not be in git yet (first commit or not staged) — read from disk
-      currentSnapshot = await fs.promises.readFile(snapshotDiskPath, 'utf8');
-    }
-
-    // Parent snapshot
+    // Get parent snapshot (before state)
     let parentSnapshot = '{"schema_version":1,"tracks":[]}';
     if (beforeSha) {
       try {
-        const { stdout: parentRaw } = await execFileP(
-          gitBin, ['-C', repoPath, 'show', `${beforeSha}:${snapshotRelPath}`],
-          { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+        const { stdout: parentSnap } = await gitExec(
+          ['show', `${beforeSha}:${snapshotRelPath}`],
+          repoPath,
+          { maxBuffer: 20 * 1024 * 1024 }
         );
-        parentSnapshot = parentRaw;
-      } catch { /* first snapshot — keep empty baseline */ }
+        parentSnapshot = parentSnap;
+      } catch { /* first snapshot */ }
     }
 
-    // 3. Compute diff via Rust and transform to ProjectDiff
-    const rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
+    // Diff parent snapshot vs current ALS file
+    const rawJson = await diffFromSnapshot(parentSnapshot, alsPath);
     const report = JSON.parse(rawJson);
-    const summaryLines = buildTextSummary(report.changes || []);
+
+    // Build summary lines
+    const summaryLines: string[] = [];
+    for (const change of (report.changes || [])) {
+      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
+      let line = `${prefix}${change.type}: ${change.label}`;
+      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
+      summaryLines.push(line);
+    }
     const projectDiff = changesToProjectDiff(report, summaryLines.join('\n'));
 
-    // 4. Extract owner/repo from git remote
-    const { stdout: remoteUrl } = await execFileP(gitBin, ['-C', repoPath, 'remote', 'get-url', 'origin'], { encoding: 'utf8' });
-    const remoteMatch = remoteUrl.trim().match(/\/([^/]+)\/([^/.]+?)(?:\.git)?$/);
+    // Get owner/repo from git remote
+    const remoteResult = await gitExec(['remote', 'get-url', 'origin'], repoPath);
+    const remoteUrl = remoteResult.stdout.trim();
+    const remoteMatch = remoteUrl.match(/\/([^/]+)\/([^/.]+?)(?:\.git)?$/);
     if (!remoteMatch) throw new Error('Could not parse owner/repo from remote URL');
     const [, owner, repo] = remoteMatch;
 
-    // 5. Upload diff to backend
     const pat = await getSoundHausCredentials();
     if (!pat) throw new Error('No SoundHaus PAT — skipping diff upload');
 
+    // Auto-register repo in SoundHaus DB (idempotent — handles repos created before registration was fixed)
+    try {
+      await fetch(`${desktopEnv.supabasePublicUrl}/repos/register`, {
+        method: 'POST',
+        headers: { 'Authorization': `token ${pat}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: repo, description: '', private: false }),
+      });
+    } catch { /* non-fatal */ }
+
+    // Upload diff
     const diffPayload = {
       commit_sha: commitSha,
       before_sha: beforeSha,
@@ -629,16 +362,11 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
       diff_type: 'semantic',
       desktop_version: app.getVersion(),
     };
-
     const res = await fetch(`${desktopEnv.supabasePublicUrl}/repos/${owner}/${repo}/diff`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `token ${pat}`,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `token ${pat}` },
       body: JSON.stringify(diffPayload),
     });
-
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.warn(`[push-repo] Diff upload failed (${res.status}): ${body.slice(0, 300)}`);
@@ -660,12 +388,13 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string) => {
   try {
     const startDir = path.dirname(alsPath);
-    const { stdout: rootStdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    const repoRoot = rootStdout.trim();
+    const rootResult = await gitExec(['rev-parse', '--show-toplevel'], startDir);
+    const repoRoot = rootResult.stdout.trim();
 
     // Check if any commits exist
     try {
-      await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+      const headResult = await gitExec(['rev-parse', '--verify', 'HEAD'], repoRoot);
+      if (headResult.exitCode !== 0) throw new Error('No HEAD');
     } catch {
       // No commits yet — return a no-commits baseline built from the current file
       const projectJson = await parseAls(alsPath);
@@ -690,19 +419,31 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     try {
       snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
     } catch {
-      const { stdout } = await execFileP(
-        gitBin,
-        ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`],
-        { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+      const showResult = await gitExec(
+        ['show', `HEAD:${snapshotRelPath}`],
+        repoRoot,
+        { maxBuffer: 10 * 1024 * 1024 }
       );
-      snapshotRaw = stdout;
+      snapshotRaw = showResult.stdout;
     }
     const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
     const report = JSON.parse(rawJson);
 
     // Build a flat summary string for the Changes panel
     // TODO (Phase 5): move this formatting into Rust via generate_commit_message / format_changes_summary export
-    const summaryLines = buildTextSummary(report.changes || []);
+    const summaryLines: string[] = [];
+    for (const change of (report.changes || [])) {
+      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
+      let line = `${prefix}${change.type}: ${change.label}`;
+      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
+      summaryLines.push(line);
+
+      for (const child of (change.children || [])) {
+        let childLine = `  ${child.action}: ${child.type} - ${child.label}`;
+        if (child.from && child.to) childLine += ` (${child.from} \u2192 ${child.to})`;
+        summaryLines.push(childLine);
+      }
+    }
 
     // Map tracks to legacy field names for the Track Information panel
     const legacyTracks = (report.project?.tracks || []).map((t: any) => ({
@@ -724,88 +465,6 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
 });
-
-ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath: string): Promise<CommitMeta[]> => {
-  try {
-    const { stdout } = await execFileP(
-      gitBin,
-      ['-C', repoPath, 'log', '--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s', '-n', '50'],
-      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 }
-    );
-
-    return stdout
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const [hash, shortHash, author, timestamp, subject] = line.split('\x1f');
-        return {
-          hash,
-          shortHash,
-          author,
-          timestamp,
-          subject,
-        };
-      })
-      .filter((item) => item.hash && item.subject);
-  } catch {
-    return [];
-  }
-});
-
-ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: string, commitHash: string, alsPath: string) => {
-  try {
-    const sessionName = path.basename(alsPath, '.als');
-    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-
-    const { stdout: currentSnapshot } = await execFileP(
-      gitBin,
-      ['-C', repoPath, 'show', `${commitHash}:${snapshotRelPath}`],
-      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
-    );
-
-    let parentSnapshot = '{}';
-    try {
-      const { stdout: parentCommit } = await execFileP(
-        gitBin,
-        ['-C', repoPath, 'rev-parse', `${commitHash}^`],
-        { encoding: 'utf8' }
-      );
-      const parentHash = parentCommit.trim();
-      const { stdout: parentRaw } = await execFileP(
-        gitBin,
-        ['-C', repoPath, 'show', `${parentHash}:${snapshotRelPath}`],
-        { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
-      );
-      parentSnapshot = parentRaw;
-    } catch {
-      parentSnapshot = '{"schema_version":1,"tracks":[]}';
-    }
-
-    // Get the full semantic diff from Rust (including track/device/clip structure)
-    const rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
-    const report = JSON.parse(rawJson);
-    const summaryLines = buildTextSummary(report.changes || []);
-
-    const trackOrder = Array.isArray(report?.project?.tracks)
-      ? report.project.tracks
-          .map((track: any) => (typeof track?.id === 'string' ? track.id : null))
-          .filter((id: string | null): id is string => id !== null)
-      : [];
-    const noteDiff = extractNoteDiffFromChanges(report.changes || [], trackOrder);
-
-    return {
-      ok: true,
-      summary: summaryLines.length > 0 ? summaryLines.join('\n') : 'No semantic changes detected',
-      noteDiff,
-    };
-  } catch (e: any) {
-    return {
-      ok: false,
-      reason: e && e.message ? e.message : String(e),
-    };
-  }
-});
-
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
   return await getSoundHausCredentials();
 })
