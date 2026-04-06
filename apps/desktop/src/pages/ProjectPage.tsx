@@ -5,7 +5,9 @@ import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
 import type { GitError } from '../hooks/useProjectGitActions'
+import type { CommitEntry, NoteDiff } from '../types'
 import electronAPI from '../services/electronAPI';
+import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
 
 const ProjectPage = () => {
     const location = useLocation();
@@ -17,10 +19,60 @@ const ProjectPage = () => {
     const [showChanges, setShowChanges] = useState<boolean>(true)
 
     const [refreshing, setRefreshing] = useState(false)
+    const [historyLoading, setHistoryLoading] = useState(false)
+    const [history, setHistory] = useState<CommitEntry[]>([])
+    const [selectedCommit, setSelectedCommit] = useState<string | null>(null)
+    const [selectedCommitSummary, setSelectedCommitSummary] = useState<string>('')
+    const [selectedNoteDiff, setSelectedNoteDiff] = useState<NoteDiff | null>(null)
 
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
     const { runPull, runCommit, runPush } = useProjectGitActions()
+
+    const trackDiffs = selectedNoteDiff?.tracks ?? []
+    const noteCounts = {
+        added: trackDiffs.reduce((sum, track) => sum + track.added.length, 0),
+        removed: trackDiffs.reduce((sum, track) => sum + track.removed.length, 0),
+        adjusted: trackDiffs.reduce((sum, track) => sum + track.adjusted.length, 0),
+    }
+    const hasNoteChanges = (noteCounts.added + noteCounts.removed + noteCounts.adjusted) > 0
+
+    const handleLoadHistory = useCallback(async () => {
+        if (!selectedProject) return
+        setHistoryLoading(true)
+        try {
+            const commits = await electronAPI.getCommitHistory(selectedProject)
+            setHistory(Array.isArray(commits) ? commits : [])
+        } catch {
+            setHistory([])
+        } finally {
+            setHistoryLoading(false)
+        }
+    }, [selectedProject])
+
+    const handleSelectCommit = useCallback(async (hash: string) => {
+        if (!selectedProject) return
+        setSelectedCommit(hash)
+        try {
+            const alsPath = await findAls(selectedProject)
+            if (!alsPath) {
+                setSelectedCommitSummary('No ALS file found in this project.')
+                setSelectedNoteDiff(null)
+                return
+            }
+            const result = await electronAPI.getCommitDiff(selectedProject, hash, alsPath)
+            if (!result?.ok) {
+                setSelectedCommitSummary(result?.reason ?? 'Failed to load commit diff')
+                setSelectedNoteDiff(null)
+                return
+            }
+            setSelectedCommitSummary(result.summary ?? '')
+            setSelectedNoteDiff(result.noteDiff ?? { tracks: [] })
+        } catch (e) {
+            setSelectedCommitSummary(e instanceof Error ? e.message : String(e))
+            setSelectedNoteDiff(null)
+        }
+    }, [findAls, selectedProject])
 
     const handleRefreshChanges = useCallback(async () => {
         if (!selectedProject) return
@@ -96,6 +148,10 @@ const ProjectPage = () => {
     useEffect(() => {
         handleRefreshChanges()
     }, [handleRefreshChanges])
+
+    useEffect(() => {
+        handleLoadHistory()
+    }, [handleLoadHistory])
 
     useEffect(() => {
         const onRefreshRequest = (event: Event) => {
@@ -217,7 +273,7 @@ const ProjectPage = () => {
                                 <div>
                                     <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
                                         {alsStruct.summary.split('\n').map((line: string, i: number) => (
-                                            <div key={i} style={{ marginBottom: '4px' }}>{line}</div>
+                                        <div key={i} style={{ marginBottom: '4px', whiteSpace: 'pre-wrap' }}>{line}</div>
                                         ))}
                                     </div>
                                 </div>
@@ -229,6 +285,127 @@ const ProjectPage = () => {
                         </div>
                     )}
                 </div>
+
+                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #eee' }}>
+                        <span>Commit History</span>
+                        <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                handleLoadHistory()
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    handleLoadHistory()
+                                }
+                            }}
+                            aria-disabled={historyLoading}
+                            style={{
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                background: '#fff',
+                                border: '1px solid #ccc',
+                                borderRadius: '4px',
+                                cursor: historyLoading ? 'wait' : 'pointer',
+                                opacity: historyLoading ? 0.6 : 1,
+                                userSelect: 'none'
+                            }}
+                            title="Refresh commit history"
+                        >
+                            {historyLoading ? '⟳' : '↻'}
+                        </span>
+                    </div>
+                    <div style={{ padding: 12, background: '#fff', maxHeight: 240, overflowY: 'auto' }}>
+                        {historyLoading ? (
+                            <p style={{ color: '#888' }}>Loading commit history...</p>
+                        ) : history.length === 0 ? (
+                            <p style={{ color: '#888' }}>No commits found.</p>
+                        ) : (
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                {history.map((entry) => (
+                                    <button
+                                        key={entry.hash}
+                                        onClick={() => handleSelectCommit(entry.hash)}
+                                        style={{
+                                            textAlign: 'left',
+                                            border: selectedCommit === entry.hash ? '1px solid #999' : '1px solid #e2e2e2',
+                                            background: selectedCommit === entry.hash ? '#f7f7f7' : '#fff',
+                                            borderRadius: 6,
+                                            padding: 8,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 600 }}>{entry.subject}</div>
+                                        <div style={{ fontSize: 12, color: '#666' }}>{entry.shortHash} • {entry.author}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <section className={styles.commitDiffSection}>
+                    <div className={styles.commitDiffHeader}>
+                        <h3 className={styles.commitDiffTitle}>Selected Commit Details</h3>
+                        {selectedCommit && (
+                            <span className={styles.commitPill}>{selectedCommit.slice(0, 7)}</span>
+                        )}
+                    </div>
+
+                    <div className={styles.commitDiffBody}>
+                        {!selectedCommit ? (
+                            <p style={{ color: '#888' }}>Pick a commit above to view both semantic and MIDI note differences.</p>
+                        ) : (
+                            <>
+                                <div style={{ border: '1px solid #e6e6e6', borderRadius: 8, overflow: 'hidden' }}>
+                                    <div style={{ padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #eee', fontWeight: 600 }}>
+                                        Semantic Summary
+                                    </div>
+                                    <div style={{ padding: 12 }}>
+                                        {selectedCommitSummary ? (
+                                            <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                                                {selectedCommitSummary.split('\n').map((line: string, i: number) => (
+                                                    <div key={i} style={{ marginBottom: '4px', whiteSpace: 'pre-wrap' }}>{line}</div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p style={{ color: '#888' }}>No summary for this commit.</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className={styles.noteStatsRow}>
+                                    <div className={styles.noteStatCard}>
+                                        <span className={styles.noteStatLabel}>Added</span>
+                                        <strong className={styles.noteAdded}>{noteCounts.added}</strong>
+                                    </div>
+                                    <div className={styles.noteStatCard}>
+                                        <span className={styles.noteStatLabel}>Removed</span>
+                                        <strong className={styles.noteRemoved}>{noteCounts.removed}</strong>
+                                    </div>
+                                    <div className={styles.noteStatCard}>
+                                        <span className={styles.noteStatLabel}>Adjusted</span>
+                                        <strong className={styles.noteAdjusted}>{noteCounts.adjusted}</strong>
+                                    </div>
+                                </div>
+
+                                <div style={{ marginTop: 4 }}>
+                                    {hasNoteChanges ? (
+                                        <PianoRollCanvas noteDiff={selectedNoteDiff} />
+                                    ) : (
+                                        <div style={{ border: '1px solid #e6e6e6', borderRadius: 8, padding: 12, background: '#fff' }}>
+                                            <p style={{ color: '#888', margin: 0 }}>No MIDI note changes detected for this commit.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </section>
             </div>
             <div className={styles.right}>
                 <div className={styles.buttons}>
