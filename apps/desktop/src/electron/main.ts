@@ -13,10 +13,25 @@ import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
 import { recentProjectsManager } from './recentProjectsManager';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
+import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
 import { changesToProjectDiff } from './diffTransformer'
+
+const execFileP = promisify(execFile);
+
+// Resolve the git binary path (bundled vendor or system fallback)
+const platformMap: Partial<Record<NodeJS.Platform, string>> = { win32: 'windows', darwin: 'macos', linux: 'linux' };
+const platformDir = platformMap[process.platform] || process.platform;
+let gitBin = process.env.SOUNDHAUS_GIT_BIN || path.join(__dirname, '..', 'vendor', 'git', platformDir, process.platform === 'win32' ? 'git.exe' : 'git');
+try {
+  if (gitBin !== 'git' && !fs.existsSync(gitBin)) {
+    console.warn('Configured git binary not found at', gitBin, '— falling back to system `git` in PATH');
+    gitBin = 'git';
+  }
+} catch { gitBin = 'git'; }
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
 // Without this, setup can launch the app at the wrong time and shortcut creation may fail.
@@ -98,6 +113,151 @@ function updateMenuForRoute(route: string) {
   }
 }
 
+type SnapshotNote = {
+  pitch: number;
+  start_beat: number;
+  duration_beats: number;
+  velocity: number;
+  note_id?: string | null;
+};
+
+type TrackNoteDiff = {
+  trackId: string;
+  trackName: string;
+  added: SnapshotNote[];
+  removed: SnapshotNote[];
+  adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
+};
+
+type GroupedNoteDiff = {
+  tracks: TrackNoteDiff[];
+};
+
+type CommitMeta = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  timestamp: string;
+};
+
+function buildTextSummary(changes: any[], depth = 0): string[] {
+  const lines: string[] = [];
+  const indent = '  '.repeat(depth);
+  for (const node of changes) {
+    if (node?.type === 'Note') {
+      continue;
+    }
+    const prefix = node.action === 'added' ? '+ ' : node.action === 'removed' ? '- ' : '~ ';
+    let line = `${indent}${prefix}${node.type}: ${node.label}`;
+    if (node.from && node.to && node.action === 'value_change') {
+      line += ` (${node.from} -> ${node.to})`;
+    }
+    lines.push(line);
+    if (node.children && node.children.length > 0) {
+      lines.push(...buildTextSummary(node.children, depth + 1));
+    }
+  }
+  return lines;
+}
+
+function parseNotePayload(raw: unknown): SnapshotNote | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.pitch !== 'number') return null;
+    if (typeof parsed?.start_beat !== 'number') return null;
+    if (typeof parsed?.duration_beats !== 'number') return null;
+    return {
+      pitch: parsed.pitch,
+      start_beat: parsed.start_beat,
+      duration_beats: parsed.duration_beats,
+      velocity: typeof parsed?.velocity === 'number' ? parsed.velocity : 100,
+      note_id: typeof parsed?.note_id === 'string' ? parsed.note_id : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractNoteDiffFromChanges(changes: any[], trackOrder: string[] = []): GroupedNoteDiff {
+  const byTrack = new Map<string, TrackNoteDiff>();
+  const orderIndex = new Map<string, number>();
+
+  trackOrder.forEach((id, index) => {
+    if (typeof id === 'string' && id.length > 0) {
+      orderIndex.set(id, index);
+    }
+  });
+
+  const ensureTrack = (trackId: string, trackName: string) => {
+    const existing = byTrack.get(trackId);
+    if (existing) {
+      if (!existing.trackName && trackName) {
+        existing.trackName = trackName;
+      }
+      return existing;
+    }
+
+    const created: TrackNoteDiff = {
+      trackId,
+      trackName: trackName || 'Unnamed Track',
+      added: [],
+      removed: [],
+      adjusted: [],
+    };
+    byTrack.set(trackId, created);
+    return created;
+  };
+
+  const visit = (nodes: any[], currentTrack: TrackNoteDiff | null) => {
+    for (const node of nodes || []) {
+      let nextTrack = currentTrack;
+
+      if (node?.type === 'Track') {
+        const trackId = typeof node?.id === 'string' && node.id.length > 0
+          ? node.id
+          : `track:${typeof node?.label === 'string' ? node.label : 'unknown'}`;
+        const trackName = typeof node?.label === 'string' && node.label.length > 0
+          ? node.label
+          : 'Unnamed Track';
+        nextTrack = ensureTrack(trackId, trackName);
+      } else if (node?.type === 'Note' && currentTrack) {
+        if (node.action === 'added') {
+          const note = parseNotePayload(node.to);
+          if (note) currentTrack.added.push(note);
+        } else if (node.action === 'removed') {
+          const note = parseNotePayload(node.from);
+          if (note) currentTrack.removed.push(note);
+        } else if (node.action === 'adjusted') {
+          const from = parseNotePayload(node.from);
+          const to = parseNotePayload(node.to);
+          if (from && to) currentTrack.adjusted.push({ from, to });
+        }
+      }
+
+      if (Array.isArray(node?.children) && node.children.length > 0) {
+        visit(node.children, nextTrack);
+      }
+    }
+  };
+
+  visit(changes || [], null);
+
+  const tracks = Array.from(byTrack.values()).filter((track) => {
+    return track.added.length + track.removed.length + track.adjusted.length > 0;
+  });
+
+  tracks.sort((a, b) => {
+    const ai = orderIndex.has(a.trackId) ? orderIndex.get(a.trackId)! : Number.MAX_SAFE_INTEGER;
+    const bi = orderIndex.has(b.trackId) ? orderIndex.get(b.trackId)! : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.trackName.localeCompare(b.trackName);
+  });
+
+  return { tracks };
+}
+
 /**
  * Find the first .als file in a directory, parse it, and write/overwrite
  * .soundhaus/{sessionName}/snapshot.json.  Returns the alsPath on success
@@ -121,6 +281,124 @@ async function refreshSnapshot(repoPath: string): Promise<{ alsPath: string | nu
     console.warn('[refreshSnapshot] Failed:', msg);
     return { alsPath: null, error: msg };
   }
+}
+
+function isLikelyLegacySnapshotWithoutMidi(snapshotRaw: string): boolean {
+  try {
+    const parsed = JSON.parse(snapshotRaw);
+    const tracks = Array.isArray(parsed?.tracks) ? parsed.tracks : [];
+    let sawAnyClip = false;
+    let sawMidiNotesField = false;
+
+    for (const track of tracks) {
+      const clips = Array.isArray(track?.clips) ? track.clips : [];
+      for (const clip of clips) {
+        sawAnyClip = true;
+        if (clip && typeof clip === 'object' && Object.prototype.hasOwnProperty.call(clip, 'midi_notes')) {
+          sawMidiNotesField = true;
+          const notes = (clip as any).midi_notes;
+          if (Array.isArray(notes) && notes.length > 0) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return sawAnyClip && !sawMidiNotesField;
+  } catch {
+    return false;
+  }
+}
+
+async function gitObjectExists(repoPath: string, objectSpec: string): Promise<boolean> {
+  try {
+    await execFileP(gitBin, ['-C', repoPath, 'cat-file', '-e', objectSpec], { encoding: 'utf8' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveAlsPathInRevision(
+  repoPath: string,
+  revision: string,
+  preferredAlsPathAbs?: string,
+): Promise<string | null> {
+  const preferredRel = preferredAlsPathAbs
+    ? path.relative(repoPath, preferredAlsPathAbs).split(path.sep).join('/')
+    : null;
+
+  if (preferredRel && preferredRel.length > 0 && !preferredRel.startsWith('..')) {
+    const exists = await gitObjectExists(repoPath, `${revision}:${preferredRel}`);
+    if (exists) return preferredRel;
+  }
+
+  const { stdout } = await execFileP(
+    gitBin,
+    ['-C', repoPath, 'ls-tree', '-r', '--name-only', revision],
+    { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 },
+  );
+
+  const alsFiles = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.toLowerCase().endsWith('.als'));
+
+  if (alsFiles.length === 0) return null;
+  if (alsFiles.length === 1) return alsFiles[0];
+
+  if (preferredRel) {
+    const preferredBase = path.basename(preferredRel).toLowerCase();
+    const basenameMatch = alsFiles.find((candidate) => path.basename(candidate).toLowerCase() === preferredBase);
+    if (basenameMatch) return basenameMatch;
+  }
+
+  return alsFiles[0];
+}
+
+async function getGitBlobBuffer(repoPath: string, revision: string, relPath: string): Promise<Buffer> {
+  const { stdout } = await execFileP(
+    gitBin,
+    ['-C', repoPath, 'show', `${revision}:${relPath}`],
+    { encoding: 'buffer', maxBuffer: 100 * 1024 * 1024 },
+  ) as { stdout: Buffer; stderr: Buffer };
+  return stdout;
+}
+
+async function diffCurrentAlsAgainstRevision(
+  repoPath: string,
+  revision: string,
+  alsPath: string,
+): Promise<string | null> {
+  const relAlsPath = await resolveAlsPathInRevision(repoPath, revision, alsPath);
+  if (!relAlsPath) return null;
+
+  const [currentAlsBuffer, oldAlsBuffer] = await Promise.all([
+    fs.promises.readFile(alsPath),
+    getGitBlobBuffer(repoPath, revision, relAlsPath),
+  ]);
+
+  return await parseXmlFromBuffer(currentAlsBuffer, oldAlsBuffer);
+}
+
+async function diffSnapshotsFromAlsBlobs(
+  repoPath: string,
+  oldRevision: string,
+  newRevision: string,
+  preferredAlsPathAbs: string,
+): Promise<string | null> {
+  const oldRel = await resolveAlsPathInRevision(repoPath, oldRevision, preferredAlsPathAbs);
+  if (!oldRel) return null;
+
+  let newRel = await resolveAlsPathInRevision(repoPath, newRevision, preferredAlsPathAbs);
+  if (!newRel) newRel = oldRel;
+
+  const [oldBuf, newBuf] = await Promise.all([
+    getGitBlobBuffer(repoPath, oldRevision, oldRel),
+    getGitBlobBuffer(repoPath, newRevision, newRel),
+  ]);
+
+  return await parseXmlFromBuffer(newBuf, oldBuf);
 }
 
 function createWindow() {
@@ -266,7 +544,17 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
           );
           snapshotRaw = showResult.stdout;
         }
-        const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+        let rawJson: string | null = null;
+
+        if (isLikelyLegacySnapshotWithoutMidi(snapshotRaw)) {
+          console.log('[commit-changes] Detected legacy snapshot baseline; using HEAD ALS blob fallback diff');
+          rawJson = await diffCurrentAlsAgainstRevision(repoPath, 'HEAD', alsPath);
+        }
+
+        if (!rawJson) {
+          rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+        }
+
         commitMessage = await generateCommitMessage(rawJson);
       } catch (e) {
         // No HEAD yet, or no snapshot in HEAD (first commit / legacy repo)
@@ -388,110 +676,6 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
   return pushResult;
 });
 
-// ── Commit history from local git log ──
-ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath: string) => {
-  const format = '--format=%H%n%h%n%s%n%an%n%aI'; // hash, shortHash, subject, author, ISO date
-  const result = await gitExec(['log', format, '--no-merges', '-100'], repoPath);
-  if (result.exitCode !== 0) return [];
-  const lines = result.stdout.trim().split('\n');
-  const commits: Array<{ hash: string; shortHash: string; subject: string; author: string; timestamp: string }> = [];
-  for (let i = 0; i + 4 < lines.length; i += 5) {
-    commits.push({
-      hash: lines[i],
-      shortHash: lines[i + 1],
-      subject: lines[i + 2],
-      author: lines[i + 3],
-      timestamp: lines[i + 4],
-    });
-  }
-  return commits;
-});
-
-// ── Per-commit diff: diff the committed ALS against its parent ──
-ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: string, commitHash: string, alsPath: string) => {
-  try {
-    const sessionName = path.basename(alsPath, '.als');
-    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-
-    // Get the snapshot at this commit
-    let currentSnapshot: string;
-    try {
-      const { stdout } = await gitExec(['show', `${commitHash}:${snapshotRelPath}`], repoPath, { maxBuffer: 20 * 1024 * 1024 });
-      currentSnapshot = stdout;
-    } catch {
-      return { ok: false, reason: 'No snapshot found for this commit' };
-    }
-
-    // Get the parent commit's snapshot (the "before" state)
-    let parentSnapshot = '{"schema_version":1,"tracks":[]}';
-    try {
-      const { stdout: parentSnap } = await gitExec(
-        ['show', `${commitHash}~1:${snapshotRelPath}`],
-        repoPath,
-        { maxBuffer: 20 * 1024 * 1024 }
-      );
-      parentSnapshot = parentSnap;
-    } catch { /* first commit — no parent, use empty baseline */ }
-
-    // Diff the two snapshots using the Rust semantic-differ
-    // diffFromSnapshot expects (beforeJson, alsPathOrAfterJson)
-    // For committed snapshots we write the "after" snapshot to a temp file
-    const tmpDir = path.join(repoPath, '.soundhaus', '.tmp');
-    await fs.promises.mkdir(tmpDir, { recursive: true });
-    const tmpFile = path.join(tmpDir, `diff-${commitHash.slice(0, 8)}.json`);
-    await fs.promises.writeFile(tmpFile, currentSnapshot, 'utf8');
-
-    let rawJson: string;
-    try {
-      rawJson = await diffFromSnapshot(parentSnapshot, tmpFile);
-    } finally {
-      fs.promises.unlink(tmpFile).catch(() => {});
-    }
-
-    const report = JSON.parse(rawJson);
-
-    // Build summary
-    const summaryLines: string[] = [];
-    for (const change of (report.changes || [])) {
-      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
-      let line = `${prefix}${change.type}: ${change.label}`;
-      if (change.from && change.to) line += ` (${change.from} → ${change.to})`;
-      summaryLines.push(line);
-    }
-
-    // Convert to NoteDiff format for the desktop PianoRollCanvas
-    const noteDiff = { tracks: [] as any[] };
-    for (const change of (report.changes || [])) {
-      if (change.type !== 'Track') continue;
-      const trackId = change.id || `track:${change.label}`;
-      const track = { trackId, trackName: change.label, added: [] as any[], removed: [] as any[], adjusted: [] as any[] };
-      for (const child of (change.children || [])) {
-        if (child.type !== 'Note') continue;
-        if (child.action === 'added' && child.to) {
-          try { const n = JSON.parse(child.to); track.added.push(n); } catch {}
-        } else if (child.action === 'removed' && child.from) {
-          try { const n = JSON.parse(child.from); track.removed.push(n); } catch {}
-        } else if (child.action === 'adjusted' && child.from && child.to) {
-          try { track.adjusted.push({ from: JSON.parse(child.from), to: JSON.parse(child.to) }); } catch {}
-        }
-      }
-      if (track.added.length || track.removed.length || track.adjusted.length) {
-        noteDiff.tracks.push(track);
-      }
-    }
-
-    return {
-      ok: true,
-      summary: summaryLines.join('\n'),
-      noteDiff,
-      report,
-    };
-  } catch (e: any) {
-    console.error('[get-commit-diff]', e);
-    return { ok: false, reason: e?.message || String(e) };
-  }
-});
-
 // TODO: Revamp file selection — the ALS session name is currently derived by auto-discovering
 // the first .als file in the project folder. In a future ticket, the user will select a
 // specific ALS file directly; all naming decisions (e.g. .soundhaus/{als_session_name}/)
@@ -537,7 +721,17 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
       );
       snapshotRaw = showResult.stdout;
     }
-    const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    let rawJson: string | null = null;
+
+    if (isLikelyLegacySnapshotWithoutMidi(snapshotRaw)) {
+      console.log('[get-changes] Detected legacy snapshot baseline; using HEAD ALS blob fallback diff');
+      rawJson = await diffCurrentAlsAgainstRevision(repoRoot, 'HEAD', alsPath);
+    }
+
+    if (!rawJson) {
+      rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    }
+
     const report = JSON.parse(rawJson);
 
     // Build a flat summary string for the Changes panel
@@ -576,6 +770,99 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
 });
+
+ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath: string): Promise<CommitMeta[]> => {
+  try {
+    const { stdout } = await execFileP(
+      gitBin,
+      ['-C', repoPath, 'log', '--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s', '-n', '50'],
+      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 }
+    );
+
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [hash, shortHash, author, timestamp, subject] = line.split('\x1f');
+        return {
+          hash,
+          shortHash,
+          author,
+          timestamp,
+          subject,
+        };
+      })
+      .filter((item) => item.hash && item.subject);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: string, commitHash: string, alsPath: string) => {
+  try {
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    const { stdout: currentSnapshot } = await execFileP(
+      gitBin,
+      ['-C', repoPath, 'show', `${commitHash}:${snapshotRelPath}`],
+      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+    );
+
+    let parentSnapshot = '{}';
+    let parentHash: string | null = null;
+    try {
+      const { stdout: parentCommit } = await execFileP(
+        gitBin,
+        ['-C', repoPath, 'rev-parse', `${commitHash}^`],
+        { encoding: 'utf8' }
+      );
+      parentHash = parentCommit.trim();
+      const { stdout: parentRaw } = await execFileP(
+        gitBin,
+        ['-C', repoPath, 'show', `${parentHash}:${snapshotRelPath}`],
+        { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+      );
+      parentSnapshot = parentRaw;
+    } catch {
+      parentSnapshot = '{"schema_version":1,"tracks":[]}';
+    }
+
+    // Get the full semantic diff from Rust (including track/device/clip structure)
+    let rawJson: string | null = null;
+
+    if (parentHash && (isLikelyLegacySnapshotWithoutMidi(parentSnapshot) || isLikelyLegacySnapshotWithoutMidi(currentSnapshot))) {
+      console.log('[get-commit-diff] Detected legacy snapshot(s); using commit ALS blob fallback diff');
+      rawJson = await diffSnapshotsFromAlsBlobs(repoPath, parentHash, commitHash, alsPath);
+    }
+
+    if (!rawJson) {
+      rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
+    }
+
+    const report = JSON.parse(rawJson);
+    const summaryLines = buildTextSummary(report.changes || []);
+
+    const trackOrder = Array.isArray(report?.project?.tracks)
+      ? report.project.tracks
+          .map((track: any) => (typeof track?.id === 'string' ? track.id : null))
+          .filter((id: string | null): id is string => id !== null)
+      : [];
+    const noteDiff = extractNoteDiffFromChanges(report.changes || [], trackOrder);
+
+    return {
+      ok: true,
+      summary: summaryLines.length > 0 ? summaryLines.join('\n') : 'No semantic changes detected',
+      noteDiff,
+    };
+  } catch (e: any) {
+    return {
+      ok: false,
+      reason: e && e.message ? e.message : String(e),
+    };
+  }
+});
+
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
   return await getSoundHausCredentials();
 })

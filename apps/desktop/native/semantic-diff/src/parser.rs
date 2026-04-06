@@ -916,7 +916,11 @@ fn parse_keytrack(
             Ok(Event::Empty(ref e)) => {
                 match e.name().as_ref() {
                     b"MidiKey" => {
-                        if let Some(pitch) = get_attr_value(e, b"Value").and_then(|v| v.parse::<i32>().ok()) {
+                        if let Some(pitch) = parse_pitch_value(
+                            get_attr_value(e, b"Value")
+                                .or_else(|| get_attr_value(e, b"Pitch"))
+                                .as_deref(),
+                        ) {
                             current_midi_key = Some(pitch);
                             let drained: Vec<PendingMidiNote> = pending.drain(..).collect();
                             for note in drained {
@@ -973,6 +977,14 @@ fn parse_keytrack(
     }
 }
 
+fn parse_pitch_value(raw: Option<&str>) -> Option<i32> {
+    let raw = raw?.trim();
+    if let Ok(v) = raw.parse::<i32>() {
+        return Some(v);
+    }
+    raw.parse::<f64>().ok().map(|v| v.round() as i32)
+}
+
 fn parse_midi_note_event_start_pending(
     xml: &mut Reader<Box<dyn BufRead + '_>>,
     buf: &mut Vec<u8>,
@@ -1009,10 +1021,12 @@ fn parse_midi_note_event_pending(
     event: &quick_xml::events::BytesStart<'_>,
     current_midi_key: Option<i32>,
 ) -> Option<PendingMidiNote> {
-    let pitch = get_attr_value(event, b"Key")
-        .or_else(|| get_attr_value(event, b"MidiKey"))
-        .and_then(|v| v.parse::<i32>().ok())
-        .or(current_midi_key);
+    let pitch = parse_pitch_value(
+        get_attr_value(event, b"Key")
+            .or_else(|| get_attr_value(event, b"MidiKey"))
+            .or_else(|| get_attr_value(event, b"Pitch"))
+            .as_deref(),
+    ).or(current_midi_key);
 
     let start_beat = get_attr_value(event, b"Time")
         .or_else(|| get_attr_value(event, b"Start"))
