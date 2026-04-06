@@ -24,6 +24,7 @@ const ProjectPage = () => {
     const [selectedCommit, setSelectedCommit] = useState<string | null>(null)
     const [selectedCommitSummary, setSelectedCommitSummary] = useState<string>('')
     const [selectedNoteDiff, setSelectedNoteDiff] = useState<NoteDiff | null>(null)
+    const [openingAbleton, setOpeningAbleton] = useState(false)
 
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
@@ -144,7 +145,20 @@ const ProjectPage = () => {
             alert(`Push failed:\n${error}`)
         }
     }
-
+    const handleOpenInAbleton = async () => {
+        if(!selectedProject) return
+        setOpeningAbleton(true)
+        try {
+            const result = await (window as any).electron.openAlsFile(selectedProject)
+            if (!result.ok) {
+                alert(`Failed to open project in Ableton:\n${result.error}`)
+            }
+        } catch(error) {
+            alert(`Error opening file:\n${error}`)
+        } finally {
+            setOpeningAbleton(false)
+        }
+    }
     useEffect(() => {
         handleRefreshChanges()
     }, [handleRefreshChanges])
@@ -409,6 +423,9 @@ const ProjectPage = () => {
             </div>
             <div className={styles.right}>
                 <div className={styles.buttons}>
+                    <button onClick={handleOpenInAbleton} disabled={openingAbleton}>
+                        {openingAbleton ? 'Opening...' : 'Open in Ableton'}
+                    </button>
                     <button onClick={handleGitPull}>Download Changes from Server</button>
                     <button onClick={handleGitCommit}>Save Changes in Snapshot</button>
                     <button onClick={handleGitPush}>Upload Changes to Server</button>
