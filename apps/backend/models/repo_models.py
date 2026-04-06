@@ -53,6 +53,10 @@ class RepoData(Base):
     # Markdown README content for the repo "About" tab
     readme_content = Column(Text, nullable=True, default=None)
     
+    # Cached metadata from Gitea — avoids per-request Gitea calls on listing endpoints
+    description = Column(Text, nullable=True)
+    stars_count = Column(Integer, default=0, nullable=False)
+
     # Thumbnail for repository card display
     # thumbnail_type: "image" or "youtube"
     thumbnail_url = Column(String(500), nullable=True)

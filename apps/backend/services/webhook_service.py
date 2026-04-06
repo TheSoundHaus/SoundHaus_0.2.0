@@ -371,6 +371,11 @@ class WebhookService:
             )
             db.add(repo_event)
 
+            # Sync cached description from the webhook payload
+            new_description = payload.get("repository", {}).get("description")
+            if new_description is not None:
+                repo_data.description = new_description or None
+
         # If repo deleted in Gitea, clean up our metadata
         if action == "deleted" and repo_data:
                 db.delete(repo_data)

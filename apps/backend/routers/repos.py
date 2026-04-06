@@ -94,6 +94,7 @@ async def create_repo(
         audio_snippet=None,
         clone_count=0,
         owner_id=user_id,
+        description=create_request.description or None,
     )
     db.add(repo_data)
     db.commit()
@@ -139,6 +140,7 @@ async def register_repo(
         audio_snippet=None,
         clone_count=0,
         owner_id=user_id,
+        description=register_request.description or None,
     )
     try:
         db.add(repo_data)
@@ -257,16 +259,23 @@ async def patch_repo_settings(
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to update repo settings"))
 
-    # If the repo was renamed, sync the gitea_id in RepoData
+    # Sync any changed metadata into RepoData
+    gitea_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
+
     new_name = settings.get("name")
     if new_name and new_name != repo:
-        old_id = f"{owner}/{repo}"
         new_id = f"{owner}/{new_name}"
-        repo_data = db.query(RepoData).filter(RepoData.gitea_id == old_id).first()
         if repo_data:
             repo_data.gitea_id = new_id
-            db.commit()
-            logger.info("repo_renamed_sync", old_id=old_id, new_id=new_id)
+            logger.info("repo_renamed_sync", old_id=gitea_id, new_id=new_id)
+        gitea_id = new_id
+
+    if repo_data and "description" in settings:
+        repo_data.description = settings["description"] or None
+
+    if repo_data:
+        db.commit()
 
     return {"success": True, "repo": res.get("repo")}
 
@@ -352,61 +361,31 @@ async def get_public_repos(
     profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
     profile_map = {str(p.id): p.username for p in profile_rows}
 
-    svc = RepoService()
     result = []
     for repo in all_repos:
-        try:
-            owner, repo_name = repo.gitea_id.split("/", 1)
-            owner_username = profile_map.get(owner, owner)
-            gitea_data = svc.get_repo_contents(owner, repo_name)
-
-            repo_info = {
-                "gitea_id": repo.gitea_id,
-                "owner": owner,
-                "owner_username": owner_username,
-                "repo_name": repo_name,
-                "clone_count": repo.clone_count,
-                "audio_snippet": repo.audio_snippet,
-                "snippet_metadata": {
-                    "duration": repo.snippet_duration,
-                    "file_size": repo.snippet_file_size,
-                    "format": repo.snippet_format,
-                    "sample_rate": repo.snippet_sample_rate,
-                    "channels": repo.snippet_channels,
-                } if repo.audio_snippet else None,
-                "genres": [g.genre_name for g in repo.genres],
-                "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
-                "thumbnail_url": repo.thumbnail_url,
-                "thumbnail_type": repo.thumbnail_type,
-            }
-
-            if gitea_data.get("success"):
-                contents = gitea_data.get("contents", {})
-                if isinstance(contents, list) and len(contents) > 0:
-                    repo_info["description"] = contents[0].get("repository", {}).get("description", "")
-                    repo_info["stars"] = contents[0].get("repository", {}).get("stars_count", 0)
-                    repo_info["updated_at"] = contents[0].get("repository", {}).get("updated_at", "")
-
-            result.append(repo_info)
-        except Exception as e:
-            logger.warning("get_public_repos", gitea_id=repo.gitea_id, error=str(e))
-            owner_id = repo.gitea_id.split("/", 1)[0] if "/" in repo.gitea_id else repo.gitea_id
-            result.append({
-                "gitea_id": repo.gitea_id,
-                "owner": owner_id,
-                "owner_username": profile_map.get(owner_id, owner_id),
-                "clone_count": repo.clone_count,
-                "audio_snippet": repo.audio_snippet,
-                "snippet_metadata": {
-                    "duration": repo.snippet_duration,
-                    "file_size": repo.snippet_file_size,
-                    "format": repo.snippet_format,
-                    "sample_rate": repo.snippet_sample_rate,
-                    "channels": repo.snippet_channels,
-                } if repo.audio_snippet else None,
-                "genres": [g.genre_name for g in repo.genres],
-                "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
-            })
+        owner, repo_name = repo.gitea_id.split("/", 1) if "/" in repo.gitea_id else (repo.gitea_id, "")
+        result.append({
+            "gitea_id": repo.gitea_id,
+            "owner": owner,
+            "owner_username": profile_map.get(owner, owner),
+            "repo_name": repo_name,
+            "description": repo.description or "",
+            "stars": repo.stars_count,
+            "updated_at": repo.last_push_at.isoformat() if repo.last_push_at else "",
+            "clone_count": repo.clone_count,
+            "audio_snippet": repo.audio_snippet,
+            "snippet_metadata": {
+                "duration": repo.snippet_duration,
+                "file_size": repo.snippet_file_size,
+                "format": repo.snippet_format,
+                "sample_rate": repo.snippet_sample_rate,
+                "channels": repo.snippet_channels,
+            } if repo.audio_snippet else None,
+            "genres": [g.genre_name for g in repo.genres],
+            "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
+            "thumbnail_url": repo.thumbnail_url,
+            "thumbnail_type": repo.thumbnail_type,
+        })
 
     return {"success": True, "repos": result}
 
@@ -428,43 +407,31 @@ async def get_user_public_repos(
     prefix = f"{owner_id}/"
     repos = db.query(RepoData).filter(RepoData.gitea_id.like(f"{prefix}%")).all()
 
-    svc = RepoService()
     result = []
     for repo in repos:
-        try:
-            owner, repo_name = repo.gitea_id.split("/", 1)
-            gitea_data = svc.get_repo_contents(owner, repo_name)
-
-            repo_info = {
-                "gitea_id": repo.gitea_id,
-                "owner": owner,
-                "owner_username": owner_username,
-                "repo_name": repo_name,
-                "clone_count": repo.clone_count,
-                "audio_snippet": repo.audio_snippet,
-                "snippet_metadata": {
-                    "duration": repo.snippet_duration,
-                    "file_size": repo.snippet_file_size,
-                    "format": repo.snippet_format,
-                    "sample_rate": repo.snippet_sample_rate,
-                    "channels": repo.snippet_channels,
-                } if repo.audio_snippet else None,
-                "genres": [g.genre_name for g in repo.genres],
-                "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
-                "thumbnail_url": repo.thumbnail_url,
-                "thumbnail_type": repo.thumbnail_type,
-            }
-
-            if gitea_data.get("success"):
-                contents = gitea_data.get("contents", {})
-                if isinstance(contents, list) and len(contents) > 0:
-                    repo_info["description"] = contents[0].get("repository", {}).get("description", "")
-                    repo_info["stars"] = contents[0].get("repository", {}).get("stars_count", 0)
-                    repo_info["updated_at"] = contents[0].get("repository", {}).get("updated_at", "")
-
-            result.append(repo_info)
-        except Exception as e:
-            logger.warning("get_user_public_repos", gitea_id=repo.gitea_id, error=str(e))
+        repo_name = repo.gitea_id.split("/", 1)[1] if "/" in repo.gitea_id else ""
+        result.append({
+            "gitea_id": repo.gitea_id,
+            "owner": owner_id,
+            "owner_username": owner_username,
+            "repo_name": repo_name,
+            "description": repo.description or "",
+            "stars": repo.stars_count,
+            "updated_at": repo.last_push_at.isoformat() if repo.last_push_at else "",
+            "clone_count": repo.clone_count,
+            "audio_snippet": repo.audio_snippet,
+            "snippet_metadata": {
+                "duration": repo.snippet_duration,
+                "file_size": repo.snippet_file_size,
+                "format": repo.snippet_format,
+                "sample_rate": repo.snippet_sample_rate,
+                "channels": repo.snippet_channels,
+            } if repo.audio_snippet else None,
+            "genres": [g.genre_name for g in repo.genres],
+            "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
+            "thumbnail_url": repo.thumbnail_url,
+            "thumbnail_type": repo.thumbnail_type,
+        })
 
     return {"success": True, "repos": result}
 
@@ -537,19 +504,21 @@ async def star_repo(
     owner: str,
     repo: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Star (favorite) a repository on behalf of the current user."""
     user_res = await get_auth().get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
-    user_id = user_res["user"]["id"]
-    gitea = GiteaAdminService()
-    result = gitea.star_repo(user_id, owner, repo)
+    gitea_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
 
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("message", "Failed to star repo"))
-    return {"success": True, "message": "Repository starred"}
+    repo_data.stars_count = (repo_data.stars_count or 0) + 1
+    db.commit()
+    return {"success": True, "message": "Repository starred", "stars_count": repo_data.stars_count}
 
 
 @router.delete("/repos/{owner}/{repo}/star")
@@ -559,19 +528,21 @@ async def unstar_repo(
     owner: str,
     repo: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Unstar (unfavorite) a repository on behalf of the current user."""
     user_res = await get_auth().get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
-    user_id = user_res["user"]["id"]
-    gitea = GiteaAdminService()
-    result = gitea.unstar_repo(user_id, owner, repo)
+    gitea_id = f"{owner}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
 
-    if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("message", "Failed to unstar repo"))
-    return {"success": True, "message": "Repository unstarred"}
+    repo_data.stars_count = max(0, (repo_data.stars_count or 0) - 1)
+    db.commit()
+    return {"success": True, "message": "Repository unstarred", "stars_count": repo_data.stars_count}
 
 
 @router.get("/repos/starred")

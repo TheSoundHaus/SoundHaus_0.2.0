@@ -218,10 +218,10 @@ env.md
 # Gitea Data Directory
 # ========================================
 # All Gitea runtime data should be external
-gitea/data/
-gitea/git/
-gitea/gitea/
-gitea/ssh/
+/gitea/data/
+/gitea/git/
+/gitea/gitea/
+/gitea/ssh/
 
 # ========================================
 # IDE & Editors
@@ -267,9 +267,9 @@ venv/
 .fusebox/
 .serverless/
 .tern-port
-gitea/
-gitea/ssh/*.key
-gitea/ssh/*.pub
+/gitea/
+/gitea/ssh/*.key
+/gitea/ssh/*.pub
 
 claude.local.md
 

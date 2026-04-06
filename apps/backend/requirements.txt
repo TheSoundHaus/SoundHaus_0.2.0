@@ -11,7 +11,8 @@ alembic
 python-multipart
 bcrypt
 slowapi
-redis>=5.0.0
+limits[redis]>=3.13.0
+redis>=5.0.0,<8.0.0
 structlog
 mutagen>=1.47.0
 pydub>=0.25.1
