@@ -50,7 +50,7 @@ function shouldUntrackSoundHausPath(relPath: string): boolean {
  * git won't commit the directory and Windows clones won't have it, causing the
  * "outside of a Project folder" error on save. We drop a .gitkeep to preserve it.
  */
-export async function ensureAbletonProjectInfoTracked(repoPath: string): Promise<void> {
+async function ensureAbletonProjectInfoTracked(repoPath: string): Promise<void> {
     const SKIP = new Set(['.git', '.soundhaus', 'node_modules', '__MACOSX']);
 
     async function walk(dir: string, depth: number): Promise<void> {
