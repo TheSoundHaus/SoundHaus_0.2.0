@@ -14,8 +14,8 @@ const isPreview = process.env.PREVIEW !== undefined;
 export function createProjectSetupDialog(parentWindow: BrowserWindow): Promise<ProjectSetupData | null> {
   return new Promise((resolve) => {
     const dialog = new BrowserWindow({
-      width: 500,
-      height: 450,
+      width: 540,
+      height: 560,
       parent: parentWindow,
       modal: true,
       show: false,

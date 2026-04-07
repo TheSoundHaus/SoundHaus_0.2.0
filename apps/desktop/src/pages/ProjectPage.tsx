@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import styles from './ProjectPage.module.css'
+import {
+    ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine,
+    Music, AlertTriangle, CheckCircle, ExternalLink, History, GitCommit
+} from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
@@ -14,9 +17,9 @@ const ProjectPage = () => {
     const selectedProject = (location.state as any)?.projectPath || null
 
     const [alsStruct, setAlsStruct] = useState<any | null>(null)
-    // Track Information closed by default, Changes open by default
     const [showTrackInfo, setShowTrackInfo] = useState<boolean>(false)
     const [showChanges, setShowChanges] = useState<boolean>(true)
+    const [showHistory, setShowHistory] = useState<boolean>(true)
 
     const [refreshing, setRefreshing] = useState(false)
     const [historyLoading, setHistoryLoading] = useState(false)
@@ -77,7 +80,7 @@ const ProjectPage = () => {
 
     const handleRefreshChanges = useCallback(async () => {
         if (!selectedProject) return
-        
+
         setRefreshing(true)
         if (typeof findAls !== 'function') {
             console.warn('findAls is not available from useElectronIPC')
@@ -94,7 +97,6 @@ const ProjectPage = () => {
                 return
             }
 
-            // Single atomic call — diffs in Rust, no temp files
             const result = await electronAPI.getChanges(alsPath)
             setAlsStruct(result)
         } catch (e) {
@@ -105,12 +107,12 @@ const ProjectPage = () => {
     }, [findAls, findAndParse, selectedProject])
 
     const handleGitPull = async () => {
-        if(!selectedProject) return
+        if (!selectedProject) return
         try {
             const result = await runPull(selectedProject)
             alert(`Download complete!\n${result}`)
             await handleRefreshChanges()
-        } catch(error) {
+        } catch (error) {
             const gitError = error as GitError
             if (gitError?.type === 'conflict') {
                 alert(`Unable to download changes.\n\nYour work has conflicts with recent changes from your collaborators. Please contact your team to resolve this.`)
@@ -123,42 +125,42 @@ const ProjectPage = () => {
     }
 
     const handleGitCommit = async () => {
-        if(!selectedProject) return
+        if (!selectedProject) return
         try {
             const result = await runCommit(selectedProject)
             alert(`Commit complete:\n${result}`)
-            // After a commit the working tree matches HEAD — show in-sync immediately
-            // without a round-trip diff (which would always return empty).
             setAlsStruct((prev: any) => prev ? { ...prev, diffStatus: 'in-sync', summary: '' } : prev)
-        } catch(error) {
+        } catch (error) {
             alert(`Commit failed:\n${error}`)
         }
     }
 
     const handleGitPush = async () => {
-        if(!selectedProject) return
+        if (!selectedProject) return
         try {
             const result = await runPush(selectedProject)
             alert(`Push complete:\n${result}`)
             await handleRefreshChanges()
-        } catch(error) {
+        } catch (error) {
             alert(`Push failed:\n${error}`)
         }
     }
+
     const handleOpenInAbleton = async () => {
-        if(!selectedProject) return
+        if (!selectedProject) return
         setOpeningAbleton(true)
         try {
             const result = await (window as any).electron.openAlsFile(selectedProject)
             if (!result.ok) {
                 alert(`Failed to open project in Ableton:\n${result.error}`)
             }
-        } catch(error) {
+        } catch (error) {
             alert(`Error opening file:\n${error}`)
         } finally {
             setOpeningAbleton(false)
         }
     }
+
     useEffect(() => {
         handleRefreshChanges()
     }, [handleRefreshChanges])
@@ -176,260 +178,287 @@ const ProjectPage = () => {
         }
 
         window.addEventListener('soundhaus:project-refresh-request', onRefreshRequest)
-
-        return () => {
-            window.removeEventListener('soundhaus:project-refresh-request', onRefreshRequest)
-        }
+        return () => window.removeEventListener('soundhaus:project-refresh-request', onRefreshRequest)
     }, [handleRefreshChanges, selectedProject])
 
-    return(
-        <div className={styles.container}>
-            <div className={styles.left}>
-                {/* Track Information dropdown - exact block requested */}
-                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
+    const projectName = selectedProject?.split(/[\\/]/).pop() || 'Project'
+
+    return (
+        <div className="flex w-full h-full min-h-0 min-w-0 bg-bg-primary text-text-primary overflow-hidden animate-fade-in">
+            {/* Main column: single vertical scroll for all content except Actions */}
+            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-5 space-y-3">
+                {/* Project title */}
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10">
+                        <Music className="w-4 h-4 text-accent" />
+                    </div>
+                    <div>
+                        <h1 className="text-lg font-semibold text-text-primary truncate">{projectName}</h1>
+                        <p className="text-xs text-text-tertiary truncate max-w-xs">{selectedProject}</p>
+                    </div>
+                </div>
+
+                {/* Track Information */}
+                <div className="rounded-xl border border-border-default overflow-hidden">
                     <button
                         onClick={() => setShowTrackInfo(s => !s)}
                         aria-expanded={showTrackInfo}
-                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer' }}
+                        className="w-full flex items-center justify-between px-4 py-3 bg-bg-elevated
+                                   text-sm font-medium text-text-secondary hover:bg-bg-tertiary/60
+                                   transition-colors duration-200 cursor-pointer"
                     >
-                        Track Information <span style={{ float: 'right' }}>{showTrackInfo ? '▾' : '▸'}</span>
+                        <span className="flex items-center gap-2">
+                            {showTrackInfo ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            Track Information
+                        </span>
                     </button>
                     {showTrackInfo && (
-                        <div style={{ padding: 12, background: '#fff' }}>
+                        <div className="p-4 bg-bg-secondary border-t border-border-subtle">
                             {alsStruct == null ? (
-                                <div>
-                                    <p>No ALS loaded</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No ALS loaded</p>
                             ) : alsStruct.ok === false ? (
-                                <div className={styles.error}>
-                                    <p>{alsStruct.reason ?? 'An error occurred'}</p>
+                                <div className="flex items-center gap-2 text-sm text-error">
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    <span>{alsStruct.reason ?? 'An error occurred'}</span>
                                 </div>
                             ) : alsStruct.project?.Tracks ? (
-                                <div>
-                                    <div style={{ display: 'grid', gap: '8px' }}>
-                                        {alsStruct.project.Tracks.map((track: any, i: number) => (
-                                            <div key={i} className={styles.changeItem}>
-                                                <strong>{track.EffectiveName || 'Unnamed Track'}</strong>
-                                                <div style={{ fontSize: '0.9em', color: '#666' }}>
-                                                    Type: {track.Type} | ID: {track.Id}
-                                                    {track.UserName && ` | User: ${track.UserName}`}
-                                                </div>
+                                <div className="space-y-2">
+                                    {alsStruct.project.Tracks.map((track: any, i: number) => (
+                                        <div key={i} className="px-3 py-2.5 rounded-lg bg-bg-primary/60 border border-border-subtle">
+                                            <div className="text-sm font-medium text-text-primary">
+                                                {track.EffectiveName || 'Unnamed Track'}
                                             </div>
-                                        ))}
-                                    </div>
+                                            <div className="text-xs text-text-tertiary mt-0.5">
+                                                {track.Type} · ID {track.Id}
+                                                {track.UserName && ` · ${track.UserName}`}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             ) : (
-                                <div>
-                                    <p>No tracks found</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No tracks found</p>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* Changes dropdown - exact block requested */}
-                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
-                    <button
-                        onClick={() => setShowChanges(s => !s)}
-                        aria-expanded={showChanges}
-                        style={{ width: '100%', padding: '8px 12px', textAlign: 'left', background: '#fafafa', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                    >
-                        <span>Changes <span style={{ marginLeft: '8px' }}>{showChanges ? '▾' : '▸'}</span></span>
-                        <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                handleRefreshChanges()
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    handleRefreshChanges()
-                                }
-                            }}
-                            aria-disabled={refreshing}
-                            style={{ 
-                                padding: '4px 8px', 
-                                fontSize: '12px', 
-                                background: '#fff', 
-                                border: '1px solid #ccc', 
-                                borderRadius: '4px', 
-                                cursor: refreshing ? 'wait' : 'pointer',
-                                opacity: refreshing ? 0.6 : 1,
-                                userSelect: 'none'
-                            }}
-                            title="Compare with remote HEAD"
+                {/* Changes */}
+                <div className="rounded-xl border border-border-default overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-bg-elevated">
+                        <button
+                            onClick={() => setShowChanges(s => !s)}
+                            aria-expanded={showChanges}
+                            className="flex items-center gap-2 text-sm font-medium text-text-secondary
+                                       hover:text-text-primary transition-colors duration-200 cursor-pointer"
                         >
-                            {refreshing ? '⟳' : '↻'}
-                        </span>
-                    </button>
+                            {showChanges ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            Changes
+                        </button>
+                        <button
+                            onClick={handleRefreshChanges}
+                            disabled={refreshing}
+                            className="flex items-center justify-center w-7 h-7 rounded-lg
+                                       text-text-tertiary hover:text-accent hover:bg-accent/10
+                                       disabled:opacity-40 disabled:cursor-not-allowed
+                                       transition-all duration-200 cursor-pointer"
+                            title="Compare with last snapshot"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin-slow' : ''}`} />
+                        </button>
+                    </div>
                     {showChanges && (
-                        <div style={{ padding: 12, background: '#fff' }}>
+                        <div className="p-4 bg-bg-secondary border-t border-border-subtle">
                             {alsStruct == null ? (
-                                <div>
-                                    <p>No ALS loaded</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No ALS loaded</p>
                             ) : alsStruct.ok === false ? (
-                                <div className={styles.error}>
-                                    <p>{alsStruct.reason ?? 'An error occurred'}</p>
+                                <div className="flex items-center gap-2 text-sm text-error">
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    <span>{alsStruct.reason ?? 'An error occurred'}</span>
                                 </div>
                             ) : alsStruct.baselineStatus === 'no-commits' ? (
-                                <div>
-                                    <p style={{ color: '#888' }}>No snapshots yet — this will be the initial snapshot.</p>
-                                </div>
+                                <p className="text-sm text-text-tertiary">No snapshots yet — this will be the initial snapshot.</p>
                             ) : alsStruct.diffStatus === 'in-sync' ? (
-                                <div>
-                                    <p style={{ color: '#4caf50' }}>✓ In sync with last snapshot</p>
+                                <div className="flex items-center gap-2 text-sm text-success">
+                                    <CheckCircle className="w-4 h-4" />
+                                    <span>In sync with last snapshot</span>
                                 </div>
                             ) : alsStruct.diffStatus === 'has-changes' ? (
-                                <div>
-                                    <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
-                                        {alsStruct.summary.split('\n').map((line: string, i: number) => (
-                                        <div key={i} style={{ marginBottom: '4px', whiteSpace: 'pre-wrap' }}>{line}</div>
-                                        ))}
-                                    </div>
+                                <div className="diff-panel rounded-lg p-3">
+                                    {alsStruct.summary.split('\n').map((line: string, i: number) => (
+                                        <div key={i} className="text-sm text-text-secondary py-0.5 font-mono">{line}</div>
+                                    ))}
                                 </div>
                             ) : (
-                                <div>
-                                    <p style={{ color: '#888' }}>Press ↻ to compare with last snapshot</p>
+                                <p className="text-sm text-text-tertiary">Press ↻ to compare with last snapshot</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Commit History */}
+                <div className="rounded-xl border border-border-default overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 bg-bg-elevated">
+                        <button
+                            onClick={() => setShowHistory(s => !s)}
+                            aria-expanded={showHistory}
+                            className="flex items-center gap-2 text-sm font-medium text-text-secondary
+                                       hover:text-text-primary transition-colors duration-200 cursor-pointer"
+                        >
+                            {showHistory ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            <History className="w-3.5 h-3.5" />
+                            Commit History
+                        </button>
+                        <button
+                            onClick={handleLoadHistory}
+                            disabled={historyLoading}
+                            className="flex items-center justify-center w-7 h-7 rounded-lg
+                                       text-text-tertiary hover:text-accent hover:bg-accent/10
+                                       disabled:opacity-40 disabled:cursor-not-allowed
+                                       transition-all duration-200 cursor-pointer"
+                            title="Refresh commit history"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin-slow' : ''}`} />
+                        </button>
+                    </div>
+                    {showHistory && (
+                        <div className="bg-bg-secondary border-t border-border-subtle max-h-60 overflow-y-auto">
+                            {historyLoading ? (
+                                <p className="text-sm text-text-tertiary p-4">Loading commit history...</p>
+                            ) : history.length === 0 ? (
+                                <p className="text-sm text-text-tertiary p-4">No commits found.</p>
+                            ) : (
+                                <div className="p-2 space-y-1">
+                                    {history.map((entry) => (
+                                        <button
+                                            key={entry.hash}
+                                            onClick={() => handleSelectCommit(entry.hash)}
+                                            className={`w-full text-left px-3 py-2.5 rounded-lg border
+                                                transition-all duration-200 cursor-pointer
+                                                ${selectedCommit === entry.hash
+                                                    ? 'bg-accent/10 border-accent/30 text-text-primary'
+                                                    : 'bg-bg-primary/40 border-border-subtle hover:border-border-default hover:bg-bg-elevated'
+                                                }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <GitCommit className={`w-3.5 h-3.5 shrink-0 ${selectedCommit === entry.hash ? 'text-accent' : 'text-text-tertiary'}`} />
+                                                <span className="text-sm font-medium text-text-primary truncate">{entry.subject}</span>
+                                            </div>
+                                            <div className="text-xs text-text-tertiary mt-0.5 ml-5.5">
+                                                {entry.shortHash} · {entry.author}
+                                            </div>
+                                        </button>
+                                    ))}
                                 </div>
                             )}
                         </div>
                     )}
                 </div>
 
-                <div style={{ border: '1px solid #e6e6e6', borderRadius: 6, marginBottom: 12, overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #eee' }}>
-                        <span>Commit History</span>
-                        <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                handleLoadHistory()
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    handleLoadHistory()
-                                }
-                            }}
-                            aria-disabled={historyLoading}
-                            style={{
-                                padding: '4px 8px',
-                                fontSize: '12px',
-                                background: '#fff',
-                                border: '1px solid #ccc',
-                                borderRadius: '4px',
-                                cursor: historyLoading ? 'wait' : 'pointer',
-                                opacity: historyLoading ? 0.6 : 1,
-                                userSelect: 'none'
-                            }}
-                            title="Refresh commit history"
-                        >
-                            {historyLoading ? '⟳' : '↻'}
-                        </span>
-                    </div>
-                    <div style={{ padding: 12, background: '#fff', maxHeight: 240, overflowY: 'auto' }}>
-                        {historyLoading ? (
-                            <p style={{ color: '#888' }}>Loading commit history...</p>
-                        ) : history.length === 0 ? (
-                            <p style={{ color: '#888' }}>No commits found.</p>
-                        ) : (
-                            <div style={{ display: 'grid', gap: 8 }}>
-                                {history.map((entry) => (
-                                    <button
-                                        key={entry.hash}
-                                        onClick={() => handleSelectCommit(entry.hash)}
-                                        style={{
-                                            textAlign: 'left',
-                                            border: selectedCommit === entry.hash ? '1px solid #999' : '1px solid #e2e2e2',
-                                            background: selectedCommit === entry.hash ? '#f7f7f7' : '#fff',
-                                            borderRadius: 6,
-                                            padding: 8,
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        <div style={{ fontWeight: 600 }}>{entry.subject}</div>
-                                        <div style={{ fontSize: 12, color: '#666' }}>{entry.shortHash} • {entry.author}</div>
-                                    </button>
-                                ))}
+                {/* Selected Commit Details */}
+                {selectedCommit && (
+                    <div className="rounded-xl border border-border-default overflow-hidden animate-slide-up">
+                        <div className="flex items-center justify-between px-4 py-3 bg-bg-elevated border-b border-border-subtle">
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-semibold text-text-primary">Selected Commit Details</h3>
                             </div>
-                        )}
-                    </div>
-                </div>
-
-                <section className={styles.commitDiffSection}>
-                    <div className={styles.commitDiffHeader}>
-                        <h3 className={styles.commitDiffTitle}>Selected Commit Details</h3>
-                        {selectedCommit && (
-                            <span className={styles.commitPill}>{selectedCommit.slice(0, 7)}</span>
-                        )}
-                    </div>
-
-                    <div className={styles.commitDiffBody}>
-                        {!selectedCommit ? (
-                            <p style={{ color: '#888' }}>Pick a commit above to view both semantic and MIDI note differences.</p>
-                        ) : (
-                            <>
-                                <div style={{ border: '1px solid #e6e6e6', borderRadius: 8, overflow: 'hidden' }}>
-                                    <div style={{ padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #eee', fontWeight: 600 }}>
-                                        Semantic Summary
-                                    </div>
-                                    <div style={{ padding: 12 }}>
-                                        {selectedCommitSummary ? (
-                                            <div style={{ padding: '8px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
-                                                {selectedCommitSummary.split('\n').map((line: string, i: number) => (
-                                                    <div key={i} style={{ marginBottom: '4px', whiteSpace: 'pre-wrap' }}>{line}</div>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <p style={{ color: '#888' }}>No summary for this commit.</p>
-                                        )}
-                                    </div>
+                            <span className="text-xs text-text-tertiary font-mono bg-bg-primary/60 border border-border-subtle px-2 py-1 rounded-full">
+                                {selectedCommit.slice(0, 7)}
+                            </span>
+                        </div>
+                        <div className="p-4 bg-bg-secondary space-y-4">
+                            {/* Semantic Summary */}
+                            <div className="rounded-lg border border-border-default overflow-hidden">
+                                <div className="px-3 py-2 bg-bg-elevated border-b border-border-subtle">
+                                    <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Semantic Summary</span>
                                 </div>
-
-                                <div className={styles.noteStatsRow}>
-                                    <div className={styles.noteStatCard}>
-                                        <span className={styles.noteStatLabel}>Added</span>
-                                        <strong className={styles.noteAdded}>{noteCounts.added}</strong>
-                                    </div>
-                                    <div className={styles.noteStatCard}>
-                                        <span className={styles.noteStatLabel}>Removed</span>
-                                        <strong className={styles.noteRemoved}>{noteCounts.removed}</strong>
-                                    </div>
-                                    <div className={styles.noteStatCard}>
-                                        <span className={styles.noteStatLabel}>Adjusted</span>
-                                        <strong className={styles.noteAdjusted}>{noteCounts.adjusted}</strong>
-                                    </div>
-                                </div>
-
-                                <div style={{ marginTop: 4 }}>
-                                    {hasNoteChanges ? (
-                                        <PianoRollCanvas noteDiff={selectedNoteDiff} />
-                                    ) : (
-                                        <div style={{ border: '1px solid #e6e6e6', borderRadius: 8, padding: 12, background: '#fff' }}>
-                                            <p style={{ color: '#888', margin: 0 }}>No MIDI note changes detected for this commit.</p>
+                                <div className="p-3">
+                                    {selectedCommitSummary ? (
+                                        <div className="diff-panel rounded-lg p-3">
+                                            {selectedCommitSummary.split('\n').map((line: string, i: number) => (
+                                                <div key={i} className="text-sm text-text-secondary py-0.5 font-mono">{line}</div>
+                                            ))}
                                         </div>
+                                    ) : (
+                                        <p className="text-sm text-text-tertiary">No summary for this commit.</p>
                                     )}
                                 </div>
-                            </>
-                        )}
+                            </div>
+
+                            {/* Note Stats */}
+                            <div className="grid grid-cols-3 gap-3 min-w-0 [grid-template-columns:minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                                <div className="rounded-lg border border-border-default bg-bg-elevated p-3 flex flex-col gap-1">
+                                    <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Added</span>
+                                    <strong className="text-xl font-bold text-diff-added">{noteCounts.added}</strong>
+                                </div>
+                                <div className="rounded-lg border border-border-default bg-bg-elevated p-3 flex flex-col gap-1">
+                                    <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Removed</span>
+                                    <strong className="text-xl font-bold text-diff-removed">{noteCounts.removed}</strong>
+                                </div>
+                                <div className="rounded-lg border border-border-default bg-bg-elevated p-3 flex flex-col gap-1">
+                                    <span className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Adjusted</span>
+                                    <strong className="text-xl font-bold text-diff-modified">{noteCounts.adjusted}</strong>
+                                </div>
+                            </div>
+
+                            {/* Piano Roll */}
+                            {hasNoteChanges ? (
+                                <PianoRollCanvas noteDiff={selectedNoteDiff} />
+                            ) : (
+                                <div className="rounded-lg border border-border-subtle bg-bg-primary/40 p-3">
+                                    <p className="text-sm text-text-tertiary">No MIDI note changes detected for this commit.</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </section>
+                )}
             </div>
-            <div className={styles.right}>
-                <div className={styles.buttons}>
-                    <button onClick={handleOpenInAbleton} disabled={openingAbleton}>
-                        {openingAbleton ? 'Opening...' : 'Open in Ableton'}
-                    </button>
-                    <button onClick={handleGitPull}>Download Changes from Server</button>
-                    <button onClick={handleGitCommit}>Save Changes in Snapshot</button>
-                    <button onClick={handleGitPush}>Upload Changes to Server</button>
-                </div>
+
+            {/* Right panel — git actions (fixed width; does not scroll with main column) */}
+            <div className="w-56 shrink-0 self-stretch flex flex-col gap-2.5 p-5 border-l border-border-subtle bg-bg-secondary/50">
+                <h2 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-1">Actions</h2>
+                <button
+                    onClick={handleOpenInAbleton}
+                    disabled={openingAbleton}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               bg-bg-elevated border border-border-default text-text-primary
+                               hover:border-accent/30 hover:bg-bg-tertiary/60
+                               disabled:opacity-50 disabled:cursor-not-allowed
+                               transition-all duration-200 cursor-pointer"
+                >
+                    <ExternalLink className="w-4 h-4 text-accent" />
+                    {openingAbleton ? 'Opening…' : 'Open in Ableton'}
+                </button>
+
+                <div className="border-t border-border-subtle my-1" />
+
+                <button
+                    onClick={handleGitPull}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               bg-bg-elevated border border-border-default text-text-primary
+                               hover:border-accent/30 hover:bg-bg-tertiary/60
+                               transition-all duration-200 cursor-pointer"
+                >
+                    <ArrowDownToLine className="w-4 h-4 text-accent" />
+                    Pull Changes
+                </button>
+                <button
+                    onClick={handleGitCommit}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               btn-brand transition-all duration-200 cursor-pointer"
+                >
+                    <Save className="w-4 h-4" />
+                    Save Snapshot
+                </button>
+                <button
+                    onClick={handleGitPush}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 rounded-xl text-sm font-medium
+                               bg-bg-elevated border border-border-default text-text-primary
+                               hover:border-accent/30 hover:bg-bg-tertiary/60
+                               transition-all duration-200 cursor-pointer"
+                >
+                    <ArrowUpFromLine className="w-4 h-4 text-accent" />
+                    Push Changes
+                </button>
             </div>
         </div>
     )

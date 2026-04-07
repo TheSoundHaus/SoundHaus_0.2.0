@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Search } from 'lucide-react'
 
 interface MenuEntry {
     label: string
@@ -21,7 +22,6 @@ const SearchPalette = ({ isOpen, onClose }: SearchPaletteProps) => {
     const listRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
 
-    // Fetch menu entries each time the palette opens
     useEffect(() => {
         if (!isOpen) return
         setQuery('')
@@ -35,11 +35,9 @@ const SearchPalette = ({ isOpen, onClose }: SearchPaletteProps) => {
             }
         }
         void load()
-        // Focus input on next tick (after render)
         requestAnimationFrame(() => inputRef.current?.focus())
     }, [isOpen])
 
-    // Filter and rank entries based on query (case-insensitive)
     const filtered = useMemo(() => {
         if (!query.trim()) return entries
         const q = query.toLowerCase()
@@ -64,12 +62,10 @@ const SearchPalette = ({ isOpen, onClose }: SearchPaletteProps) => {
             })
     }, [entries, query])
 
-    // Reset selection when filtered list changes
     useEffect(() => {
         setSelectedIndex(0)
     }, [filtered])
 
-    // Scroll selected item into view
     useEffect(() => {
         const list = listRef.current
         if (!list) return
@@ -115,63 +111,36 @@ const SearchPalette = ({ isOpen, onClose }: SearchPaletteProps) => {
     return (
         <div
             onClick={onClose}
-            style={{
-                position: 'fixed',
-                inset: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.35)',
-                zIndex: 9999,
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'flex-start',
-                paddingTop: '60px',
-            }}
+            className="fixed inset-0 z-[9999] flex justify-center items-start pt-[60px]"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.55)' }}
         >
             <div
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={handleKeyDown}
-                style={{
-                    width: '480px',
-                    maxHeight: '380px',
-                    backgroundColor: '#fff',
-                    borderRadius: '8px',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    overflow: 'hidden',
-                    fontFamily: 'system-ui, -apple-system, sans-serif',
-                }}
+                className="w-[480px] max-h-[380px] glass-panel-heavy rounded-xl flex flex-col overflow-hidden animate-scale-in"
             >
-                <div style={{ padding: '12px 12px 8px' }}>
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        autoFocus
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Search menu actions..."
-                        style={{
-                            width: '100%',
-                            padding: '10px 12px',
-                            boxSizing: 'border-box',
-                            borderRadius: '6px',
-                            border: '1px solid #ccc',
-                            fontSize: '14px',
-                            outline: 'none',
-                        }}
-                    />
+                <div className="p-3 pb-2">
+                    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-bg-primary/60 border border-border-default">
+                        <Search className="w-4 h-4 text-text-tertiary shrink-0" />
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            autoFocus
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Search menu actions…"
+                            className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-tertiary outline-none"
+                        />
+                    </div>
                 </div>
 
                 <div
                     ref={listRef}
-                    style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        borderTop: '1px solid #e0e0e0',
-                    }}
+                    className="flex-1 overflow-y-auto border-t border-border-subtle"
                 >
                     {filtered.length === 0 && (
-                        <div style={{ padding: '16px', color: '#888', textAlign: 'center', fontSize: '13px' }}>
-                            {query.trim() ? 'No matching actions' : 'Loading...'}
+                        <div className="py-4 text-center text-sm text-text-tertiary">
+                            {query.trim() ? 'No matching actions' : 'Loading…'}
                         </div>
                     )}
                     {filtered.map((entry, i) => {
@@ -182,45 +151,23 @@ const SearchPalette = ({ isOpen, onClose }: SearchPaletteProps) => {
                                 key={`${entry.breadcrumb}-${i}`}
                                 onClick={() => handleSelect(entry)}
                                 onMouseEnter={() => setSelectedIndex(i)}
-                                style={{
-                                    padding: '8px 12px',
-                                    cursor: isDisabled ? 'default' : 'pointer',
-                                    backgroundColor: isSelected ? '#007acc' : 'transparent',
-                                    color: isDisabled
-                                        ? '#aaa'
-                                        : isSelected
-                                          ? '#fff'
-                                          : '#222',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: '2px',
-                                    opacity: isDisabled ? 0.5 : 1,
-                                }}
+                                className={`
+                                    flex flex-col gap-0.5 px-3 py-2 transition-colors duration-100
+                                    ${isDisabled ? 'opacity-50 cursor-default' : 'cursor-pointer'}
+                                    ${isSelected ? 'bg-accent/15 text-text-primary' : 'text-text-secondary hover:bg-bg-tertiary/40'}
+                                `}
                             >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ fontSize: '13px', fontWeight: 500 }}>
+                                <div className="flex justify-between items-center">
+                                    <span className={`text-[13px] font-medium ${isSelected ? 'text-accent' : ''}`}>
                                         {entry.label}
                                     </span>
                                     {entry.accelerator && (
-                                        <span
-                                            style={{
-                                                fontSize: '11px',
-                                                color: isSelected ? 'rgba(255,255,255,0.6)' : '#aaa',
-                                                fontFamily: 'monospace',
-                                                flexShrink: 0,
-                                                marginLeft: '12px',
-                                            }}
-                                        >
+                                        <span className="text-[11px] text-text-tertiary font-mono shrink-0 ml-3">
                                             {entry.accelerator.replace(/CmdOrCtrl/g, navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl')}
                                         </span>
                                     )}
                                 </div>
-                                <span
-                                    style={{
-                                        fontSize: '11px',
-                                        color: isSelected ? 'rgba(255,255,255,0.7)' : '#888',
-                                    }}
-                                >
+                                <span className="text-[11px] text-text-tertiary">
                                     {entry.breadcrumb}
                                 </span>
                             </div>
