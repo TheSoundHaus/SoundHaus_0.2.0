@@ -1,7 +1,7 @@
 import { exec as gitExec } from 'dugite';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
-import { getAllowedCloneRemote, getGiteaCredentials } from './login';
+import { getAllowedCloneRemote, getGiteaCredentials, getSoundHausCredentials } from './login';
 import { ensureSoundHausGitignore, ensureAbletonProjectInfoTracked } from './project';
 import { desktopEnv } from './env';
 import { join } from 'path'
@@ -143,10 +143,40 @@ function validateCloneUrlAgainstAllowedRemote(cloneUrl: string, allowedRemote: s
     return parsedCloneUrl;
 }
 
+async function deleteGiteaRepo(owner: string, repo: string, token: string): Promise<void> {
+    const giteaRequestTarget = getGiteaApiRequestOptions();
+    const requestPath = `${giteaRequestTarget.basePath}/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const transport = giteaRequestTarget.protocol === 'https:' ? https : http;
+    return new Promise((resolve) => {
+        const req = transport.request({
+            hostname: giteaRequestTarget.hostname,
+            port: giteaRequestTarget.port,
+            path: requestPath,
+            method: 'DELETE',
+            headers: { 'Authorization': `token ${token}` },
+        }, (res) => {
+            res.resume(); // drain response
+            console.log(`[init:rollback] DELETE ${requestPath} → ${res.statusCode}`);
+            resolve();
+        });
+        req.on('error', (e) => {
+            console.warn('[init:rollback] DELETE request failed:', e.message);
+            resolve();
+        });
+        req.end();
+    });
+}
+
 async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise<string> {
     console.log('[init] Starting repository initialization...');
     console.log('[init] Folder path:', folderPath);
     console.log('[init] Project info:', projectInfo);
+
+    // Track created resources for rollback on failure
+    let giteaRepoOwner: string | null = null;
+    let giteaRepoName: string | null = null;
+    let giteaToken: string | null = null;
+    let giteaRepoCreated = false;
 
     try {
         // Step 1: Initialize git repository
@@ -205,6 +235,7 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
         if (!token) {
             throw new Error('No Gitea token found. Please log in first.');
         }
+        giteaToken = token;
         console.log('[init] ✓ Gitea token retrieved');
 
         // Step 4: Create remote repository via HTTP request
@@ -253,6 +284,12 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
                             return;
                         }
                         
+                        // Track for rollback
+                        const owner = parsed.owner?.login || parsed.full_name?.split('/')[0] || '';
+                        giteaRepoOwner = owner;
+                        giteaRepoName = parsed.name || finalRepoName;
+                        giteaRepoCreated = true;
+
                         console.log('[init] ✓ Remote repository created');
                         console.log('[init] Clone URL:', url);
                         resolve(url);
@@ -271,6 +308,33 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
             req.write(payload);
             req.end();
         });
+
+        // Step 4.5: Register repo in the SoundHaus database
+        console.log('[init] Step 4.5: Registering repo in SoundHaus database...');
+        const supabaseToken = await getSoundHausCredentials();
+        if (supabaseToken) {
+            try {
+                const registerRes = await fetch(`${desktopEnv.supabasePublicUrl}/repos/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `token ${supabaseToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: finalRepoName,
+                        description: finalDescription,
+                        private: isPrivate,
+                    }),
+                });
+                const registerBody = await registerRes.text().catch(() => '');
+                console.log('[init] Register response:', registerRes.status, registerBody);
+                console.log('[init] ✓ Repo registered in SoundHaus database');
+            } catch (regErr: any) {
+                console.warn('[init] Could not register repo in database (non-fatal):', regErr.message);
+            }
+        } else {
+            console.warn('[init] No SoundHaus token available, skipping database registration');
+        }
 
         // Step 5: Configure git credentials
         console.log('[init] Step 5: Configuring git credentials...');
@@ -329,6 +393,27 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
     } catch (error: any) {
         console.error('[init] ❌ Error during initialization:', error);
         console.error('[init] Error stack:', error.stack);
+
+        // Rollback: delete the Gitea remote repo if it was already created
+        if (giteaRepoCreated && giteaRepoOwner && giteaRepoName && giteaToken) {
+            console.log(`[init:rollback] Deleting orphaned Gitea repo ${giteaRepoOwner}/${giteaRepoName}...`);
+            await deleteGiteaRepo(giteaRepoOwner, giteaRepoName, giteaToken);
+        }
+
+        // Clean up orphaned .git directory if init failed partway through
+        const gitDir = join(folderPath, '.git');
+        try {
+            await fs.promises.rm(gitDir, { recursive: true, force: true });
+            console.log('[init] Cleaned up orphaned .git directory');
+        } catch { /* ignore cleanup errors */ }
+
+        // Clean up .soundhaus directory if it was created
+        const soundhausDir = join(folderPath, '.soundhaus');
+        try {
+            await fs.promises.rm(soundhausDir, { recursive: true, force: true });
+            console.log('[init] Cleaned up orphaned .soundhaus directory');
+        } catch { /* ignore cleanup errors */ }
+
         throw new Error(`Failed to initialize repository: ${error.message}`);
     }
 }

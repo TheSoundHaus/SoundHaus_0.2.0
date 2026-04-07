@@ -18,6 +18,7 @@ from services.gitea_service import GiteaAdminService
 from services.repo_service import RepoService
 from services.profile_service import profile_service
 from models.repo_models import RepoData
+from models.profile_models import Profile
 from models.schemas import (
     SignUpRequest,
     SignInRequest,
@@ -26,7 +27,13 @@ from models.schemas import (
     RefreshTokenRequest,
     ProfileUpdateRequest,
 )
+import re
 import secrets
+
+_PROFILE_PATH_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 logger = get_logger(__name__)
 
@@ -73,31 +80,32 @@ async def signup(
     if not supabase_user_id:
         raise HTTPException(status_code=500, detail="Supabase user created but no ID returned")
 
-    # Provision Gitea user with human-readable username (not UUID)
+    # Gitea login matches Supabase user id so repo/desktop code paths that pass user.id work unchanged.
+    gitea_login = str(supabase_user_id)
     gitea_result: Dict[str, Any]
     try:
         gitea = GiteaAdminService()
         logger.debug("signup", message="gitea service initialized")
 
-        existing_user = gitea.get_user_by_username(username)
+        existing_user = gitea.get_user_by_username(gitea_login)
 
         if existing_user.get("exists"):
-            logger.info("signup", gitea_user=username, message="Using existing Gitea account")
+            logger.info("signup", gitea_user=gitea_login, message="Using existing Gitea account")
             gitea_result = {
                 "success": True,
                 "status": 200,
                 "message": "Using existing SoundHaus Gitea account",
-                "username": username,
+                "username": gitea_login,
                 "data": existing_user.get("data"),
                 "is_new": False,
             }
         else:
-            logger.info("signup", gitea_user=username, message="Creating new Gitea user")
+            logger.info("signup", gitea_user=gitea_login, message="Creating new Gitea user")
             pw_len = len(signup_request.password) if signup_request.password else 0
             logger.debug("signup", password_present=bool(signup_request.password), password_length=pw_len)
 
             gitea_result = gitea.create_user(
-                username=username,
+                username=gitea_login,
                 email=signup_request.email,
                 password=(
                     signup_request.password
@@ -127,7 +135,6 @@ async def signup(
             user_id=supabase_user_id,
             username=username,
             email=signup_request.email,
-            display_name=username,
             db=db,
         )
         if not profile_result.get("success"):
@@ -282,7 +289,7 @@ async def get_profile(
     auth_service: SupabaseAuthService = Depends(get_auth),
     db: Session = Depends(get_db),
 ):
-    """Get the current user's profile (username, display_name, bio, avatar_url)."""
+    """Get the current user's profile (username, bio, avatar_url)."""
     user_res = await auth_service.get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -298,7 +305,6 @@ async def get_profile(
             user_id=user_id,
             username=username,
             email=email,
-            display_name=username,
             db=db,
         )
         if result.get("success"):
@@ -318,19 +324,29 @@ async def update_profile(
     auth_service: SupabaseAuthService = Depends(get_auth),
     db: Session = Depends(get_db),
 ):
-    """Update display_name and/or bio for the current user."""
+    """Update username and/or bio for the current user."""
     user_res = await auth_service.get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     user_id = user_res["user"]["id"]
     updates = {}
-    if body.display_name is not None:
-        updates["display_name"] = body.display_name
+    if body.username is not None:
+        updates["username"] = body.username
     if body.bio is not None:
         updates["bio"] = body.bio
     if body.is_public is not None:
         updates["is_public"] = body.is_public
+    if body.social_instagram is not None:
+        updates["social_instagram"] = body.social_instagram
+    if body.social_youtube is not None:
+        updates["social_youtube"] = body.social_youtube
+    if body.social_spotify is not None:
+        updates["social_spotify"] = body.social_spotify
+    if body.social_twitter is not None:
+        updates["social_twitter"] = body.social_twitter
+    if body.social_website is not None:
+        updates["social_website"] = body.social_website
 
     if not updates:
         raise HTTPException(status_code=400, detail="No updates provided")
@@ -424,8 +440,10 @@ async def get_user_stats(
     collaboration_count = 0
     total_size_kb = 0
     try:
+        profile = db.query(Profile).filter(Profile.id == user_id).first()
+        gitea_username = profile.username if profile and profile.username else user_id
         svc = RepoService()
-        gitea_result = svc.list_user_repos(user_id)
+        gitea_result = svc.list_user_repos(gitea_username)
         if gitea_result.get("success"):
             owned_ids = gitea_result.get("owned_ids", set())
             all_repos = gitea_result.get("repos", [])
@@ -459,22 +477,29 @@ async def get_public_profile(
     username: str,
     db: Session = Depends(get_db),
 ):
-    """Get a user's public profile by username (no auth required)."""
+    """Get a user's public profile by SoundHaus username or Supabase user id (no auth)."""
     profile = profile_service.get_profile_by_username(username, db)
+    if not profile and _PROFILE_PATH_UUID.match(username):
+        profile = profile_service.get_profile(username, db)
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not profile.get("is_public", False):
-        raise HTTPException(status_code=404, detail="This profile is private")
+    is_public = profile.get("is_public", False)
 
     # Return only public-safe fields (exclude email and id)
+    pub_username = profile.get("username") or profile.get("id") or ""
     return {
         "success": True,
+        "is_public": is_public,
         "profile": {
-            "username": profile["username"],
-            "display_name": profile["display_name"],
+            "username": pub_username,
             "avatar_url": profile["avatar_url"],
-            "bio": profile["bio"],
+            "bio": profile["bio"] if is_public else None,
             "created_at": profile["created_at"],
+            "social_instagram": profile.get("social_instagram") if is_public else None,
+            "social_youtube": profile.get("social_youtube") if is_public else None,
+            "social_spotify": profile.get("social_spotify") if is_public else None,
+            "social_twitter": profile.get("social_twitter") if is_public else None,
+            "social_website": profile.get("social_website") if is_public else None,
         },
     }

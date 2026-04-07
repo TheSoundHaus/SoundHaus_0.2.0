@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, useCallback, useEffect } from "react";
+import { useState, useTransition, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
   Users,
   Lock,
+  LockOpen,
   GitCommit,
   Download,
   Music,
@@ -21,24 +22,33 @@ import {
   ChevronDown,
   FilePlus,
   FileEdit,
-  FileMinus,
   Eye,
   Search,
   Send,
   X,
   UserPlus,
   UserMinus,
+  BookOpen,
 } from "lucide-react";
-import AudioPlayer from "@/components/AudioPlayer";
+import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
+import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
 import SnippetUploader from "@/components/SnippetUploader";
 import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
-import DiffView from "@/components/DiffView";
+import ThumbnailSettings from "@/components/ThumbnailSettings";
+import { DiffTimeline } from "@/components/diff/DiffTimeline";
+import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import UserAvatar from "@/components/UserAvatar";
-import { deleteRepoAction, renameRepoAction, updateDescriptionAction } from "@/actions/repos";
+import RemixIcon from "@/components/RemixIcon";
+import CloneModal from "@/components/CloneModal";
+import Markdown from "react-markdown";
+import { useUser } from "@/lib/context/UserContext";
+import { getReadme, updateReadme } from "@/lib/api/readme";
+import { deleteRepoAction, renameRepoAction, updateVisibilityAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
-import { getCommits, getCommitDiff } from "@/lib/api/commits";
+import { getCommits, getCommitDiff, getDiffStatus } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
+import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
   RepoStats,
   RepoActivity,
@@ -51,8 +61,9 @@ import type {
   Collaborator,
   UserSearchResult,
   SnippetVersion,
+  SnippetComment,
 } from "@/lib/types/api";
-import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
+import type { CommitListResponse, CommitSummary, AlsDiffData, DiffStatus } from "@/lib/api/commits";
 
 interface RepoDetailClientProps {
   owner: string;
@@ -78,18 +89,31 @@ export default function RepoDetailClient({
   initialStems,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "commits" | "events" | "collaborators" | "settings"
+    "overview" | "commits" | "events" | "collaborators" | "about" | "settings"
   >("overview");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const { user } = useUser();
 
   // Track current snippet URL (updates after upload without full page reload)
   const [currentSnippetUrl, setCurrentSnippetUrl] = useState(snippet?.url ?? null);
 
+  // Snippet comment state
+  const [snippetComments, setSnippetComments] = useState<SnippetComment[]>([]);
+
+  // README editor state
+  const [readmeContent, setReadmeContent] = useState("");
+  const [readmeDraft, setReadmeDraft] = useState("");
+  const [readmeTab, setReadmeTab] = useState<"edit" | "preview">("preview");
+  const [readmeLoading, setReadmeLoading] = useState(false);
+  const [readmeSaving, setReadmeSaving] = useState(false);
+  const [readmeError, setReadmeError] = useState<string | null>(null);
+  const readmeLoadedRef = useRef(false);
+
   // Settings form state
   const [newName, setNewName] = useState(repo);
-  const [description, setDescription] = useState(stats?.description ?? "");
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [isPrivate, setIsPrivate] = useState(stats?.private ?? true);
 
   // Commits state — deduplicate by SHA on init to guard against backend duplicates
   const [commits, setCommits] = useState<CommitSummary[]>(() => {
@@ -107,10 +131,58 @@ export default function RepoDetailClient({
   const [diffLoading, setDiffLoading] = useState<string | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
 
+  // A/B Comparison state
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSelection, setCompareSelection] = useState<[string | null, string | null]>([null, null]);
+  const [showComparison, setShowComparison] = useState(false);
+
+  // Clone/Remix
+  const [showCloneModal, setShowCloneModal] = useState(false);
+  const [remixHovered, setRemixHovered] = useState(false);
+
+  function handleCompareToggle() {
+    if (compareMode) {
+      // Exit compare mode
+      setCompareMode(false);
+      setCompareSelection([null, null]);
+      setShowComparison(false);
+    } else {
+      setCompareMode(true);
+      setExpandedSha(null); // close any expanded diff
+    }
+  }
+
+  function handleCompareSelect(sha: string) {
+    setCompareSelection((prev) => {
+      if (prev[0] === sha) return [null, prev[1]];
+      if (prev[1] === sha) return [prev[0], null];
+      if (!prev[0]) return [sha, prev[1]];
+      if (!prev[1]) return [prev[0], sha];
+      // Both filled — replace the second
+      return [prev[0], sha];
+    });
+    setShowComparison(false);
+  }
+
+  function handleRunComparison() {
+    if (compareSelection[0] && compareSelection[1]) {
+      setShowComparison(true);
+    }
+  }
+
   const pushes: PushActivity[] = activity?.activity ?? [];
-  const repoEvents: RepoEvent[] = events?.events ?? [];
+  const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
+  const ownerDisplayName = stats?.owner_username || owner;
+
+  // Refresh timeline events from the server
+  const refreshEvents = useCallback(async () => {
+    try {
+      const res = await getRepoEvents(owner, repo);
+      if (res.success && res.data) setRepoEvents(res.data.events ?? []);
+    } catch { /* Network failure — stale data is fine */ }
+  }, [owner, repo]);
 
   // Collaborators tab state
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
@@ -140,10 +212,25 @@ export default function RepoDetailClient({
   }, [owner, repo]);
 
   useEffect(() => {
-    if (activeTab === "collaborators") {
+    if (activeTab === "collaborators" || activeTab === "overview") {
       loadCollaboratorsData();
     }
-  }, [activeTab, loadCollaboratorsData]);
+    if (activeTab === "events") {
+      refreshEvents();
+    }
+    if ((activeTab === "overview" || activeTab === "settings") && !readmeLoadedRef.current) {
+      readmeLoadedRef.current = true;
+      setReadmeLoading(true);
+      getReadme(owner, repo)
+        .then((res) => {
+          if (res.success) {
+            setReadmeContent(res.data);
+            setReadmeDraft(res.data);
+          }
+        })
+        .finally(() => setReadmeLoading(false));
+    }
+  }, [activeTab, loadCollaboratorsData, refreshEvents, owner, repo]);
 
   // User search with debounce
   useEffect(() => {
@@ -159,6 +246,19 @@ export default function RepoDetailClient({
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Fetch snippet comments
+  useEffect(() => {
+    if (!currentSnippetUrl) return;
+    let cancelled = false;
+    (async () => {
+      const res = await getSnippetComments(owner, repo);
+      if (!cancelled && res.success) {
+        setSnippetComments(res.data);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [owner, repo, currentSnippetUrl]);
 
   // Invite handler
   const handleInvite = useCallback(async (email: string) => {
@@ -224,19 +324,6 @@ export default function RepoDetailClient({
       const result = await renameRepoAction(owner, repo, newName.trim());
       if (result.success) {
         router.push(`/repository/${owner}/${newName.trim()}`);
-        router.refresh();
-      } else {
-        setSettingsError(result.error);
-      }
-    });
-  }
-
-  function handleSaveDescription(e: React.FormEvent) {
-    e.preventDefault();
-    setSettingsError(null);
-    startTransition(async () => {
-      const result = await updateDescriptionAction(owner, repo, description);
-      if (result.success) {
         router.refresh();
       } else {
         setSettingsError(result.error);
@@ -310,6 +397,68 @@ export default function RepoDetailClient({
     setDiffLoading(null);
   }, [owner, repo, expandedSha, diffCache]);
 
+  // Poll for pending diffs — when commits have diff_status="pending", poll the
+  // lightweight /diff-status endpoint every 3s until they resolve to "ready".
+  // Stop after 2 minutes to avoid infinite polling if diff never arrives.
+  const pendingStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    const pendingShas = commits
+      .filter((c) => c.diff_status === "pending")
+      .map((c) => c.sha);
+
+    if (pendingShas.length === 0) {
+      pendingStartRef.current = null;
+      return;
+    }
+
+    if (pendingStartRef.current === null) {
+      pendingStartRef.current = Date.now();
+    }
+
+    const POLL_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+
+    const interval = setInterval(async () => {
+      // Stop polling after timeout
+      if (pendingStartRef.current && Date.now() - pendingStartRef.current > POLL_TIMEOUT_MS) {
+        setCommits((prev) =>
+          prev.map((c) =>
+            pendingShas.includes(c.sha)
+              ? { ...c, diff_status: "none" as DiffStatus }
+              : c
+          )
+        );
+        pendingStartRef.current = null;
+        return;
+      }
+
+      const result = await getDiffStatus(owner, repo, pendingShas);
+      if (!result.success || !result.data) return;
+
+      const { statuses } = result.data;
+      const resolvedShas: string[] = [];
+      const readyShas: string[] = [];
+
+      for (const [sha, s] of Object.entries(statuses)) {
+        if (s === "ready") { resolvedShas.push(sha); readyShas.push(sha); }
+        else if (s === "none") { resolvedShas.push(sha); }
+      }
+
+      if (resolvedShas.length > 0) {
+        setCommits((prev) =>
+          prev.map((c) =>
+            readyShas.includes(c.sha)
+              ? { ...c, has_diff: true, diff_status: "ready" as DiffStatus }
+              : resolvedShas.includes(c.sha)
+              ? { ...c, diff_status: "none" as DiffStatus }
+              : c
+          )
+        );
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [owner, repo, commits]);
+
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
@@ -333,38 +482,91 @@ export default function RepoDetailClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
-          {stats?.description && (
-            <p className="mb-3 text-base text-zinc-400">{stats.description}</p>
-          )}
-          {stats && !stats.description && (
-            <p className="mb-3 text-lg text-zinc-400">
-              {stats.audio_snippet ? "Audio snippet available" : "No audio snippet"}
-            </p>
-          )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
-              <Lock size={14} /> Private
+              <User size={14} />{" "}
+              <Link href={`/profile/${stats?.owner_username || owner}`} className="hover:text-[#A7C7E7] transition-colors">{ownerDisplayName}</Link>
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
-              <Download size={14} /> {cloneCount} clones
+              {isPrivate ? <Lock size={14} /> : <LockOpen size={14} />} {isPrivate ? "Private" : "Public"}
             </span>
+            {!isPrivate && (
+              <>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  <Download size={14} /> {cloneCount} remixes
+                </span>
+              </>
+            )}
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="rounded-md bg-zinc-100 px-6 py-3 font-medium text-zinc-900 transition-colors hover:bg-zinc-200">
-            Open in Desktop
-          </button>
-          <button className="rounded-md border border-zinc-700 px-6 py-3 font-medium transition-colors hover:bg-zinc-800">
-            Clone
+          <button
+            onClick={() => setShowCloneModal(true)}
+            onMouseEnter={() => setRemixHovered(true)}
+            onMouseLeave={() => setRemixHovered(false)}
+            className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95"
+            style={{ minWidth: "120px" }}
+          >
+            <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
+              <span
+                className="absolute inline-flex items-center justify-center"
+                style={{
+                  transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
+                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                }}
+              >
+                <RemixIcon hovered={remixHovered} size={18} />
+              </span>
+              <span
+                className="absolute inline-flex items-center justify-center whitespace-nowrap"
+                style={{
+                  transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
+                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                }}
+              >
+                Clone
+              </span>
+            </span>
           </button>
         </div>
       </div>
 
-      {/* Audio Player */}
+      {/* Clone Modal */}
+      {showCloneModal && (
+        <CloneModal
+          owner={owner}
+          repo={repo}
+          onClose={() => setShowCloneModal(false)}
+        />
+      )}
+
+      {/* Audio Player with Comment Markers */}
       {currentSnippetUrl && (
-        <div className="mb-8">
-          <AudioPlayer src={currentSnippetUrl} />
+        <div className="mb-8" data-snippet-player>
+          <AudioPlayerWithComments
+            src={currentSnippetUrl}
+            duration={snippet?.duration ?? undefined}
+            comments={snippetComments}
+            currentUserId={user?.id}
+            isOwner={user?.username === owner}
+            onAddComment={async (ts, text) => {
+              const res = await addSnippetComment(owner, repo, {
+                timestamp_seconds: ts,
+                comment_text: text,
+              });
+              if (res.success) {
+                setSnippetComments((prev) => [...prev, res.data].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds));
+              }
+            }}
+            onDeleteComment={async (commentId) => {
+              const res = await deleteSnippetComment(owner, repo, commentId);
+              if (res.success) {
+                setSnippetComments((prev) => prev.filter((c) => c.id !== commentId));
+              }
+            }}
+          />
         </div>
       )}
 
@@ -407,13 +609,13 @@ export default function RepoDetailClient({
         <div className="grid gap-8 lg:grid-cols-3">
           <div className="space-y-8 lg:col-span-2">
             {/* Stats grid */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Project Stats</h2>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <div className="text-2xl font-bold">{cloneCount}</div>
                   <div className="flex items-center gap-1 text-sm text-zinc-400">
-                    <Download size={12} /> Clones
+                    <Download size={12} /> Remixes
                   </div>
                 </div>
                 <div>
@@ -432,7 +634,7 @@ export default function RepoDetailClient({
             </div>
 
             {/* Recent Push Activity */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Recent Activity</h2>
               {pushes.length === 0 ? (
                 <p className="text-sm text-zinc-400">No push activity recorded yet.</p>
@@ -465,13 +667,87 @@ export default function RepoDetailClient({
                 </div>
               )}
             </div>
+
+            {/* README Preview */}
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+                <BookOpen size={16} /> About
+              </h2>
+              {readmeLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-4 w-3/4 rounded bg-zinc-800" />
+                  <div className="h-4 w-1/2 rounded bg-zinc-800" />
+                  <div className="h-4 w-5/6 rounded bg-zinc-800" />
+                </div>
+              ) : (
+                <div className="prose prose-invert prose-zinc max-w-none">
+                  {readmeContent ? (
+                    <Markdown>{readmeContent}</Markdown>
+                  ) : (
+                    <p className="text-zinc-500 italic">
+                      No README yet. Add a description in Settings.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-8">
-            {/* Recent Clones */}
-            <div className="rounded-lg border border-zinc-800 p-6">
-              <h3 className="mb-4 text-lg font-semibold">Recent Clones</h3>
+            {/* Thumbnail */}
+            {stats?.thumbnail_url && (
+              <div className="glass-card rounded-lg overflow-hidden">
+                {stats.thumbnail_type === "youtube" ? (
+                  <iframe
+                    src={stats.thumbnail_url.replace("watch?v=", "embed/")}
+                    className="w-full aspect-video"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <img
+                    src={stats.thumbnail_url}
+                    alt={`${repo} thumbnail`}
+                    className="w-full object-cover"
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Collaborators */}
+            <div className="glass-card rounded-lg p-6">
+              <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
+                <Users size={16} /> Collaborators
+              </h3>
+              {collabLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-8 w-full rounded bg-zinc-800" />
+                  <div className="h-8 w-full rounded bg-zinc-800" />
+                </div>
+              ) : collaborators.length > 0 ? (
+                <div className="space-y-3">
+                  {collaborators.map((c) => (
+                    <div key={c.login} className="flex items-center gap-3">
+                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={28} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-zinc-200 truncate">
+                          {c.username || c.login}
+                        </div>
+                        <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-400">No collaborators yet.</p>
+              )}
+            </div>
+
+            {/* Recent Remixes — only shown on public repos */}
+            {!isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h3 className="mb-4 text-lg font-semibold">Recent Remixes</h3>
               {stats && stats.recent_clones.length > 0 ? (
                 <div className="space-y-3">
                   {stats.recent_clones.map((c, i) => (
@@ -484,45 +760,13 @@ export default function RepoDetailClient({
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-zinc-400">No clones yet.</p>
+                <p className="text-sm text-zinc-400">No remixes yet.</p>
               )}
             </div>
-
-            {/* Snippet info */}
-            {snippet && (
-              <div className="rounded-lg border border-zinc-800 p-6">
-                <h3 className="mb-4 text-lg font-semibold">Audio Snippet</h3>
-                <div className="space-y-2 text-sm">
-                  {snippet.format && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Format</span>
-                      <span>{snippet.format.toUpperCase()}</span>
-                    </div>
-                  )}
-                  {snippet.duration != null && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Duration</span>
-                      <span>{Math.round(snippet.duration)}s</span>
-                    </div>
-                  )}
-                  {snippet.sample_rate != null && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Sample Rate</span>
-                      <span>{snippet.sample_rate} Hz</span>
-                    </div>
-                  )}
-                  {snippet.channels != null && (
-                    <div className="flex justify-between">
-                      <span className="text-zinc-400">Channels</span>
-                      <span>{snippet.channels === 1 ? "Mono" : "Stereo"}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
             )}
 
-            {/* Repo Info */}
-            <div className="rounded-lg border border-zinc-800 p-6">
+            {/* Project Info */}
+            <div className="glass-card rounded-lg p-6">
               <h3 className="mb-4 text-lg font-semibold">Project Info</h3>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
@@ -531,6 +775,37 @@ export default function RepoDetailClient({
                   </span>
                   <span className="font-mono text-xs">{repo}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1 text-zinc-400">
+                    <User size={12} /> Owner
+                  </span>
+                  <span className="text-xs text-zinc-300">
+                    <Link href={`/profile/${stats?.owner_username || owner}`} className="hover:text-[#A7C7E7] transition-colors">{ownerDisplayName}</Link>
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1 text-zinc-400">
+                    <GitCommit size={12} /> Snapshots
+                  </span>
+                  <span className="text-xs text-zinc-300">{commitTotal}</span>
+                </div>
+                {genres.length > 0 && (
+                  <div className="pt-2 border-t border-zinc-800">
+                    <span className="flex items-center gap-1 text-zinc-400 mb-2">
+                      <Music size={12} /> Genres
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {genres.map((g) => (
+                        <span
+                          key={g.genre_id}
+                          className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-300"
+                        >
+                          {g.genre_name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -539,13 +814,57 @@ export default function RepoDetailClient({
 
       {/* ── Commits Tab ────────────────────────────────────────────── */}
       {activeTab === "commits" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Snapshot History</h2>
-            <span className="text-sm text-zinc-400">
-              {commitTotal} snapshot{commitTotal !== 1 ? "s" : ""}
-            </span>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-semibold">Snapshot History</h2>
+              <span className="text-sm text-zinc-400">
+                {commitTotal} snapshot{commitTotal !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {compareMode && compareSelection[0] && compareSelection[1] && (
+                <button
+                  onClick={handleRunComparison}
+                  className="flex items-center gap-1 rounded-md bg-glass-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-glass-blue-500"
+                >
+                  Compare
+                </button>
+              )}
+              <button
+                onClick={handleCompareToggle}
+                className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  compareMode
+                    ? "border-glass-blue-500 bg-glass-blue-500/10 text-glass-blue-400"
+                    : "border-zinc-700 text-zinc-400 hover:border-glass-blue-500 hover:text-glass-blue-400"
+                }`}
+              >
+                <GitBranch size={12} />
+                {compareMode ? "Cancel Compare" : "Compare Commits"}
+              </button>
+            </div>
           </div>
+
+          {/* Compare mode hint */}
+          {compareMode && !showComparison && (
+            <div className="mb-4 rounded-md border border-zinc-700 bg-zinc-800/50 px-4 py-2 text-xs text-zinc-400">
+              Select two snapshots to compare.
+              {compareSelection[0] && !compareSelection[1] && " Now select the second snapshot."}
+              {compareSelection[0] && compareSelection[1] && " Press Compare to view differences."}
+            </div>
+          )}
+
+          {/* AB Comparison View */}
+          {showComparison && compareSelection[0] && compareSelection[1] && (
+            <div className="mb-4">
+              <ABComparisonView
+                owner={owner}
+                repo={repo}
+                baseSha={compareSelection[0]}
+                headSha={compareSelection[1]}
+              />
+            </div>
+          )}
 
           {commits.length === 0 ? (
             <p className="text-zinc-400">No snapshots recorded yet.</p>
@@ -559,15 +878,41 @@ export default function RepoDetailClient({
                   (c.files_removed?.length ?? 0);
 
                 return (
-                  <div key={c.sha} className="rounded-lg border border-zinc-800 overflow-hidden">
+                  <div key={c.sha} className="glass-card rounded-lg overflow-hidden transition-all duration-200 hover:border-white/[0.10]">
                     {/* Commit row */}
                     <div
                       className="flex items-start gap-4 px-4 py-3 hover:bg-zinc-800/30 transition-colors cursor-pointer"
-                      onClick={() => c.has_diff && handleToggleDiff(c.sha)}
+                      onClick={() => compareMode ? handleCompareSelect(c.sha) : ((c.has_diff || c.diff_status === "ready") && handleToggleDiff(c.sha))}
                     >
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 mt-0.5">
-                        <GitCommit size={15} />
-                      </div>
+                      {/* Compare checkbox */}
+                      {compareMode && (
+                        <div className="flex items-center pt-1">
+                          <div
+                            className={`h-4 w-4 rounded border transition-colors ${
+                              compareSelection.includes(c.sha)
+                                ? "border-glass-blue-500 bg-glass-blue-500"
+                                : "border-zinc-600 hover:border-zinc-400"
+                            }`}
+                          >
+                            {compareSelection.includes(c.sha) && (
+                              <svg viewBox="0 0 16 16" className="h-4 w-4 text-white">
+                                <path fill="currentColor" d="M6.5 11.5L3 8l1-1 2.5 2.5L11 5l1 1z" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {c.author_avatar_url ? (
+                        <img
+                          src={c.author_avatar_url}
+                          alt={c.author_name}
+                          className="h-9 w-9 shrink-0 rounded-full object-cover mt-0.5"
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400 mt-0.5">
+                          <GitCommit size={15} />
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="mb-1 font-medium text-zinc-200 truncate">
                           {c.message.split("\n")[0]}
@@ -606,50 +951,52 @@ export default function RepoDetailClient({
                             {isExpanded ? "Hide Diff" : "View Changes"}
                           </button>
                         )}
+                        {c.diff_status === "pending" && !c.has_diff && (
+                          <span className="flex items-center gap-1.5 rounded border border-zinc-700/60 px-2 py-1 text-[11px] text-zinc-500">
+                            <span className="inline-block h-2 w-2 rounded-full bg-amber-400/70 animate-pulse" />
+                            Processing…
+                          </span>
+                        )}
                       </div>
                     </div>
 
                     {/* Expanded: file changes + diff view */}
                     {isExpanded && (
-                      <div className="border-t border-zinc-800 bg-zinc-900/30 px-4 py-4 space-y-4">
-                        {/* File change lists */}
-                        {(c.files_added?.length > 0 ||
-                          c.files_modified?.length > 0 ||
-                          c.files_removed?.length > 0) && (
-                          <div className="grid gap-1 text-xs">
-                            {c.files_added?.map((f) => (
-                              <span
-                                key={`a-${f}`}
-                                className="flex items-center gap-1.5 text-success"
-                              >
-                                <FilePlus size={11} /> {f}
-                              </span>
-                            ))}
-                            {c.files_modified?.map((f) => (
-                              <span
-                                key={`m-${f}`}
-                                className="flex items-center gap-1.5 text-glass-blue-500"
-                              >
-                                <FileEdit size={11} /> {f}
-                              </span>
-                            ))}
-                            {c.files_removed?.map((f) => (
-                              <span
-                                key={`r-${f}`}
-                                className="flex items-center gap-1.5 text-error"
-                              >
-                                <FileMinus size={11} /> {f}
-                              </span>
-                            ))}
+                      <div className="border-t border-zinc-800/50 bg-zinc-900/20 px-2 py-3 space-y-3">
+                        {/* Track change summary (derived from diff data) */}
+                        {diffCache[c.sha]?.diff_data?.tracks && (
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            {diffCache[c.sha]!.diff_data!.tracks
+                              .filter((t) => t.changeType !== "unchanged")
+                              .map((t) => (
+                                <span
+                                  key={t.trackId}
+                                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 ${
+                                    t.changeType === "added"
+                                      ? "border-emerald-700/40 bg-emerald-900/20 text-emerald-400"
+                                      : t.changeType === "removed"
+                                      ? "border-red-700/40 bg-red-900/20 text-red-400"
+                                      : "border-blue-700/40 bg-blue-900/20 text-blue-400"
+                                  }`}
+                                >
+                                  {t.changeType === "added" ? "+" : t.changeType === "removed" ? "−" : "~"}
+                                  {" "}
+                                  {t.instrument && /^\d+[-\s]/.test(t.trackName) ? t.instrument : t.trackName}
+                                  <span className="text-zinc-500 text-[10px] uppercase">{t.trackType}</span>
+                                </span>
+                              ))}
                           </div>
                         )}
 
                         {/* Diff view (arrangement visualization) */}
-                        <DiffView
-                          diffData={diffCache[c.sha] ?? null}
-                          commit={c}
+                        <DiffTimeline
+                          diffData={diffCache[c.sha]?.diff_data ?? null}
+                          commitSha={c.sha}
+                          commitMsg={c.message}
                           isLoading={diffLoading === c.sha}
                           error={diffError && expandedSha === c.sha ? diffError : null}
+                          repoOwner={owner}
+                          repoName={repo}
                         />
                       </div>
                     )}
@@ -675,35 +1022,187 @@ export default function RepoDetailClient({
       )}
 
       {/* ── Events Tab ─────────────────────────────────────────────── */}
-      {activeTab === "events" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
-          <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
-          {repoEvents.length === 0 ? (
-            <p className="text-zinc-400">No activity recorded yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {repoEvents.map((ev) => (
-                <div
-                  key={ev.id}
-                  className="flex items-start gap-4 border-b border-zinc-800 pb-4 last:border-0"
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-400">
-                    <Activity size={16} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="mb-1 font-medium">
-                      {ev.event_type.replaceAll("_", " ")}
+      {activeTab === "events" && (() => {
+        // Build unified timeline from push activity + repo events
+        type TimelineItem = {
+          id: string;
+          kind: "push" | "event";
+          timestamp: string | null;
+          actor: string;
+          actorAvatar?: string | null;
+          eventType: string;
+          detail?: string | null;
+          commitMessage?: string | null;
+          commitCount?: number;
+          afterSha?: string | null;
+          ref?: string;
+        };
+
+        const items: TimelineItem[] = [];
+
+        // Add push events
+        for (const p of pushes) {
+          items.push({
+            id: `push-${p.id}`,
+            kind: "push",
+            timestamp: p.pushed_at,
+            actor: p.pusher,
+            actorAvatar: p.pusher_avatar ?? null,
+            eventType: "push",
+            commitMessage: p.commit_message,
+            commitCount: p.commit_count,
+            afterSha: p.after_sha,
+            ref: p.ref,
+          });
+        }
+
+        // Add repo events (branch/tag, collab, snippet)
+        for (const ev of repoEvents) {
+          items.push({
+            id: `event-${ev.id}`,
+            kind: "event",
+            timestamp: ev.occurred_at,
+            actor: ev.actor,
+            actorAvatar: ev.actor_avatar ?? null,
+            eventType: ev.event_type,
+            detail: ev.detail,
+          });
+        }
+
+        // Sort descending by timestamp
+        items.sort((a, b) => {
+          const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return tb - ta;
+        });
+
+        // Group by date bucket
+        type DateGroup = { label: string; items: TimelineItem[] };
+        const groups: DateGroup[] = [];
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+        const weekStart = new Date(todayStart.getTime() - 6 * 86400000);
+
+        function bucketLabel(iso: string | null): string {
+          if (!iso) return "Earlier";
+          const d = new Date(iso);
+          if (d >= todayStart) return "Today";
+          if (d >= yesterdayStart) return "Yesterday";
+          if (d >= weekStart) return "This Week";
+          return "Earlier";
+        }
+
+        for (const item of items) {
+          const label = bucketLabel(item.timestamp);
+          const last = groups[groups.length - 1];
+          if (last && last.label === label) {
+            last.items.push(item);
+          } else {
+            groups.push({ label, items: [item] });
+          }
+        }
+
+        // Icon + color helpers
+        function getEventStyle(eventType: string) {
+          if (eventType === "push") return { color: "bg-sky-500", Icon: GitCommit };
+          if (eventType.includes("create") || eventType === "repository_created") return { color: "bg-emerald-500", Icon: FilePlus };
+          if (eventType.includes("delete")) return { color: "bg-red-500", Icon: Trash2 };
+          if (eventType === "collaborator_joined") return { color: "bg-violet-500", Icon: UserPlus };
+          if (eventType === "collaborator_invited") return { color: "bg-amber-500", Icon: Send };
+          if (eventType === "snippet_updated") return { color: "bg-pink-500", Icon: Music };
+          return { color: "bg-zinc-500", Icon: Activity };
+        }
+
+        function formatEventLabel(item: TimelineItem): string {
+          if (item.kind === "push") {
+            const branch = item.ref?.replace("refs/heads/", "") ?? "main";
+            return `pushed ${item.commitCount ?? 1} commit${(item.commitCount ?? 1) > 1 ? "s" : ""} to ${branch}`;
+          }
+          return item.eventType.replaceAll("_", " ");
+        }
+
+        return (
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
+            {items.length === 0 ? (
+              <p className="text-zinc-400">No activity recorded yet.</p>
+            ) : (
+              <div className="space-y-8">
+                {groups.map((group) => (
+                  <div key={group.label}>
+                    {/* Date group header */}
+                    <div className="mb-4 flex items-center gap-3">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        {group.label}
+                      </span>
+                      <div className="h-px flex-1 bg-zinc-700/50" />
                     </div>
-                    <div className="flex items-center gap-1 text-sm text-zinc-400">
-                      <User size={12} /> {ev.actor} • <Clock size={12} /> {timeAgo(ev.occurred_at)}
+
+                    <div className="relative pl-8">
+                      {/* Vertical connector line */}
+                      <div className="absolute left-[15px] top-2 bottom-2 w-px bg-zinc-700" />
+
+                      <div className="space-y-5">
+                        {group.items.map((item) => {
+                          const { color, Icon } = getEventStyle(item.eventType);
+                          return (
+                            <div key={item.id} className="relative flex items-start gap-4">
+                              {/* Timeline dot */}
+                              <div
+                                className={`absolute -left-8 top-1 flex h-[14px] w-[14px] items-center justify-center rounded-full ${color} ring-4 ring-zinc-900`}
+                              >
+                                <Icon size={8} className="text-white" />
+                              </div>
+
+                              {/* Avatar */}
+                              <div className="shrink-0">
+                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} size={32} />
+                              </div>
+
+                              {/* Event details */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                  <span className="font-medium text-zinc-200">{item.actor}</span>
+                                  <span className="text-sm text-zinc-400">
+                                    {formatEventLabel(item)}
+                                  </span>
+                                  {item.afterSha && (
+                                    <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-[#A7C7E7]">
+                                      {item.afterSha}
+                                    </code>
+                                  )}
+                                </div>
+
+                                {/* Commit message preview */}
+                                {item.commitMessage && (
+                                  <p className="mt-1 truncate text-sm text-zinc-400 italic">
+                                    &ldquo;{item.commitMessage}&rdquo;
+                                  </p>
+                                )}
+
+                                {/* Detail line for collab/snippet events */}
+                                {item.detail && (
+                                  <p className="mt-0.5 text-xs text-zinc-500">{item.detail}</p>
+                                )}
+
+                                <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
+                                  <Clock size={10} />
+                                  {timeAgo(item.timestamp)}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Collaborators Tab ──────────────────────────────────────── */}
       {activeTab === "collaborators" && (
@@ -726,7 +1225,7 @@ export default function RepoDetailClient({
           )}
 
           {/* Invite Collaborators Section */}
-          <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <UserPlus size={18} /> Invite Collaborators
             </h2>
@@ -766,19 +1265,19 @@ export default function RepoDetailClient({
                       ) : (
                         searchResults.map((u) => (
                           <div
-                            key={u.username}
+                            key={u.username || u.email}
                             className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               <UserAvatar src={u.avatar_url} alt={u.username} size={20} />
                               <div>
                                 <div className="text-sm font-medium text-zinc-200">{u.username}</div>
-                                <div className="text-xs text-zinc-400">{u.email}</div>
+                                {u.email && <div className="text-xs text-zinc-400">{u.email}</div>}
                               </div>
                             </div>
                             <button
                               type="button"
-                              onClick={() => handleInvite(u.email)}
+                              onClick={() => handleInvite(u.invite_email || u.email)}
                               disabled={isPending}
                               className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
                             >
@@ -831,7 +1330,7 @@ export default function RepoDetailClient({
           </div>
 
           {/* Pending Invitations */}
-          <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <Clock size={18} /> Pending Invitations
             </h2>
@@ -875,7 +1374,7 @@ export default function RepoDetailClient({
           </div>
 
           {/* Active Collaborators */}
-          <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <Users size={18} /> Active Collaborators
             </h2>
@@ -913,7 +1412,7 @@ export default function RepoDetailClient({
                                 {c.permission === "admin" ? "Admin" : "Contributor"}
                               </span>
                             </div>
-                            <div className="text-sm text-zinc-400">{c.display_name || c.email || ""}</div>
+                            <div className="text-sm text-zinc-400">{c.username || c.email || ""}</div>
                           </div>
                           <ChevronDown
                             size={14}
@@ -949,9 +1448,9 @@ export default function RepoDetailClient({
             )}
           </div>
 
-          {/* Invitation History (accepted/declined) */}
+          {/* Invitation History (accepted/declined/expired) */}
           {repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
-            <div className="rounded-lg border border-zinc-800 p-6">
+            <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Invitation History</h2>
               <div className="space-y-3">
                 {repoInvitations
@@ -966,6 +1465,8 @@ export default function RepoDetailClient({
                           className={`flex h-9 w-9 items-center justify-center rounded-full ${
                             inv.status === "accepted"
                               ? "bg-green-500/10 text-green-500"
+                              : inv.status === "expired"
+                              ? "bg-yellow-500/10 text-yellow-500"
                               : "bg-red-500/10 text-red-500"
                           }`}
                         >
@@ -976,7 +1477,11 @@ export default function RepoDetailClient({
                             {inv.invitee_email}
                           </div>
                           <div className="text-xs text-zinc-400">
-                            {inv.status === "accepted" ? "Accepted" : "Declined"}{" "}
+                            {inv.status === "accepted"
+                              ? "Accepted"
+                              : inv.status === "expired"
+                              ? "Expired — repo deleted"
+                              : "Declined"}{" "}
                             {inv.responded_at ? timeAgo(inv.responded_at) : ""}
                           </div>
                         </div>
@@ -985,6 +1490,8 @@ export default function RepoDetailClient({
                         className={`rounded-full px-2 py-0.5 text-xs ${
                           inv.status === "accepted"
                             ? "bg-green-500/10 text-green-400"
+                            : inv.status === "expired"
+                            ? "bg-yellow-500/10 text-yellow-400"
                             : "bg-red-500/10 text-red-400"
                         }`}
                       >
@@ -1000,7 +1507,7 @@ export default function RepoDetailClient({
 
       {/* ── Settings Tab ───────────────────────────────────────────── */}
       {activeTab === "settings" && (
-        <div className="rounded-lg border border-zinc-800 p-6">
+        <div className="glass-card rounded-lg p-6">
           <h2 className="mb-6 text-2xl font-semibold">Project Settings</h2>
 
           {/* Settings error banner */}
@@ -1033,32 +1540,6 @@ export default function RepoDetailClient({
               </div>
             </form>
 
-
-            {/* 2. Description */}
-            <form onSubmit={handleSaveDescription}>
-              <label className="mb-2 block text-sm font-medium">
-                Description
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe your project…"
-                rows={3}
-                maxLength={500}
-                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 placeholder-zinc-500 focus:border-glass-blue focus:outline-none resize-none"
-              />
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-zinc-400">{description.length}/500</span>
-                <button
-                  type="submit"
-                  disabled={isPending || description === (stats?.description ?? "")}
-                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save size={14} /> Save Description
-                </button>
-              </div>
-            </form>
-
             {/* 2. Genre Selector */}
             <GenreEditor
               owner={owner}
@@ -1067,7 +1548,164 @@ export default function RepoDetailClient({
               currentGenres={stats?.genres ?? []}
             />
 
-            {/* 3. Snippet History → 4. Stem Separation (middleContent) → 5. Replace Snippet drop zone */}
+            {/* 2.5. Thumbnail Settings */}
+            <ThumbnailSettings
+              owner={owner}
+              repo={repo}
+              initialUrl={stats?.thumbnail_url ?? null}
+              initialType={stats?.thumbnail_type ?? null}
+            />
+
+            {/* 2.6. Visibility Toggle */}
+            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                <Lock size={14} /> Visibility
+              </h3>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-zinc-200">
+                    {isPrivate ? "Private" : "Public"} project
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {isPrivate
+                      ? "Only you and collaborators can see this project."
+                      : "Anyone can discover this project on the Explore page."}
+                  </p>
+                </div>
+                <button
+                  disabled={isPending}
+                  onClick={() => {
+                    const newPrivate = !isPrivate;
+                    startTransition(async () => {
+                      setSettingsError(null);
+                      const result = await updateVisibilityAction(owner, repo, newPrivate);
+                      if (result.success) {
+                        setIsPrivate(newPrivate);
+                      } else {
+                        setSettingsError(result.error);
+                      }
+                    });
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    isPrivate ? "bg-zinc-600" : "bg-glass-blue-500"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                      isPrivate ? "translate-x-1" : "translate-x-6"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* 3. README / About Editor */}
+            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                  <BookOpen size={14} /> README / About
+                </h3>
+                <div className="flex rounded-md border border-zinc-700 overflow-hidden">
+                  <button
+                    onClick={() => setReadmeTab("preview")}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      readmeTab === "preview"
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <Eye size={12} className="mr-1 inline" />
+                    Preview
+                  </button>
+                  <button
+                    onClick={() => setReadmeTab("edit")}
+                    className={`px-3 py-1 text-xs font-medium transition-colors ${
+                      readmeTab === "edit"
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <FileEdit size={12} className="mr-1 inline" />
+                    Edit
+                  </button>
+                </div>
+              </div>
+
+              {readmeError && (
+                <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                  {readmeError}
+                </div>
+              )}
+
+              {readmeLoading ? (
+                <div className="space-y-2 animate-pulse">
+                  <div className="h-3 w-3/4 rounded bg-zinc-700" />
+                  <div className="h-3 w-1/2 rounded bg-zinc-700" />
+                </div>
+              ) : readmeTab === "preview" ? (
+                <div className="prose prose-invert prose-zinc prose-sm max-w-none">
+                  {readmeContent ? (
+                    <Markdown>{readmeContent}</Markdown>
+                  ) : (
+                    <p className="text-zinc-500 italic text-sm">
+                      No README yet. Switch to Edit to add a description.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <textarea
+                    value={readmeDraft}
+                    onChange={(e) => setReadmeDraft(e.target.value)}
+                    placeholder="Write a description for your project using Markdown..."
+                    className="w-full min-h-[200px] rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-y"
+                    maxLength={50000}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-500">
+                      {readmeDraft.length.toLocaleString()} / 50,000 · Markdown supported
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setReadmeDraft(readmeContent);
+                          setReadmeTab("preview");
+                        }}
+                        className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={readmeSaving || readmeDraft === readmeContent}
+                        onClick={async () => {
+                          setReadmeSaving(true);
+                          setReadmeError(null);
+                          try {
+                            const res = await updateReadme(owner, repo, readmeDraft);
+                            if (res.success) {
+                              setReadmeContent(res.data);
+                              setReadmeTab("preview");
+                            } else {
+                              setReadmeError(res.error);
+                            }
+                          } catch {
+                            setReadmeError("Failed to save README");
+                          } finally {
+                            setReadmeSaving(false);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+                      >
+                        <Save size={12} />
+                        {readmeSaving ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 4. Snippet History → 5. Stem Separation (middleContent) → 6. Replace Snippet drop zone */}
             <SnippetUploader
               owner={owner}
               repo={repo}
@@ -1108,22 +1746,7 @@ export default function RepoDetailClient({
               </button>
             </div>
 
-            {/* 7. Quick Settings Bar */}
-            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Quick Settings
-              </h3>
-              <div className="flex flex-wrap gap-3">
-                {/* Privacy toggle */}
-                <div className="flex items-center gap-3 rounded-md border border-zinc-700 bg-zinc-800/60 px-4 py-2.5">
-                  <Lock size={14} className="text-zinc-400" />
-                  <span className="text-sm text-zinc-300">Private Project</span>
-                  <span className="ml-1 rounded bg-zinc-700 px-2 py-0.5 text-xs text-zinc-400">
-                    Always
-                  </span>
-                </div>
-              </div>
-            </div>
+
           </div>
         </div>
       )}

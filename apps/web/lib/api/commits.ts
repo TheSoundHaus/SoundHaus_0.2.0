@@ -5,9 +5,13 @@
  */
 
 import type { ApiResponse } from "../types/api";
-
+import type { ProjectDiff } from "@/components/diff/types/diff";
+import { authFetch } from "./client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+/** Diff lifecycle status: none → pending → ready */
+export type DiffStatus = "none" | "pending" | "ready";
 
 /** A single commit as returned by the commits endpoint. */
 export interface CommitSummary {
@@ -17,11 +21,13 @@ export interface CommitSummary {
     message: string;
     author_name: string;
     author_email: string | null;
+    author_avatar_url: string | null;
     timestamp: string | null;
     files_added: string[];
     files_modified: string[];
     files_removed: string[];
     has_diff: boolean;
+    diff_status: DiffStatus;
 }
 
 /** Paginated list response from GET /repos/{owner}/{repo}/commits. */
@@ -40,7 +46,8 @@ export interface AlsDiffData {
     before_sha: string | null;
     diff_type: string;
     diff_summary: string | null;
-    diff_data: Record<string, unknown>;
+    /** The ProjectDiff JSON blob stored by the backend. */
+    diff_data: ProjectDiff;
     created_at: string;
 }
 
@@ -58,7 +65,8 @@ export async function getCommits(
         `/repos/${_owner}/${_repo}/commits?page=${_page}&limit=${_limit}`
     );
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data! };
+    if (!result.data) return { success: false, error: "Empty commits response" };
+    return { success: true, data: result.data };
 }
 
 /** Fetches full metadata for a single commit by SHA. */
@@ -71,7 +79,8 @@ export async function getCommitDetail(
         `/repos/${_owner}/${_repo}/commits/${_sha}`
     );
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data! };
+    if (!result.data) return { success: false, error: "Empty commit detail response" };
+    return { success: true, data: result.data };
 }
 
 /** Fetches the ALS semantic diff for a specific commit SHA. */
@@ -82,6 +91,19 @@ export async function getCommitDiff(
 ): Promise<ApiResponse<{ diff: AlsDiffData | null }>> {
     const result = await authFetch<{ diff: AlsDiffData | null }>(
         `/repos/${_owner}/${_repo}/commits/${_sha}/diff`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
+
+/** Lightweight polling — checks diff_status for a list of SHAs. */
+export async function getDiffStatus(
+    _owner: string,
+    _repo: string,
+    _shas: string[],
+): Promise<ApiResponse<{ statuses: Record<string, DiffStatus> }>> {
+    const result = await authFetch<{ statuses: Record<string, DiffStatus> }>(
+        `/repos/${_owner}/${_repo}/diff-status?shas=${_shas.join(",")}`
     );
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data! };

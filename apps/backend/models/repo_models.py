@@ -1,7 +1,7 @@
 """
 Repository data models — stores aggregate/summary data about each repository.
 """
-from sqlalchemy import Column, String, Integer, Float, Boolean, Table, DateTime
+from sqlalchemy import Column, String, Integer, Float, Boolean, Table, DateTime, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -49,6 +49,21 @@ class RepoData(Base):
 
     # HEAD SHA after most recent push (for UpdateBanner display).
     last_push_commit_sha = Column(String(40), nullable=True)
+
+    # Markdown README content for the repo "About" tab
+    readme_content = Column(Text, nullable=True, default=None)
+    
+    # Cached metadata from Gitea — avoids per-request Gitea calls on listing endpoints
+    description = Column(Text, nullable=True)
+    stars_count = Column(Integer, default=0, nullable=False)
+
+    # Thumbnail for repository card display
+    # thumbnail_type: "image" or "youtube"
+    thumbnail_url = Column(String(500), nullable=True)
+    thumbnail_type = Column(String(20), nullable=True)  # "image" or "youtube"
+
+    # Whether this repo appears in public searches / explore feed
+    is_public = Column(Boolean, default=True, nullable=False)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too
@@ -83,7 +98,8 @@ class RepoData(Base):
     webhook_config = relationship(
         "WebhookConfig",
         back_populates="repo",
-        uselist=False  # One-to-one relationship
+        uselist=False,  # One-to-one relationship
+        cascade="all, delete-orphan"
     )
 
     commit_details = relationship(

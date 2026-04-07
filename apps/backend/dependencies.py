@@ -57,6 +57,7 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[settings.rate_limit_default],
     enabled=settings.rate_limit_enabled,
+    storage_uri=settings.redis_url,
 )
 
 # User-based limiter (for authenticated endpoints)
@@ -64,7 +65,11 @@ user_limiter = Limiter(
     key_func=get_user_or_ip,
     default_limits=[settings.rate_limit_default],
     enabled=settings.rate_limit_enabled,
+    storage_uri=settings.redis_url,
 )
+# SlowAPI may override `enabled` from RATELIMIT_* / Starlette Config; keep pydantic as source of truth.
+limiter.enabled = settings.rate_limit_enabled
+user_limiter.enabled = settings.rate_limit_enabled
 
 
 # ── Auth Dependencies ────────────────────────────────────────────────────────
@@ -72,6 +77,24 @@ user_limiter = Limiter(
 def get_auth() -> SupabaseAuthService:
     """Dependency to obtain an auth-service instance."""
     return get_auth_service()
+
+
+# ── Repo Owner Resolution ────────────────────────────────────────────────────
+
+def resolve_owner_id(owner: str, db: Session) -> str:
+    """Resolve a SoundHaus username OR Supabase UUID to the owner UUID stored in RepoData.gitea_id.
+
+    In SoundHaus, Gitea user logins are Supabase UUIDs.  Web-facing URLs use
+    the human-readable username (e.g. 'nathanhall') but the DB stores repos as
+    'uuid/repo-name'.  This helper accepts either form and always returns the
+    UUID so callers can safely build 'repo_id = f"{resolve_owner_id(owner, db)}/{repo}"'.
+    """
+    from models.profile_models import Profile
+    profile = db.query(Profile).filter(Profile.username == owner).first()
+    if profile:
+        return str(profile.id)
+    # Assume it is already a UUID (legacy or desktop-originated request)
+    return owner
 
 
 async def verify_token(

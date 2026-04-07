@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database import get_db
-from dependencies import limiter, verify_token
+from dependencies import limiter, verify_token, verify_token_or_pat, resolve_owner_id
 from logging_config import get_logger
 from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
 from models.repo_models import RepoData
+from models.profile_models import Profile
+from sqlalchemy.exc import IntegrityError
 
 logger = get_logger(__name__)
 
@@ -29,6 +31,7 @@ async def get_commit_list(
     db: Session = Depends(get_db),
 ):
     """Returns paginated commit history for a repository."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Verify the repo exists
@@ -61,21 +64,49 @@ async def get_commit_list(
         )
         diff_shas = {row[0] for row in diff_rows}
 
+    # Batch-fetch author profiles by email for avatar + username
+    author_emails = list({c.author_email for c in commits if c.author_email})
+    author_names = list({c.author_name for c in commits if c.author_name})
+    profile_by_email: dict = {}
+    profile_by_name: dict = {}
+    if author_emails:
+        profiles = db.query(Profile).filter(Profile.email.in_(author_emails)).all()
+        profile_by_email = {p.email: p for p in profiles}
+    if author_names:
+        profiles2 = db.query(Profile).filter(Profile.username.in_(author_names)).all()
+        profile_by_name = {p.username: p for p in profiles2 if p.username}
+
     # Serialize
     commits_out = []
     for c in commits:
+        # Resolve author profile: try email first, then username match
+        author_profile = profile_by_email.get(c.author_email) or profile_by_name.get(c.author_name)
+
+        # Determine diff status:
+        #   "ready"   — AlsDiff row exists, diff is viewable
+        #   "pending" — .als changed but desktop hasn't uploaded the diff yet
+        #   "none"    — no .als changes in this commit
+        if c.sha in diff_shas:
+            diff_status = "ready"
+        elif getattr(c, "diff_pending", "none") == "pending":
+            diff_status = "pending"
+        else:
+            diff_status = "none"
+
         commits_out.append({
             "id": c.id,
             "sha": c.sha,
             "short_sha": c.short_sha,
             "message": c.message,
-            "author_name": c.author_name,
+            "author_name": author_profile.username if author_profile and author_profile.username else c.author_name,
             "author_email": c.author_email,
+            "author_avatar_url": author_profile.avatar_url if author_profile else None,
             "timestamp": c.timestamp.isoformat() if c.timestamp else None,
             "files_added": c.files_added or [],
             "files_modified": c.files_modified or [],
             "files_removed": c.files_removed or [],
             "has_diff": c.sha in diff_shas,
+            "diff_status": diff_status,
         })
 
     return {
@@ -98,6 +129,7 @@ async def get_commit_detail(
     db: Session = Depends(get_db),
 ):
     """Returns full metadata for a single commit by SHA (full or short)."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Support both full and short SHAs; reject on ambiguity
@@ -154,13 +186,13 @@ async def post_als_diff(
     request: Request,
     owner: str,
     repo: str,
-    token: str = Depends(verify_token),
+    user_info: dict = Depends(verify_token_or_pat),
     db: Session = Depends(get_db),
 ):
     """Accepts ALS diff JSON from Desktop app after a push. Uses upsert for retry safety."""
-    # Verify Desktop PAT auth
-    if not token or not token.startswith("soundh_"):
-        raise HTTPException(status_code=403, detail="Desktop PAT required")
+    # Accept both desktop PAT auth and web JWT auth
+    if not user_info or not user_info.get("user_id"):
+        raise HTTPException(status_code=403, detail="Valid authentication required")
 
     # Parse request body
     try:
@@ -174,12 +206,36 @@ async def post_als_diff(
     if not commit_sha or not diff_data:
         raise HTTPException(status_code=400, detail="commit_sha and diff_data are required")
 
+    # Validate diff_data has meaningful content (guard against empty/corrupt payloads)
+    if not isinstance(diff_data, dict):
+        raise HTTPException(status_code=400, detail="diff_data must be a JSON object")
+    if "tracks" not in diff_data:
+        raise HTTPException(status_code=400, detail="diff_data must contain a 'tracks' key")
+
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
-    # Verify repo exists
+    # Verify repo exists — auto-create the row if it's missing (the push already
+    # succeeded on Gitea, so the repo is real even if registration was skipped)
     repo_row = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_row:
-        raise HTTPException(status_code=404, detail=f"Repository {repo_id} not found")
+        user_id = user_info["user_id"]
+        try:
+            repo_row = RepoData(
+                gitea_id=repo_id,
+                audio_snippet=None,
+                clone_count=0,
+                owner_id=user_id,
+            )
+            db.add(repo_row)
+            db.commit()
+            db.refresh(repo_row)
+            logger.info("auto_created_repo_for_diff", repo_id=repo_id, user_id=user_id)
+        except IntegrityError:
+            db.rollback()
+            repo_row = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+        if not repo_row:
+            raise HTTPException(status_code=404, detail=f"Repository {repo_id} not found")
 
     # Upsert: check if diff already exists for this SHA
     existing = (
@@ -215,6 +271,37 @@ async def post_als_diff(
         diff_id = new_diff.id
         logger.info("als_diff_created", repo_id=repo_id, commit_sha=commit_sha[:8])
 
+    # Clear diff_pending flag on the CommitDetail row
+    commit_row = (
+        db.query(CommitDetail)
+        .filter(CommitDetail.repo_id == repo_id, CommitDetail.sha == commit_sha)
+        .first()
+    )
+    if commit_row and commit_row.diff_pending == "pending":
+        commit_row.diff_pending = "ready"
+        commit_row.diff_pending_since = None
+        db.commit()
+        logger.info("diff_pending_cleared", repo_id=repo_id, commit_sha=commit_sha[:8])
+
+    # Clear any older pending commits in this repo — the desktop only uploads
+    # a diff for HEAD, so earlier commits in the same push would stay "pending"
+    # forever.  Mark them "none" so the web polling stops.
+    stale_rows = (
+        db.query(CommitDetail)
+        .filter(
+            CommitDetail.repo_id == repo_id,
+            CommitDetail.diff_pending == "pending",
+            CommitDetail.sha != commit_sha,
+        )
+        .all()
+    )
+    for row in stale_rows:
+        row.diff_pending = "none"
+        row.diff_pending_since = None
+    if stale_rows:
+        db.commit()
+        logger.info("stale_pending_cleared", repo_id=repo_id, count=len(stale_rows))
+
     return {"success": True, "diff_id": diff_id}
 
 
@@ -228,6 +315,7 @@ async def get_commit_diff(
     db: Session = Depends(get_db),
 ):
     """Returns ALS diff data for a specific commit SHA."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Support both full and short SHAs
@@ -261,3 +349,52 @@ async def get_commit_diff(
             "created_at": diff_row.created_at.isoformat() if diff_row.created_at else None,
         }
     }
+
+
+@router.get("/repos/{owner}/{repo}/diff-status")
+@limiter.limit("120/minute")
+async def get_diff_status(
+    request: Request,
+    owner: str,
+    repo: str,
+    shas: str = Query(..., description="Comma-separated SHAs to check"),
+    db: Session = Depends(get_db),
+):
+    """
+    Lightweight polling endpoint — returns diff_status for a list of commit SHAs.
+    Used by the web UI to check if pending diffs have arrived without refetching
+    the full commit list.
+    """
+    owner = resolve_owner_id(owner, db)
+    repo_id = f"{owner}/{repo}"
+    sha_list = [s.strip() for s in shas.split(",") if s.strip()]
+
+    if not sha_list or len(sha_list) > 50:
+        raise HTTPException(status_code=400, detail="Provide 1-50 comma-separated SHAs")
+
+    # Batch check: which SHAs have an AlsDiff row
+    diff_rows = (
+        db.query(AlsDiff.commit_sha)
+        .filter(AlsDiff.repo_id == repo_id, AlsDiff.commit_sha.in_(sha_list))
+        .all()
+    )
+    diff_shas = {row[0] for row in diff_rows}
+
+    # Batch check: which SHAs are still pending
+    pending_rows = (
+        db.query(CommitDetail.sha, CommitDetail.diff_pending)
+        .filter(CommitDetail.repo_id == repo_id, CommitDetail.sha.in_(sha_list))
+        .all()
+    )
+    pending_map = {row[0]: row[1] for row in pending_rows}
+
+    statuses = {}
+    for sha in sha_list:
+        if sha in diff_shas:
+            statuses[sha] = "ready"
+        elif pending_map.get(sha) == "pending":
+            statuses[sha] = "pending"
+        else:
+            statuses[sha] = "none"
+
+    return {"success": True, "statuses": statuses}

@@ -95,6 +95,7 @@ export type TrackNoteDiff = {
   added: SnapshotNote[]
   removed: SnapshotNote[]
   adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>
+  unchanged?: SnapshotNote[]
 }
 
 export type NoteDiff = {

@@ -1,0 +1,141 @@
+============================================================
+------------------------------------------------------------
+CORE PRINCIPLES
+------------------------------------------------------------
+
+Correctness first, performance second, cleverness never.
+Every line generated must be production-deployable without modification.
+No placeholder logic, no TODO comments, no half-implementations.
+Only modify files relevant to the task. Don't refactor unrelated code.
+
+------------------------------------------------------------
+CODE STYLE
+------------------------------------------------------------
+
+2-space indent for JS/TS; 4-space for Python.
+Max line length: 100 characters.
+camelCase for JS/TS variables and functions; snake_case for Python.
+PascalCase for classes, types, and React components.
+snake_case for all database columns.
+Comments explain WHY, not WHAT.
+No commented-out code. No dead imports.
+Group imports: stdlib → external → internal → local, separated by blank lines.
+Use @/ path alias for all internal Next.js imports.
+
+------------------------------------------------------------
+TYPESCRIPT
+------------------------------------------------------------
+
+strict: true always. No any, no @ts-ignore.
+Explicit types on all function parameters and return values.
+interface for extendable shapes; type for unions and aliases.
+const by default; let only when reassignment is needed. Never var.
+async/await over .then(). Never await inside a loop — use Promise.all.
+Always handle the { data, error } pattern from Supabase — never assume success.
+
+------------------------------------------------------------
+PYTHON / FASTAPI
+------------------------------------------------------------
+
+All route functions must be async def.
+Every route requires explicit response_model= and status_code=.
+Use Depends() for all shared logic: auth, DB, config. Never instantiate inside a route.
+Auth dependency applied to every non-public route — no exceptions.
+Separate Pydantic request and response models. Sensitive fields never in response models.
+Use Pydantic v2. Validate and constrain inputs with Field(...).
+Route handlers are thin — all business logic lives in service functions.
+Never expose stack traces or internal errors in API responses.
+Type annotations required on every function signature.
+
+------------------------------------------------------------
+SUPABASE
+------------------------------------------------------------
+
+Service role key: FastAPI only. Never in Next.js or the browser.
+Anon key: Next.js client only. Scope all permissions via RLS.
+RLS must be enabled on every user-data table. Default to deny.
+Schema changes via migrations only — never via Supabase Studio in staging/prod.
+Never select('*') in production — always specify columns.
+Paginate all list queries — no unbounded fetches.
+Prefix storage paths with {user_id}/ for straightforward RLS.
+Unsubscribe from Realtime channels on component unmount.
+
+------------------------------------------------------------
+NEXT.JS
+------------------------------------------------------------
+
+App Router only. No Pages Router in new code.
+Default to Server Components. Add "use client" only for hooks, events, or browser APIs.
+Data fetching in Server Components or Server Actions — not in useEffect.
+Server Actions for all mutations. Validate inputs with Zod. Never expose internal errors.
+Revalidate affected paths with revalidatePath / revalidateTag after mutations.
+Never call FastAPI from a client component — use Server Components or Server Actions.
+FastAPI URL is a server-only env var. Never prefix with NEXT_PUBLIC_.
+Auth protection enforced in middleware.ts. Default to protected; allowlist public routes.
+Always use next/image — never bare <img> tags.
+
+------------------------------------------------------------
+REACT
+------------------------------------------------------------
+
+Functional components only. One component per file.
+No inline styles. Tailwind utility classes or CSS modules only.
+Custom hooks prefixed with use, extracted to a hooks/ directory.
+Never suppress useEffect dependency lint warnings — fix the dependency array.
+Clean up subscriptions and timers in useEffect return functions.
+Memoize (useMemo, useCallback) only for measured performance problems.
+Virtualize lists of 50+ items (TanStack Virtual).
+
+------------------------------------------------------------
+API DESIGN
+------------------------------------------------------------
+
+Resources are lowercase plural nouns: /users, /invoices.
+Correct HTTP verbs and semantically correct status codes always.
+Never return bare arrays — wrap in { data: [...], meta: { total, page, limit } }.
+Version all routes from day one: /api/v1/....
+All inputs validated at the API boundary (Zod in Next.js, Pydantic in FastAPI).
+Never expose raw DB errors or stack traces in any response.
+
+------------------------------------------------------------
+SECURITY
+------------------------------------------------------------
+
+Zero secrets in source code. .env.example only — never commit .env.
+Verify the Supabase JWT on every FastAPI request. Never trust user ID from request body.
+FastAPI CORS: explicit origin allowlist — never allow_origins=["*"] in production.
+Never log PII, tokens, passwords, or secrets.
+Parameterized queries only — never interpolate user input into SQL or RPC calls.
+HttpOnly, Secure, SameSite=Lax on all cookies.
+Set security headers in next.config.js: HSTS, CSP, X-Frame-Options, X-Content-Type-Options.
+
+------------------------------------------------------------
+TESTING
+------------------------------------------------------------
+
+New features ship with tests. No exceptions.
+Unit tests: mock all external dependencies (Supabase, email, payments).
+Test names: "it [does something] when [condition]".
+Test behavior and public interfaces — not implementation details.
+Write explicit RLS tests: assert user A cannot access user B's data.
+No test.only or test.skip committed without a ticket reference.
+
+------------------------------------------------------------
+LOGGING & OBSERVABILITY
+------------------------------------------------------------
+
+Structured JSON logging in FastAPI. Never print() in production.
+Log levels: ERROR (actionable), WARN (recoverable), INFO (business events), DEBUG (dev only).
+Every log entry includes: timestamp, level, service, trace_id, message.
+Never log PII, tokens, or credentials.
+All unhandled exceptions reported to error tracking (e.g., Sentry).
+
+------------------------------------------------------------
+PERFORMANCE
+------------------------------------------------------------
+
+Target Core Web Vitals: LCP < 2.5s, FID < 100ms, CLS < 0.1.
+N+1 queries are forbidden. Use joins, eager loading, or batch queries.
+Background jobs for non-blocking work (emails, webhooks, heavy processing).
+FastAPI services are stateless — no local state between requests.
+Use idempotency keys for operations that must not be duplicated (payments, emails).

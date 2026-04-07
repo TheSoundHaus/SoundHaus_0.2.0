@@ -1,7 +1,7 @@
 "use client"
 import { useState, useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, List, ArrowUpDown, Star, ChevronDown, Check, Music, Mail, Users } from "lucide-react";
+import { LayoutGrid, List, ArrowUpDown, Star, ChevronDown, Check, Music, Mail, Users, Waves } from "lucide-react";
 import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import RepositoryCard from "@/components/RepositoryCard";
 import type { EnrichedRepo, Genre, Invitation } from "@/lib/types/api";
@@ -24,34 +24,24 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
   const [showInvites, setShowInvites] = useState(false);
   const router = useRouter();
 
-  // Sorting & filtering state
   const [sortBy, setSortBy] = useState<SortKey>("updated");
   const [filterStarred, setFilterStarred] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<Set<string>>(new Set());
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
 
-  // Derive sorted + filtered list
   const filteredRepos = useMemo(() => {
     let list = [...repos];
-
-    // Filter: role
     if (roleFilter !== "all") {
       list = list.filter((r) => r.role === roleFilter);
     }
-
-    // Filter: starred only
     if (filterStarred) {
       list = list.filter((r) => r.is_starred);
     }
-
-    // Filter: genres
     if (selectedGenres.size > 0) {
       list = list.filter((r) =>
         r.genres.some((g) => selectedGenres.has(g)),
       );
     }
-
-    // Sort
     list.sort((a, b) => {
       switch (sortBy) {
         case "alpha":
@@ -67,7 +57,6 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
           return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       }
     });
-
     return list;
   }, [repos, sortBy, filterStarred, selectedGenres, roleFilter]);
 
@@ -104,34 +93,39 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
 
   return (
     <>
-    {/* Invitations Panel */}
+    {/* Invitations Modal */}
     {showInvites && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-800 p-7 shadow-2xl">
+          <div className="mb-5 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-zinc-100">Pending Invitations</h2>
             <button
               onClick={() => setShowInvites(false)}
-              className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
             >
               Close
             </button>
           </div>
 
           {error && (
-            <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <div className="mb-4 rounded-lg border border-red-800/50 bg-red-900/20 px-4 py-3 text-sm text-red-400">
               {error}
             </div>
           )}
 
           {invitations.length === 0 ? (
-            <p className="py-8 text-center text-zinc-500">No pending invitations</p>
+            <div className="flex flex-col items-center gap-3 py-10">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800">
+                <Mail size={20} className="text-zinc-500" />
+              </div>
+              <p className="text-sm text-zinc-400">No pending invitations</p>
+            </div>
           ) : (
             <div className="max-h-96 space-y-3 overflow-y-auto">
               {invitations.map((inv) => (
                 <div
                   key={inv.id}
-                  className="rounded-lg border border-zinc-800 bg-zinc-800/50 p-4"
+                  className="rounded-lg border border-zinc-700 bg-zinc-900/50 p-4 transition-all duration-300 hover:border-glass-blue-500/30"
                 >
                   <div className="mb-2 flex items-start justify-between">
                     <div>
@@ -140,7 +134,7 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                         from <span className="text-zinc-300">{inv.owner_username}</span>
                       </p>
                     </div>
-                    <span className="rounded-full bg-zinc-700 px-2.5 py-0.5 text-xs text-zinc-300 capitalize">
+                    <span className="rounded-full border border-zinc-700 bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-300 capitalize">
                       {inv.permission}
                     </span>
                   </div>
@@ -151,8 +145,8 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                     <button
                       onClick={() => handleAcceptInvite(inv.id)}
                       disabled={isPending}
-                      className="rounded-lg bg-glass-blue px-4 py-1.5 text-sm font-semibold text-zinc-950
-                                 hover:bg-glass-highlight transition-colors disabled:opacity-50"
+                      className="btn btn-primary rounded-lg px-4 py-1.5 text-sm font-semibold
+                                 disabled:opacity-50"
                     >
                       Accept
                     </button>
@@ -175,175 +169,178 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
 
     <main className="mx-auto max-w-7xl px-6 py-12">
         {/* Page Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="mb-2 text-4xl font-bold tracking-tight">
-              Your Projects
-            </h1>
-            <p className="text-lg text-zinc-400">
-              Manage your remote Ableton projects
-            </p>
-          </div>
-          <div className="relative inline-block">
-            <button
-              onClick={() => setShowInvites(true)}
-              className="btn btn-primary flex items-center gap-2"
-            >
-              <Mail size={16} /> Invites
-            </button>
-            {invitations.length > 0 && (
-              <span className="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white shadow-sm">
-                {invitations.length}
-              </span>
-            )}
+        <div className="mb-8">
+          <div className="flex items-end justify-between gap-6">
+            <div>
+              <h1 className="mb-2 text-4xl font-bold tracking-tight">
+                Your Projects
+              </h1>
+              <p className="text-zinc-400 text-base">
+                Manage your remote Ableton projects
+              </p>
+            </div>
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setShowInvites(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-800 px-5 py-2.5 text-sm font-medium transition-all duration-300 hover:border-glass-blue-500/30 hover:bg-zinc-800/50 hover:text-glass-blue-400"
+              >
+                <Mail size={16} /> Invites
+              </button>
+              {invitations.length > 0 && (
+                <span className="absolute -top-2 -right-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white shadow-sm">
+                  {invitations.length}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
         {error && (
-          <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div className="mb-6 rounded-lg border border-red-800/50 bg-red-900/20 px-5 py-4 text-sm text-red-400">
             {error}
           </div>
         )}
 
-        {/* Toolbar: sort, filter, view toggle */}
-        <div className="mb-6 flex flex-wrap items-center gap-4">
-          {/* Sort dropdown */}
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <ArrowUpDown size={14} />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortKey)}
-              className="rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 focus:border-glass-blue focus:outline-none"
-            >
-              <option value="updated">Last Updated</option>
-              <option value="alpha">Name (A-Z)</option>
-              <option value="created">Date Created</option>
-              <option value="stars">Stars</option>
-              <option value="clones">Clones</option>
-            </select>
-          </div>
+        {/* Toolbar */}
+        <div className="mb-8 rounded-xl border border-zinc-800 px-5 py-4">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Sort */}
+            <div className="flex items-center gap-2 text-sm text-zinc-400">
+              <ArrowUpDown size={14} />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortKey)}
+                className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
+              >
+                <option value="updated">Last Updated</option>
+                <option value="alpha">Name (A-Z)</option>
+                <option value="created">Date Created</option>
+                <option value="stars">Stars</option>
+                <option value="clones">Remixes</option>
+              </select>
+            </div>
 
-          {/* Role filter dropdown */}
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <Users size={14} />
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
-              className={`rounded-md border px-3 py-1.5 text-sm focus:border-glass-blue focus:outline-none ${
-                roleFilter !== "all"
-                  ? "border-glass-blue-500/50 bg-glass-blue-500/10 text-glass-cyan-500"
-                  : "border-zinc-700 bg-zinc-800 text-zinc-200"
+            {/* Role filter */}
+            <div className="flex items-center gap-2 text-sm text-zinc-400">
+              <Users size={14} />
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
+                className={`rounded-lg border px-3 py-1.5 text-sm focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all ${
+                  roleFilter !== "all"
+                    ? "border-glass-blue-500/40 bg-zinc-800 text-glass-blue-400"
+                    : "border-zinc-700 bg-zinc-800 text-zinc-100"
+                }`}
+              >
+                <option value="all">All Projects</option>
+                <option value="owner">My Projects</option>
+                <option value="collaborator">Collaborations</option>
+              </select>
+            </div>
+
+            {/* Starred filter */}
+            <button
+              onClick={() => setFilterStarred(!filterStarred)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-all duration-300 ${
+                filterStarred
+                  ? "border-amber-500/40 bg-amber-900/20 text-amber-400"
+                  : "border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
               }`}
             >
-              <option value="all">All Projects</option>
-              <option value="owner">My Projects</option>
-              <option value="collaborator">Collaborations</option>
-            </select>
-          </div>
+              <Star size={14} fill={filterStarred ? "currentColor" : "none"} />
+              Starred
+            </button>
 
-          {/* Starred filter */}
-          <button
-            onClick={() => setFilterStarred(!filterStarred)}
-            className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${
-              filterStarred
-                ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
-                : "border-zinc-700 text-zinc-400 hover:border-zinc-600"
-            }`}
-          >
-            <Star size={14} fill={filterStarred ? "currentColor" : "none"} />
-            Starred
-          </button>
-
-          {/* Genre filter dropdown */}
-          <Popover className="relative">
-            <PopoverButton
-              className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${
-                selectedGenres.size > 0
-                  ? "border-glass-blue-500/50 bg-glass-blue-500/10 text-glass-cyan-500"
-                  : "border-zinc-700 text-zinc-400 hover:border-zinc-600"
-              }`}
-            >
-              <Music size={14} />
-              Genres
-              {selectedGenres.size > 0 && (
-                <span className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-glass-blue-500/20 text-xs font-medium text-glass-cyan-500">
-                  {selectedGenres.size}
-                </span>
-              )}
-              <ChevronDown size={14} className="ml-0.5" />
-            </PopoverButton>
-
-            <PopoverPanel className="popover-panel absolute left-0 z-50 mt-2 w-56">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium uppercase tracking-wider text-muted">
-                  Filter by Genre
-                </span>
+            {/* Genre filter */}
+            <Popover className="relative">
+              <PopoverButton
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-all duration-300 ${
+                  selectedGenres.size > 0
+                    ? "border-glass-blue-500/40 bg-zinc-800 text-glass-blue-400"
+                    : "border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                }`}
+              >
+                <Music size={14} />
+                Genres
                 {selectedGenres.size > 0 && (
-                  <button
-                    onClick={() => setSelectedGenres(new Set())}
-                    className="text-xs text-glass-cyan-500 hover:text-glass-highlight transition-colors"
-                  >
-                    Clear all
-                  </button>
+                  <span className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-glass-blue-500/20 text-xs font-medium text-glass-blue-400">
+                    {selectedGenres.size}
+                  </span>
                 )}
-              </div>
-              <div className="max-h-48 space-y-1 overflow-y-auto">
-                {genres.map((g) => {
-                  const isActive = selectedGenres.has(g.genre_name);
-                  return (
+                <ChevronDown size={14} className="ml-0.5" />
+              </PopoverButton>
+
+              <PopoverPanel className="absolute left-0 z-50 mt-2 w-56 rounded-xl border border-zinc-700 bg-zinc-800 p-3 shadow-2xl">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                    Filter by Genre
+                  </span>
+                  {selectedGenres.size > 0 && (
                     <button
-                      key={g.genre_id}
-                      onClick={() => toggleGenre(g.genre_name)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-white/5"
+                      onClick={() => setSelectedGenres(new Set())}
+                      className="text-xs text-glass-blue-400 hover:text-glass-blue-300 transition-colors"
                     >
-                      <span
-                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors ${
-                          isActive
-                            ? "border-glass-blue-500 bg-glass-blue-500"
-                            : "border-white/10 bg-charcoal"
-                        }`}
-                      >
-                        {isActive && <Check size={10} className="text-white" />}
-                      </span>
-                      <span className={isActive ? "text-soft-white" : "text-muted"}>
-                        {g.genre_name}
-                      </span>
+                      Clear all
                     </button>
-                  );
-                })}
-                {genres.length === 0 && (
-                  <p className="py-2 text-center text-xs text-muted">No genres available</p>
-                )}
-              </div>
-            </PopoverPanel>
-          </Popover>
+                  )}
+                </div>
+                <div className="max-h-48 space-y-1 overflow-y-auto">
+                  {genres.map((g) => {
+                    const isActive = selectedGenres.has(g.genre_name);
+                    return (
+                      <button
+                        key={g.genre_id}
+                        onClick={() => toggleGenre(g.genre_name)}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-zinc-700"
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded transition-colors ${
+                            isActive
+                              ? "border border-glass-blue-400 bg-glass-blue-500"
+                              : "border border-zinc-600 bg-zinc-700"
+                          }`}
+                        >
+                          {isActive && <Check size={10} className="text-white" />}
+                        </span>
+                        <span className={isActive ? "text-zinc-100" : "text-zinc-400"}>
+                          {g.genre_name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {genres.length === 0 && (
+                    <p className="py-2 text-center text-xs text-zinc-500">No genres available</p>
+                  )}
+                </div>
+              </PopoverPanel>
+            </Popover>
 
-          {/* Spacer */}
-          <div className="flex-1" />
+            <div className="flex-1" />
 
-          {/* Count + view toggle */}
-          <span className="text-sm text-zinc-500">{filteredRepos.length} projects</span>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setView("grid")}
-              className={`rounded-md p-2 transition-colors ${
-                view === "grid"
-                  ? "bg-glass-blue/20 text-glass-cyan-500"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              <LayoutGrid size={16} />
-            </button>
-            <button
-              onClick={() => setView("list")}
-              className={`rounded-md p-2 transition-colors ${
-                view === "list"
-                  ? "bg-glass-blue/20 text-glass-cyan-500"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              <List size={16} />
-            </button>
+            {/* Count + view toggle */}
+            <span className="text-sm text-zinc-400">{filteredRepos.length} projects</span>
+            <div className="flex gap-1 rounded-lg border border-zinc-700 bg-zinc-800 p-0.5">
+              <button
+                onClick={() => setView("grid")}
+                className={`rounded-md p-1.5 transition-all duration-300 ${
+                  view === "grid"
+                    ? "bg-zinc-700 text-glass-blue-400"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button
+                onClick={() => setView("list")}
+                className={`rounded-md p-1.5 transition-all duration-300 ${
+                  view === "list"
+                    ? "bg-zinc-700 text-glass-blue-400"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                <List size={16} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -351,32 +348,47 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
         <div
           className={
             view === "grid"
-              ? "grid gap-6 md:grid-cols-2 lg:grid-cols-3"
+              ? "grid gap-5 md:grid-cols-2 lg:grid-cols-3"
               : "flex flex-col gap-4"
           }
         >
           {filteredRepos.length === 0 ? (
-            <p className="text-zinc-500 col-span-3 text-center py-12">
+            <div className="col-span-3 flex flex-col items-center gap-4 py-16 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800">
+                <Waves size={24} className="text-zinc-500" />
+              </div>
+              <p className="text-sm text-zinc-400">
                 {repos.length === 0
                   ? "No projects yet. Push from the desktop app to get started."
                   : "No projects match the current filters."}
-            </p>
+              </p>
+            </div>
           ) : (
-              filteredRepos.map((repo) => (
+              filteredRepos.map((repo) => {
+                    const giteaOwner = repo.full_name.split("/")[0] ?? "";
+                    return (
                     <RepositoryCard
                         key={repo.id}
-                        id={repo.full_name}
+                        id={`${repo.owner_username}/${repo.name}`}
                         title={repo.name}
-                        author={repo.owner_username || repo.name}
+                        author={
+                          repo.owner_username ||
+                          giteaOwner
+                        }
+                        cloneOwner={giteaOwner}
+                        profileSlug={repo.owner_username || giteaOwner}
                         updatedAt={repo.updated_at}
                         isPublic={!repo.private}
                         audioSnippet={repo.audio_snippet}
+                        thumbnailUrl={repo.thumbnail_url}
+                        thumbnailType={repo.thumbnail_type}
                         cloneCount={repo.clone_count}
                         isStarred={repo.is_starred}
                         isOwner={repo.role === "owner"}
                         genres={repo.genres}
                         stats={{
                             stars: repo.stars_count,
+                            commits: repo.total_commits ?? 0,
                         }}
                         onStar={async () => {
                           const parts = repo.full_name.split("/");
@@ -410,7 +422,8 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                           router.refresh();
                         }}
                     />
-                ))              
+                );
+              })
           )}
         </div>
       </main>

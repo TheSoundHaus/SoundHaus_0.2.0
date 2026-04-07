@@ -71,13 +71,16 @@ export interface GiteaRepo {
 // SoundHaus-enriched public repo (from GET /repos/public)
 export interface PublicRepo {
   gitea_id: string;              // "owner/repo-name"
-  owner: string;
+  owner: string;                 // Supabase UUID (used in API routes)
+  owner_username?: string;       // Human-readable SoundHaus username
   repo_name: string;
   clone_count: number;
   clone_url: string;
   audio_snippet: string | null;  // CDN URL to audio file, null if no snippet
   snippet_metadata: SnippetMetadata | null;
   genres: string[];              // array of genre name strings
+  thumbnail_url: string | null;
+  thumbnail_type: "image" | "youtube" | null;
   // Optionally populated from Gitea (may be missing if Gitea unreachable)
   description?: string;
   stars?: number;
@@ -100,9 +103,14 @@ export interface RecentClone {
 export interface RepoStats {
   success: boolean;
   gitea_id: string;              // "owner/repo-name"
+  owner_username?: string;       // Human-readable SoundHaus username
   description: string;           // Gitea repo description
+  private: boolean;              // Gitea repo visibility
+  clone_url: string;
   clone_count: number;
   audio_snippet: string | null;
+  thumbnail_url: string | null;
+  thumbnail_type: "image" | "youtube" | null;
   genres: GenreRef[];
   recent_clones: RecentClone[];
 }
@@ -118,11 +126,15 @@ export interface EnrichedRepo {
   owner_username: string;        // SoundHaus username (human-readable)
   created_at: string;            // ISO timestamp
   updated_at: string;            // ISO timestamp
+  total_commits: number;
   stars_count: number;
   clone_count: number;
+  clone_url: string;
   audio_snippet: string | null;  // CDN URL to audio file
   snippet_metadata: SnippetMetadata | null;
   genres: string[];              // array of genre name strings
+  thumbnail_url: string | null;
+  thumbnail_type: "image" | "youtube" | null;
   is_starred: boolean;
   role: "owner" | "collaborator"; // whether user owns or collaborates on the repo
 }
@@ -148,7 +160,7 @@ export interface SentInvitation {
   repo_name?: string;            // present in /invitations/sent
   invitee_email: string;
   permission: string;
-  status: "pending" | "accepted" | "declined";
+  status: "pending" | "accepted" | "declined" | "expired";
   created_at: string;
   expires_at: string;
   responded_at: string | null;
@@ -158,7 +170,6 @@ export interface SentInvitation {
 export interface Collaborator {
   login: string;       // Gitea login (Supabase UUID) — used for remove operations
   username: string;    // SoundHaus username (falls back to UUID if no profile)
-  display_name: string | null;
   email: string;
   avatar_url: string;
   bio: string | null;
@@ -170,6 +181,7 @@ export interface UserSearchResult {
   username: string;
   email: string;
   avatar_url: string;
+  invite_email?: string;
 }
 
 // POST /repos/{owner}/{repo}/clone
@@ -193,7 +205,9 @@ export interface PushActivity {
   before_sha: string | null;     // first 8 chars of previous commit SHA
   after_sha: string | null;      // first 8 chars of new commit SHA
   commit_count: number;
+  commit_message?: string | null; // latest commit message from push
   pusher: string;                // Gitea username
+  pusher_avatar?: string | null; // avatar URL from profile
   pushed_at: string | null;      // ISO timestamp string
 }
 
@@ -206,9 +220,11 @@ export interface RepoActivity {
 
 // A single repository lifecycle event (from /events)
 export interface RepoEvent {
-  id: number;
-  event_type: string;           // e.g. "branch_created", "tag_deleted", "repository_created"
+  id: number | string;
+  event_type: string;           // e.g. "branch_created", "tag_deleted", "collaborator_joined", "snippet_updated"
   actor: string;                // Gitea username of the actor
+  actor_avatar?: string | null;  // avatar URL from profile
+  detail?: string | null;       // extra context (invitation info, snippet version, etc.)
   occurred_at: string | null;   // ISO timestamp string
 }
 
@@ -264,4 +280,18 @@ export interface StemJobStatusResponse {
 export interface StemsLatestResponse {
   snippet_version: SnippetVersion | null;
   has_stems: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SNIPPET COMMENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SnippetComment {
+  id: string;
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  timestamp_seconds: number;
+  comment_text: string;
+  created_at: string;
 }
