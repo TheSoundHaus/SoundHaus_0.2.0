@@ -26,7 +26,7 @@ class PersonalAccessToken(Base):
     
     # TODO: Add token_prefix column - String, not nullable
     # First 8-16 chars for identification (e.g., "soundh_a1b2c3d4")
-    token_prefix = Column(String, nullable=False)
+    token_prefix = Column(String, nullable=False, index=True)
     # TODO: Add scopes column - String, nullable
     scopes = Column(String(), nullable=True)
     # JSON string of permissions (for future use)

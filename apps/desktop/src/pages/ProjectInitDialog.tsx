@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { FolderPlus, Lock, Globe, X } from 'lucide-react'
 
 const ProjectInitDialog = () => {
     const [projectName, setProjectName] = useState('')
@@ -15,7 +16,6 @@ const ProjectInitDialog = () => {
             isPublic
         }
 
-        // Send data back to main process
         window.electron?.submitProjectSetup(data)
     }
 
@@ -24,114 +24,126 @@ const ProjectInitDialog = () => {
     }
 
     return (
-        <div style={{ padding: '20px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-            <h2 style={{ marginTop: 0 }}>Project Information</h2>
-            
-            <form onSubmit={handleSubmit}>
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 500 }}>
-                        Project Name *
-                    </label>
-                    <input
-                        type="text"
-                        value={projectName}
-                        onChange={(e) => setProjectName(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '8px',
-                            boxSizing: 'border-box',
-                            borderRadius: '4px',
-                            border: '1px solid #ccc',
-                            fontSize: '14px'
-                        }}
-                        placeholder="Enter project name"
-                        autoFocus
-                        required
-                    />
-                </div>
-
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 500 }}>
-                        Description
-                    </label>
-                    <textarea
-                        value={projectDescription}
-                        onChange={(e) => setProjectDescription(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '8px',
-                            boxSizing: 'border-box',
-                            borderRadius: '4px',
-                            border: '1px solid #ccc',
-                            minHeight: '80px',
-                            resize: 'vertical',
-                            fontSize: '14px',
-                            fontFamily: 'inherit'
-                        }}
-                        placeholder="Enter project description (optional)"
-                    />
-                </div>
-
-                <div style={{ marginBottom: '20px' }}>
-                    <label style={{ display: 'block', marginBottom: '10px', fontWeight: 500 }}>
-                        Project Visibility
-                    </label>
-                    <div>
-                        <label style={{ marginRight: '20px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
-                            <input
-                                type="radio"
-                                name="visibility"
-                                checked={!isPublic}
-                                onChange={() => setIsPublic(false)}
-                                style={{ marginRight: '5px' }}
-                            />
-                            Private
-                        </label>
-                        <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
-                            <input
-                                type="radio"
-                                name="visibility"
-                                checked={isPublic}
-                                onChange={() => setIsPublic(true)}
-                                style={{ marginRight: '5px' }}
-                            />
-                            Public
-                        </label>
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-9">
+            <div className="w-full max-w-md animate-scale-in">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2.5">
+                        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-accent/10">
+                            <FolderPlus className="w-4.5 h-4.5 text-accent" />
+                        </div>
+                        <h2 className="text-lg font-semibold text-text-primary">New Project</h2>
                     </div>
+                    <button
+                        onClick={handleCancel}
+                        className="flex items-center justify-center w-7 h-7 rounded-lg
+                                   text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary/60
+                                   transition-all duration-200 cursor-pointer"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
-                    <button
-                        type="button"
-                        onClick={handleCancel}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: '4px',
-                            border: '1px solid #ccc',
-                            backgroundColor: 'white',
-                            cursor: 'pointer',
-                            fontSize: '14px'
-                        }}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="submit"
-                        disabled={!projectName.trim()}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: '4px',
-                            border: 'none',
-                            backgroundColor: projectName.trim() ? '#007bff' : '#ccc',
-                            color: 'white',
-                            cursor: projectName.trim() ? 'pointer' : 'not-allowed',
-                            fontSize: '14px'
-                        }}
-                    >
-                        Create Project
-                    </button>
+                {/* Form Card */}
+                <div className="glass-panel rounded-2xl p-9">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        {/* Project Name */}
+                        <div>
+                            <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
+                                Project Name <span className="text-accent">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-bg-primary/60 border border-border-default text-text-primary text-sm
+                                           placeholder:text-text-tertiary
+                                           focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent
+                                           transition-all duration-200"
+                                placeholder="My Ableton Project"
+                                autoFocus
+                                required
+                            />
+                        </div>
+
+                        {/* Description */}
+                        <div>
+                            <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
+                                Description
+                            </label>
+                            <textarea
+                                value={projectDescription}
+                                onChange={(e) => setProjectDescription(e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-xl bg-bg-primary/60 border border-border-default text-text-primary text-sm
+                                           placeholder:text-text-tertiary resize-y min-h-[80px] font-[inherit]
+                                           focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent
+                                           transition-all duration-200"
+                                placeholder="Optional project description"
+                            />
+                        </div>
+
+                        {/* Visibility Toggle */}
+                        <div>
+                            <label className="block text-xs font-medium text-text-secondary mb-2 uppercase tracking-wider">
+                                Visibility
+                            </label>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPublic(false)}
+                                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium
+                                               border transition-all duration-200 cursor-pointer
+                                               ${!isPublic
+                                                   ? 'bg-accent/10 border-accent/30 text-accent'
+                                                   : 'bg-bg-primary/40 border-border-default text-text-secondary hover:text-text-primary hover:border-border-default/80'
+                                               }`}
+                                >
+                                    <Lock className="w-3.5 h-3.5" />
+                                    Private
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPublic(true)}
+                                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium
+                                               border transition-all duration-200 cursor-pointer
+                                               ${isPublic
+                                                   ? 'bg-accent/10 border-accent/30 text-accent'
+                                                   : 'bg-bg-primary/40 border-border-default text-text-secondary hover:text-text-primary hover:border-border-default/80'
+                                               }`}
+                                >
+                                    <Globe className="w-3.5 h-3.5" />
+                                    Public
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={handleCancel}
+                                className="flex-1 px-4 py-2.5 rounded-xl
+                                           bg-bg-primary/40 border border-border-default
+                                           text-sm font-medium text-text-secondary
+                                           hover:text-text-primary hover:bg-bg-elevated
+                                           active:scale-[0.97] transition-all duration-200 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!projectName.trim()}
+                                className="flex-1 px-4 py-2.5 rounded-xl
+                                           btn-brand text-sm
+                                           disabled:opacity-40 disabled:cursor-not-allowed
+                                           active:scale-[0.97] transition-all duration-200 cursor-pointer"
+                            >
+                                Create Project
+                            </button>
+                        </div>
+                    </form>
                 </div>
-            </form>
+            </div>
         </div>
     )
 }
