@@ -11,6 +11,7 @@ import AboutDialog from './pages/AboutDialog'
 import SearchPalette from './components/SearchPalette'
 import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
+import { ToastProvider } from './components/ToastProvider'
 import { useMenuActions } from './hooks/useMenuActions'
 
 function MenuActionListener() {
@@ -29,23 +30,25 @@ function App() {
   }, [])
 
   return (
-    <Router>
-      <ErrorBoundary>
-        <MenuActionListener />
-        <SearchPalette isOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
-        <Navbar />
-        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-          <Routes>
-            <Route path="/" element={<LoginPage />} />
-            <Route path="/home" element={<HomePage />} />
-            <Route path="/project" element={<ProjectPage />} />
-            <Route path="/project-setup" element={<ProjectInitDialog />} />
-            <Route path="/clone-url" element={<CloneUrlDialog />} />
-            <Route path="/about" element={<AboutDialog />} />
-          </Routes>
-        </div>
-      </ErrorBoundary>
-    </Router>
+    <ToastProvider>
+      <Router>
+        <ErrorBoundary>
+          <MenuActionListener />
+          <SearchPalette isOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
+          <Navbar />
+          <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+            <Routes>
+              <Route path="/" element={<LoginPage />} />
+              <Route path="/home" element={<HomePage />} />
+              <Route path="/project" element={<ProjectPage />} />
+              <Route path="/project-setup" element={<ProjectInitDialog />} />
+              <Route path="/clone-url" element={<CloneUrlDialog />} />
+              <Route path="/about" element={<AboutDialog />} />
+            </Routes>
+          </div>
+        </ErrorBoundary>
+      </Router>
+    </ToastProvider>
   )
 }
 

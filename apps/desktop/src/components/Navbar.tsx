@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Home, FolderOpen, Plus, X } from 'lucide-react'
-import electronAPI from '../services/electronAPI'
 import OpenProjectDialog from './OpenProjectDialog'
+import { useProjectActions } from '../hooks/useProjectActions'
 
 interface ProjectTab {
     path: string
@@ -10,6 +10,7 @@ interface ProjectTab {
 }
 
 const Navbar = () => {
+    const { setupAbletonFolderAsSoundHaus } = useProjectActions()
     const location = useLocation()
     const navigate = useNavigate()
     const [tabs, setTabs] = useState<ProjectTab[]>([])
@@ -31,8 +32,9 @@ const Navbar = () => {
         }
     }, [location.pathname, location.state])
 
-    // Hide on login page
-    if (location.pathname === '/') return null
+    // Hide on login and modal dialog windows (same shell as main app)
+    const DIALOG_ROUTES = new Set(['/', '/project-setup', '/clone-url', '/about'])
+    if (DIALOG_ROUTES.has(location.pathname)) return null
 
     const isHome = location.pathname === '/home'
 
@@ -60,23 +62,13 @@ const Navbar = () => {
         })
     }
 
+    /** Assumes `projectPath` was already validated as a SoundHaus project (see OpenProjectDialog). */
     const openProject = async (projectPath: string): Promise<boolean> => {
-        const hasGit = await electronAPI.hasGitFile(projectPath)
-        if (!hasGit) {
-            alert(`Not a valid SoundHaus project (no git repository found):\n${projectPath}`)
-            return false
-        }
         const name = projectPath.split(/[\\/]/).filter(Boolean).pop() || 'Project'
         await window.electron?.setLastProjectPath(projectPath)
         await window.electron?.addRecentProject(projectPath, name)
         navigate('/project', { state: { projectPath } })
         return true
-    }
-
-    const openFromFilepath = async (): Promise<boolean> => {
-        const folder = await electronAPI.chooseFolder()
-        if (!folder) return false
-        return openProject(folder)
     }
 
     return (
@@ -133,7 +125,7 @@ const Navbar = () => {
                 isOpen={isDialogOpen}
                 onClose={() => setIsDialogOpen(false)}
                 onSelectProject={openProject}
-                onOpenFromFilepath={openFromFilepath}
+                onSetupAbletonFolderAsSoundHaus={setupAbletonFolderAsSoundHaus}
             />
         </nav>
     )
