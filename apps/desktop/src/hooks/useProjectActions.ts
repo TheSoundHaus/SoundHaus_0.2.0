@@ -59,7 +59,7 @@ export function useProjectActions() {
                 type: 'error',
                 title: 'Not a SoundHaus project',
                 detail:
-                    "This folder doesn't look like a SoundHaus project yet. Choose a folder that was created or downloaded with SoundHaus.",
+                    "This folder doesn't look like it's compatible with SoundHaus. Choose a folder that's already a SoundHaus project, or pick an Ableton Project.",
             });
             return false;
         }
@@ -101,40 +101,51 @@ export function useProjectActions() {
         window.open("https://www.thesound.haus/", "_blank");
     }
 
+    /**
+     * Show the project setup modal and run initRepo for a pre-selected folder.
+     * Returns true only when setup completed and navigation happened.
+     */
+    const runAbletonSetupOnFolder = async (folder: string): Promise<boolean> => {
+        const projectInfo = await showProjectSetup();
+        if (!projectInfo) {
+            return false;
+        }
+
+        try {
+            await initRepo(folder, projectInfo);
+            showToast({
+                type: 'success',
+                title: 'Project created',
+                detail: `${projectInfo.name} is ready on your computer.`,
+            });
+
+            // Only navigate on success
+            const git = await hasGitFile(folder);
+            if (git) {
+                await window.electron?.setLastProjectPath(folder);
+                await trackRecentProject(folder, projectInfo.name);
+                navigate('/project', { state: { projectPath: folder } });
+                return true;
+            }
+        } catch (error) {
+            showToast({
+                type: 'error',
+                title: "Couldn't create project",
+                detail: error instanceof Error ? error.message : String(error),
+            });
+        }
+        return false;
+    }
+
     const handleAbletonImport = async () => {
         const folder = await chooseFolder();
-        if(folder) {
-            // Show project setup dialog
-            const projectInfo = await showProjectSetup();
-            
-            if (!projectInfo) {
-                // User cancelled the dialog
-                return;
-            }
-
-            try {
-                await initRepo(folder, projectInfo);
-                showToast({
-                    type: 'success',
-                    title: 'Project created',
-                    detail: `${projectInfo.name} is ready on your computer.`,
-                });
-
-                // Only navigate on success
-                const git = await hasGitFile(folder);
-                if (git) {
-                    await window.electron?.setLastProjectPath(folder);
-                    await trackRecentProject(folder, projectInfo.name);
-                    navigate('/project', { state: { projectPath: folder } });
-                }
-            } catch (error) {
-                showToast({
-                    type: 'error',
-                    title: "Couldn't create project",
-                    detail: error instanceof Error ? error.message : String(error),
-                });
-            }
+        if (folder) {
+            await runAbletonSetupOnFolder(folder);
         }
+    }
+
+    const setupAbletonFolderAsSoundHaus = async (folder: string): Promise<boolean> => {
+        return runAbletonSetupOnFolder(folder);
     }
 
     const handleOpenSoundHausProject = async () => {
@@ -174,6 +185,7 @@ export function useProjectActions() {
         handleOpenSoundHausProject,
         handleSelectFromDialog,
         handleOpenFromFilepath,
+        setupAbletonFolderAsSoundHaus,
         isOpenDialogVisible,
         setIsOpenDialogVisible,
     }

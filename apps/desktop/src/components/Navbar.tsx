@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Home, FolderOpen, Plus, X } from 'lucide-react'
 import OpenProjectDialog from './OpenProjectDialog'
+import { useProjectActions } from '../hooks/useProjectActions'
 
 interface ProjectTab {
     path: string
@@ -9,6 +10,7 @@ interface ProjectTab {
 }
 
 const Navbar = () => {
+    const { setupAbletonFolderAsSoundHaus } = useProjectActions()
     const location = useLocation()
     const navigate = useNavigate()
     const [tabs, setTabs] = useState<ProjectTab[]>([])
@@ -122,6 +124,7 @@ const Navbar = () => {
                 isOpen={isDialogOpen}
                 onClose={() => setIsDialogOpen(false)}
                 onSelectProject={openProject}
+                onSetupAbletonFolderAsSoundHaus={setupAbletonFolderAsSoundHaus}
             />
         </nav>
     )

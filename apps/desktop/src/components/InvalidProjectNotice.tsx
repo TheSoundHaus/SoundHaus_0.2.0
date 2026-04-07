@@ -1,15 +1,17 @@
 import { useEffect, useRef, type FC } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Music } from 'lucide-react'
 
-export type InvalidProjectNoticeVariant = 'recent' | 'filepath'
+export type InvalidProjectNoticeVariant = 'recent' | 'filepath' | 'filepath-ableton'
 
 interface InvalidProjectNoticeProps {
     open: boolean
     variant: InvalidProjectNoticeVariant
     projectPath: string
     onDismiss: () => void
-    /** Only used when variant is `recent`; removes path from recent list then dismisses. */
+    /** Only for `recent` variant: removes from recents list. */
     onRemoveFromRecents?: () => void | Promise<void>
+    /** Only for `filepath-ableton` variant: runs project setup + initRepo. */
+    onSetupAsSoundHaus?: () => void | Promise<void>
 }
 
 /**
@@ -22,6 +24,7 @@ const InvalidProjectNotice: FC<InvalidProjectNoticeProps> = ({
     projectPath,
     onDismiss,
     onRemoveFromRecents,
+    onSetupAsSoundHaus,
 }) => {
     const panelRef = useRef<HTMLDivElement>(null)
 
@@ -41,6 +44,27 @@ const InvalidProjectNotice: FC<InvalidProjectNoticeProps> = ({
     if (!open) return null
 
     const isRecent = variant === 'recent'
+    const isAbletonFolder = variant === 'filepath-ableton'
+
+    const icon = isAbletonFolder ? (
+        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-accent/10 shrink-0">
+            <Music className="w-5 h-5 text-accent" aria-hidden />
+        </div>
+    ) : (
+        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-error-soft shrink-0">
+            <AlertTriangle className="w-5 h-5 text-error" aria-hidden />
+        </div>
+    )
+
+    const title = isAbletonFolder
+        ? 'Ableton project found'
+        : 'Not a SoundHaus project'
+
+    const body = isRecent
+        ? "This isn't a valid SoundHaus project. Remove it from the list?"
+        : isAbletonFolder
+        ? "This folder has an Ableton project but isn't tracked by SoundHaus yet. Add SoundHaus tracking to start saving snapshots and collaborating."
+        : "This folder doesn't look like it's compatible with SoundHaus. Choose a folder that's already a SoundHaus project, or pick an Ableton Project."
 
     return (
         <div
@@ -60,23 +84,19 @@ const InvalidProjectNotice: FC<InvalidProjectNoticeProps> = ({
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex gap-3 items-start">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-error-soft shrink-0">
-                        <AlertTriangle className="w-5 h-5 text-error" aria-hidden />
-                    </div>
+                    {icon}
                     <div className="min-w-0 flex-1 pt-0.5">
                         <h2
                             id="invalid-project-title"
                             className="text-sm font-semibold text-text-primary leading-snug"
                         >
-                            Not a SoundHaus project
+                            {title}
                         </h2>
                         <p
                             id="invalid-project-desc"
                             className="mt-2 text-sm text-text-secondary leading-relaxed"
                         >
-                            {isRecent
-                                ? "This isn't a valid SoundHaus project. Remove it from the list?"
-                                : "This folder doesn't look like a SoundHaus project yet. Choose a folder that was created or downloaded with SoundHaus."}
+                            {body}
                         </p>
                         {projectPath.trim().length > 0 && (
                             <p className="mt-2 text-xs text-text-tertiary font-mono break-all leading-snug">
@@ -108,6 +128,27 @@ const InvalidProjectNotice: FC<InvalidProjectNoticeProps> = ({
                                            transition-all duration-200 cursor-pointer"
                             >
                                 Remove from list
+                            </button>
+                        </>
+                    ) : isAbletonFolder ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={onDismiss}
+                                className="px-4 py-2.5 rounded-xl text-sm font-medium
+                                           bg-bg-primary/40 border border-border-default text-text-secondary
+                                           hover:text-text-primary hover:bg-bg-elevated
+                                           transition-all duration-200 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void onSetupAsSoundHaus?.()}
+                                className="px-4 py-2.5 rounded-xl text-sm font-semibold btn-brand
+                                           transition-all duration-200 cursor-pointer"
+                            >
+                                Set up SoundHaus project
                             </button>
                         </>
                     ) : (

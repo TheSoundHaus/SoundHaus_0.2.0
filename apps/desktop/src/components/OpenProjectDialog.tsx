@@ -11,12 +11,19 @@ interface OpenProjectDialogProps {
   onClose: () => void
   /** Called only after the folder is confirmed to contain a SoundHaus (git) project. */
   onSelectProject: (projectPath: string) => Promise<boolean>
+  /**
+   * When provided, "Open from Filepath" will offer to bootstrap a folder that contains
+   * an .als file but no git repo. The callback receives the folder path and should run
+   * project setup + initRepo.
+   */
+  onSetupAbletonFolderAsSoundHaus?: (folderPath: string) => Promise<boolean>
 }
 
 const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   isOpen,
   onClose,
   onSelectProject,
+  onSetupAbletonFolderAsSoundHaus,
 }) => {
   const { showToast } = useToast()
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
@@ -128,7 +135,13 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
       const hasGit = await electronAPI.hasGitFile(folder)
       if (!hasGit) {
-        setInvalidNotice({ variant: 'filepath', path: folder })
+        const alsPath = onSetupAbletonFolderAsSoundHaus
+          ? await electronAPI.findAls(folder)
+          : null
+        setInvalidNotice({
+          variant: alsPath ? 'filepath-ableton' : 'filepath',
+          path: folder,
+        })
         return
       }
 
@@ -138,6 +151,26 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
       }
     } catch {
       console.warn('Filepath picker cancelled or failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSetupAsSoundHaus = async () => {
+    if (!invalidNotice || invalidNotice.variant !== 'filepath-ableton') return
+    if (!onSetupAbletonFolderAsSoundHaus) return
+    setLoading(true)
+    try {
+      const success = await onSetupAbletonFolderAsSoundHaus(invalidNotice.path)
+      if (success) {
+        setInvalidNotice(null)
+        onClose()
+      } else {
+        setInvalidNotice(null)
+      }
+    } catch (error) {
+      console.warn('Setup failed:', error)
+      setInvalidNotice(null)
     } finally {
       setLoading(false)
     }
@@ -284,6 +317,9 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
         onDismiss={dismissInvalidNotice}
         onRemoveFromRecents={
           invalidNotice?.variant === 'recent' ? handleRemoveInvalidRecent : undefined
+        }
+        onSetupAsSoundHaus={
+          invalidNotice?.variant === 'filepath-ableton' ? handleSetupAsSoundHaus : undefined
         }
       />
     </div>

@@ -13,6 +13,7 @@ const HomePage = () => {
         handleAbletonImport,
         handleOpenSoundHausProject,
         handleSelectFromDialog,
+        setupAbletonFolderAsSoundHaus,
         isOpenDialogVisible,
         setIsOpenDialogVisible,
     } = useProjectActions()
@@ -98,6 +99,7 @@ const HomePage = () => {
                 isOpen={isOpenDialogVisible}
                 onClose={() => setIsOpenDialogVisible(false)}
                 onSelectProject={handleSelectFromDialog}
+                onSetupAbletonFolderAsSoundHaus={setupAbletonFolderAsSoundHaus}
             />
         </div>
     )

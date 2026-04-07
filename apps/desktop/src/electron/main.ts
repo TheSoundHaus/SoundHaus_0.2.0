@@ -17,21 +17,6 @@ import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
 import { changesToProjectDiff } from './diffTransformer'
-import { promisify } from 'util';
-import { execFile } from 'child_process';
-
-const execFileP = promisify(execFile);
-
-// Resolve the git binary path (bundled vendor or system fallback)
-const platformMap: Partial<Record<NodeJS.Platform, string>> = { win32: 'windows', darwin: 'macos', linux: 'linux' };
-const platformDir = platformMap[process.platform] || process.platform;
-let gitBin = process.env.SOUNDHAUS_GIT_BIN || path.join(__dirname, '..', 'vendor', 'git', platformDir, process.platform === 'win32' ? 'git.exe' : 'git');
-try {
-  if (gitBin !== 'git' && !fs.existsSync(gitBin)) {
-    console.warn('Configured git binary not found at', gitBin, '— falling back to system `git` in PATH');
-    gitBin = 'git';
-  }
-} catch { gitBin = 'git'; }
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
 // Without this, setup can launch the app at the wrong time and shortcut creation may fail.
