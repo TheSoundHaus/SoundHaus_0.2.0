@@ -1,6 +1,8 @@
-import { getPublicProfile } from "@/lib/api/profile";
+import { getPublicProfile, getUserPublicRepos } from "@/lib/api/profile";
+import type { PublicRepo } from "@/lib/types/api";
 import UserAvatar from "@/components/UserAvatar";
-import { Calendar, User } from "lucide-react";
+import Link from "next/link";
+import { Calendar, User, Music, Star } from "lucide-react";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -31,6 +33,8 @@ export default async function PublicProfilePage({
   }
 
   const profile = result.data;
+  const reposResult = await getUserPublicRepos(username);
+  const repos: PublicRepo[] = reposResult.success ? (reposResult.data ?? []) : [];
 
   // Format account creation date
   function formatDate(iso: string | null): string {
@@ -78,12 +82,74 @@ export default async function PublicProfilePage({
         </div>
       </div>
 
-      {/* Public Repos placeholder */}
+      {/* Public Repos */}
       <div className="rounded-lg border border-zinc-800 p-8">
-        <h2 className="mb-4 text-xl font-semibold">Public Projects</h2>
-        <p className="text-sm text-zinc-500">
-          Public repositories will be displayed here once the feature is fully enabled.
-        </p>
+        <h2 className="mb-6 text-xl font-semibold">
+          Public Projects
+          {repos.length > 0 && (
+            <span className="ml-2 text-sm font-normal text-zinc-500">{repos.length}</span>
+          )}
+        </h2>
+        {repos.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <Music className="w-8 h-8 text-zinc-600" />
+            <p className="text-sm text-zinc-500">No public projects yet.</p>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {repos.map((repo) => {
+              return (
+                <Link
+                  key={repo.gitea_id}
+                  href={`/explore/${repo.owner}/${repo.repo_name}`}
+                  className="group block rounded-xl border border-white/[0.06] bg-white/[0.03] p-5 transition-all duration-200 hover:border-[#A7C7E7]/30 hover:shadow-[0_0_16px_rgba(167,199,231,0.1)] no-underline"
+                >
+                  {/* Thumbnail */}
+                  {repo.thumbnail_url && repo.thumbnail_type === "image" && (
+                    <div className="mb-3 h-32 overflow-hidden rounded-lg">
+                      <img
+                        src={repo.thumbnail_url}
+                        alt={repo.repo_name}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                    </div>
+                  )}
+                  <h3 className="text-base font-semibold text-zinc-100 group-hover:text-[#A7C7E7] transition-colors">
+                    {repo.repo_name}
+                  </h3>
+                  {repo.description && (
+                    <p className="mt-1 text-xs text-zinc-400 line-clamp-2">{repo.description}</p>
+                  )}
+                  {repo.genres.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {repo.genres.map((g) => (
+                        <span
+                          key={g}
+                          className="text-[10px] text-[#A7C7E7] bg-zinc-800/60 rounded-full px-2 py-0.5 border border-zinc-700/50"
+                        >
+                          {g}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-3 flex gap-4 text-xs text-zinc-500">
+                    <span className="flex items-center gap-1">
+                      <Star size={12} />
+                      {repo.stars ?? 0}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Music size={12} />
+                      {repo.clone_count} clones
+                    </span>
+                    {repo.updated_at && (
+                      <span>Updated {formatDate(repo.updated_at)}</span>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </div>
     </main>
   );

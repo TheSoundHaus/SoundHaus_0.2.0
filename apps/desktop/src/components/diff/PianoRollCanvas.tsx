@@ -15,7 +15,12 @@ type Props = {
 const EPSILON = 0.001;
 const MIN_ROLL_WIDTH = 900;
 const PIXELS_PER_BEAT = 72;
-const ROLL_HEIGHT = 240;
+
+// Fixed Ableton pitch range: C-2 (0) to C8 (120), but we crop to a padded window
+// around actual notes for readability. Minimum 2 octaves shown.
+const PITCH_ROW_HEIGHT = 5; // pixels per semitone
+const PITCH_PADDING = 6; // extra semitones above/below notes
+const LABEL_WIDTH = 36; // left margin for pitch labels
 
 const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
     const [hoveredPairKey, setHoveredPairKey] = useState<string | null>(null);
@@ -251,10 +256,14 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                 const minStart = Math.min(...allTrackNotes.map((n) => n.start_beat));
                 const maxEnd = Math.max(...allTrackNotes.map((n) => n.start_beat + n.duration_beats));
 
-                const pitchRange = Math.max(1, maxPitch - minPitch + 1);
+                // Snap to C boundaries with padding, minimum 2 octaves
+                const pitchLo = Math.max(0, Math.floor((minPitch - PITCH_PADDING) / 12) * 12);
+                const pitchHi = Math.min(127, Math.ceil((maxPitch + PITCH_PADDING + 1) / 12) * 12);
+                const pitchRange = Math.max(24, pitchHi - pitchLo);
+                const ROLL_HEIGHT = pitchRange * PITCH_ROW_HEIGHT + 24; // dynamic height
                 const timeRange = Math.max(1, maxEnd - minStart);
-                const rollWidth = Math.max(MIN_ROLL_WIDTH, Math.ceil(timeRange * PIXELS_PER_BEAT) + 40);
-                const noteHeight = Math.max(4, (ROLL_HEIGHT - 32) / Math.min(18, pitchRange));
+                const rollWidth = Math.max(MIN_ROLL_WIDTH, Math.ceil(timeRange * PIXELS_PER_BEAT) + LABEL_WIDTH + 20);
+                const noteHeight = Math.max(3, PITCH_ROW_HEIGHT - 1);
                 const adjustedPairs = track.adjusted.map((pair, pairIndex) => ({
                     ...pair,
                     pairKey: `${track.trackId}:pair:${pairIndex}`,
@@ -262,12 +271,12 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                 const isExpanded = expandedTracks[track.trackId] ?? true;
 
                 const yForPitch = (pitch: number) => {
-                    const relative = (pitch - minPitch) / pitchRange;
-                    return ROLL_HEIGHT - 22 - relative * (ROLL_HEIGHT - 34);
+                    const relative = (pitch - pitchLo) / pitchRange;
+                    return ROLL_HEIGHT - 12 - relative * (ROLL_HEIGHT - 24);
                 };
 
                 const xForBeat = (beat: number) => {
-                    return 12 + ((beat - minStart) / timeRange) * (rollWidth - 24);
+                    return LABEL_WIDTH + ((beat - minStart) / timeRange) * (rollWidth - LABEL_WIDTH - 12);
                 };
 
                 const renderRect = (
@@ -290,7 +299,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                 ) => {
                     const x = xForBeat(note.start_beat);
                     const y = yForPitch(note.pitch);
-                    const widthPx = Math.max(2, (note.duration_beats / timeRange) * (rollWidth - 24));
+                    const widthPx = Math.max(2, (note.duration_beats / timeRange) * (rollWidth - LABEL_WIDTH - 12));
                     const isHoveredSingle = options?.noteKey ? hoveredNoteKey === options.noteKey : false;
                     const strokeWidth = isHoveredSingle ? Math.max(1.5, options?.strokeWidth ?? 0) : options?.strokeWidth ?? 0;
 
@@ -355,19 +364,44 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                         {isExpanded ? (
                         <div style={{ overflowX: 'auto', overflowY: 'hidden' }}>
                             <svg width={rollWidth} height={ROLL_HEIGHT} style={{ display: 'block', background: '#111' }}>
-                                {Array.from({ length: Math.min(24, pitchRange) }).map((_, i) => {
-                                    const pitch = minPitch + i;
+                                {/* Octave grid lines with C labels */}
+                                {Array.from({ length: pitchRange }).map((_, i) => {
+                                    const pitch = pitchLo + i;
                                     const y = yForPitch(pitch);
+                                    const isC = pitch % 12 === 0;
                                     return (
-                                        <line
-                                            key={`grid-${track.trackId}-${pitch}`}
-                                            x1={0}
-                                            y1={y}
-                                            x2={rollWidth}
-                                            y2={y}
-                                            stroke="rgba(255,255,255,0.04)"
-                                            strokeWidth={1}
-                                        />
+                                        <g key={`grid-${track.trackId}-${pitch}`}>
+                                            <line
+                                                x1={LABEL_WIDTH}
+                                                y1={y}
+                                                x2={rollWidth}
+                                                y2={y}
+                                                stroke={isC ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.03)'}
+                                                strokeWidth={isC ? 1 : 0.5}
+                                            />
+                                            {/* Alternating row shading for black keys */}
+                                            {[1,3,6,8,10].includes(pitch % 12) && (
+                                                <rect
+                                                    x={LABEL_WIDTH}
+                                                    y={y - PITCH_ROW_HEIGHT}
+                                                    width={rollWidth - LABEL_WIDTH}
+                                                    height={PITCH_ROW_HEIGHT}
+                                                    fill="rgba(255,255,255,0.015)"
+                                                />
+                                            )}
+                                            {isC && (
+                                                <text
+                                                    x={LABEL_WIDTH - 4}
+                                                    y={y + 3}
+                                                    textAnchor="end"
+                                                    fill="rgba(255,255,255,0.35)"
+                                                    fontSize={9}
+                                                    fontFamily="monospace"
+                                                >
+                                                    {formatPitchName(pitch)}
+                                                </text>
+                                            )}
+                                        </g>
                                     );
                                 })}
 
@@ -387,9 +421,9 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                                     const active = activePairKey === pair.pairKey;
 
                                     const fromX = xForBeat(pair.from.start_beat);
-                                    const fromWidth = Math.max(2, (pair.from.duration_beats / timeRange) * (rollWidth - 24));
+                                    const fromWidth = Math.max(2, (pair.from.duration_beats / timeRange) * (rollWidth - LABEL_WIDTH - 12));
                                     const toX = xForBeat(pair.to.start_beat);
-                                    const toWidth = Math.max(2, (pair.to.duration_beats / timeRange) * (rollWidth - 24));
+                                    const toWidth = Math.max(2, (pair.to.duration_beats / timeRange) * (rollWidth - LABEL_WIDTH - 12));
                                     const oldEndX = fromX + fromWidth;
                                     const newEndX = toX + toWidth;
                                     const deltaStart = Math.min(oldEndX, newEndX);

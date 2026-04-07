@@ -22,7 +22,6 @@ import {
   ChevronDown,
   FilePlus,
   FileEdit,
-  FileMinus,
   Eye,
   Search,
   Send,
@@ -961,35 +960,28 @@ export default function RepoDetailClient({
                     {/* Expanded: file changes + diff view */}
                     {isExpanded && (
                       <div className="border-t border-zinc-800/50 bg-zinc-900/20 px-2 py-3 space-y-3">
-                        {/* File change lists */}
-                        {(c.files_added?.length > 0 ||
-                          c.files_modified?.length > 0 ||
-                          c.files_removed?.length > 0) && (
-                          <div className="grid gap-1 text-xs">
-                            {c.files_added?.map((f) => (
-                              <span
-                                key={`a-${f}`}
-                                className="flex items-center gap-1.5 text-success"
-                              >
-                                <FilePlus size={11} /> {f}
-                              </span>
-                            ))}
-                            {c.files_modified?.map((f) => (
-                              <span
-                                key={`m-${f}`}
-                                className="flex items-center gap-1.5 text-glass-blue-500"
-                              >
-                                <FileEdit size={11} /> {f}
-                              </span>
-                            ))}
-                            {c.files_removed?.map((f) => (
-                              <span
-                                key={`r-${f}`}
-                                className="flex items-center gap-1.5 text-error"
-                              >
-                                <FileMinus size={11} /> {f}
-                              </span>
-                            ))}
+                        {/* Track change summary (derived from diff data) */}
+                        {diffCache[c.sha]?.diff_data?.tracks && (
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            {diffCache[c.sha]!.diff_data!.tracks
+                              .filter((t) => t.changeType !== "unchanged")
+                              .map((t) => (
+                                <span
+                                  key={t.trackId}
+                                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 ${
+                                    t.changeType === "added"
+                                      ? "border-emerald-700/40 bg-emerald-900/20 text-emerald-400"
+                                      : t.changeType === "removed"
+                                      ? "border-red-700/40 bg-red-900/20 text-red-400"
+                                      : "border-blue-700/40 bg-blue-900/20 text-blue-400"
+                                  }`}
+                                >
+                                  {t.changeType === "added" ? "+" : t.changeType === "removed" ? "−" : "~"}
+                                  {" "}
+                                  {t.instrument && /^\d+[-\s]/.test(t.trackName) ? t.instrument : t.trackName}
+                                  <span className="text-zinc-500 text-[10px] uppercase">{t.trackType}</span>
+                                </span>
+                              ))}
                           </div>
                         )}
 

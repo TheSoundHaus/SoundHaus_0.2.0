@@ -188,13 +188,27 @@ export default function DashboardPage() {
                                         <div className={`mt-2 w-1.5 h-1.5 rounded-full shrink-0 ${activityIcon(item.type)}`} />
                                         <div className="flex-1 min-w-0">
                                             <div className="text-sm">
-                                                <span className="text-zinc-300">{item.description} </span>
-                                                <Link
-                                                    href={`/repository/${item.repoOwner}/${item.repoName}`}
-                                                    className="font-semibold text-glass-blue-400 hover:text-glass-blue-300 transition-colors"
-                                                >
-                                                    {item.repoName}
-                                                </Link>
+                                                {item.type === "push" ? (
+                                                    <>
+                                                        <span className="text-zinc-300 line-clamp-1">{item.description} </span>
+                                                        <Link
+                                                            href={`/repository/${item.repoOwner}/${item.repoName}`}
+                                                            className="font-semibold text-glass-blue-400 hover:text-glass-blue-300 transition-colors"
+                                                        >
+                                                            {item.repoName}
+                                                        </Link>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="text-zinc-300">{item.description} </span>
+                                                        <Link
+                                                            href={`/repository/${item.repoOwner}/${item.repoName}`}
+                                                            className="font-semibold text-glass-blue-400 hover:text-glass-blue-300 transition-colors"
+                                                        >
+                                                            {item.repoName}
+                                                        </Link>
+                                                    </>
+                                                )}
                                             </div>
                                             <div className="text-xs text-zinc-500 mt-0.5">
                                                 {timeAgo(item.time)}

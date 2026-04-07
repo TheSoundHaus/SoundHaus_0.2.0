@@ -38,11 +38,11 @@ export interface DashboardData {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildActivity(repos: EnrichedRepo[]): DashboardActivity[] {
-    // Build activity feed from repo metadata (creation/update times)
+    // Synthetic fallback — create/collaborate events from repo metadata.
+    // Real commit-based "push" events are added in getDashboardData().
     const activities: DashboardActivity[] = [];
 
     for (const repo of repos) {
-        // Add "created project" activity
         if (repo.created_at) {
             activities.push({
                 type: "create",
@@ -53,18 +53,6 @@ function buildActivity(repos: EnrichedRepo[]): DashboardActivity[] {
             });
         }
 
-        // Add "updated project" activity if different from created
-        if (repo.updated_at && repo.updated_at !== repo.created_at) {
-            activities.push({
-                type: "push",
-                description: `Updated`,
-                repoName: repo.name,
-                repoOwner: repo.owner_id,
-                time: repo.updated_at,
-            });
-        }
-
-        // Mark collaborations
         if (repo.role === "collaborator") {
             activities.push({
                 type: "collaborate",
@@ -76,11 +64,7 @@ function buildActivity(repos: EnrichedRepo[]): DashboardActivity[] {
         }
     }
 
-    // Sort by most recent first
-    activities.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-
-    // Return top 10
-    return activities.slice(0, 10);
+    return activities;
 }
 
 // ── Main API ──────────────────────────────────────────────────────────────────
@@ -121,15 +105,31 @@ export async function getDashboardData(): Promise<{
                 const owner = parts[0] ?? "";
                 const repoName = parts[1] ?? "";
                 if (!owner || !repoName) return null;
-                return getCommits(owner, repoName, 1, 1).catch(() => null);
+                return getCommits(owner, repoName, 1, 5).catch(() => null);
             })
         );
 
-        // Sum up total commits across recent repos
+        // Sum up total commits across recent repos and collect real push events
         let totalCommits = 0;
-        for (const result of commitResults) {
+        const commitActivities: DashboardActivity[] = [];
+        for (let i = 0; i < commitResults.length; i++) {
+            const result = commitResults[i];
             if (result && result.success && result.data) {
-                totalCommits += (result.data as CommitListResponse).total ?? 0;
+                const resp = result.data as CommitListResponse;
+                totalCommits += resp.total ?? 0;
+                const repo = recentRepos[i];
+                if (!repo) continue;
+                for (const commit of (resp.commits ?? [])) {
+                    if (commit.timestamp) {
+                        commitActivities.push({
+                            type: "push",
+                            description: commit.message || "Pushed changes to",
+                            repoName: repo.name,
+                            repoOwner: repo.owner_id,
+                            time: commit.timestamp,
+                        });
+                    }
+                }
             }
         }
 
@@ -141,8 +141,11 @@ export async function getDashboardData(): Promise<{
             .filter((r) => r.role === "owner")
             .reduce((sum, r) => sum + (r.stars_count ?? 0), 0);
 
-        // Build activity feed
-        const activity = buildActivity(repos);
+        // Build activity feed: real commit events + synthetic create/collaborate
+        const syntheticActivity = buildActivity(repos);
+        const allActivity = [...commitActivities, ...syntheticActivity]
+            .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+            .slice(0, 15);
 
         return {
             success: true,
@@ -154,7 +157,7 @@ export async function getDashboardData(): Promise<{
                     totalStars,
                 },
                 recentRepos,
-                activity,
+                activity: allActivity,
                 pendingInvitations,
             },
         };
