@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: ./scripts/compose.sh <local|remote> [docker compose args...]" >&2
+  echo "Usage: ./compose.sh <local|remote> [docker compose args...]" >&2
   exit 1
 fi
 
@@ -15,7 +15,7 @@ if [[ "$mode" != "local" && "$mode" != "remote" ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/.." && pwd)"
+repo_root="$script_dir"
 compose_env_file="$repo_root/.env.compose.$mode"
 profile_file="$repo_root/.soundhaus-compose-profile"
 

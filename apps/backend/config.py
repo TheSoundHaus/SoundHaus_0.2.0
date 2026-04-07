@@ -46,9 +46,9 @@ class Settings(BaseSettings):
     # === Rate Limiting ===
     rate_limit_enabled: bool = Field(default=True, description="Enable rate limiting")
     rate_limit_default: str = Field(default="100/minute", description="Default rate limit")
-    rate_limit_auth: str = Field(default="10/minute", description="Auth endpoint rate limit")
-    rate_limit_signup: str = Field(default="5/minute", description="Signup endpoint rate limit")
-    rate_limit_upload: str = Field(default="5/minute", description="Upload endpoint rate limit")
+    rate_limit_auth: str = Field(default="100/minute", description="Auth endpoint rate limit")
+    rate_limit_signup: str = Field(default="100/minute", description="Signup endpoint rate limit")
+    rate_limit_upload: str = Field(default="100/minute", description="Upload endpoint rate limit")
     
     # === Auth features ===
     password_reset_email_enabled: bool = Field(

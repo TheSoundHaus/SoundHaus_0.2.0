@@ -14,11 +14,10 @@ from pathlib import Path
 
 import httpx
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=True)
-except ImportError:
-    pass
+# Load profile-aware .env.local/.env.remote when run directly
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from load_env import load_env as _load_env
+_load_env()
 
 
 def fail(message: str) -> None:

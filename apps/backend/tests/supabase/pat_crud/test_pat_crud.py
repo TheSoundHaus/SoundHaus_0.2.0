@@ -15,11 +15,10 @@ from pathlib import Path
 
 import httpx
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parents[3] / ".env", override=True)
-except ImportError:
-    pass
+# Load profile-aware .env.local/.env.remote when run directly
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from load_env import load_env as _load_env
+_load_env()
 
 
 def fail(message: str) -> None:
@@ -46,13 +45,15 @@ def main() -> None:
         headers = {"Authorization": f"Bearer {access_token}"}
 
         token_name = f"test-pat-{uuid.uuid4().hex[:8]}"
-        resp_create = client.post("/api/auth/tokens", headers=headers, json={"name": token_name})
+        resp_create = client.post("/api/auth/tokens", headers=headers, json={"token_name": token_name})
         if resp_create.status_code != 200:
             fail(f"create PAT failed: {resp_create.status_code} {resp_create.text}")
         create_data = resp_create.json()
         if not create_data.get("success"):
             fail(f"create PAT success flag is false: {create_data}")
-        token_id = create_data.get("token", {}).get("id") or create_data.get("token_id")
+        token_id = create_data.get("token_id")
+        if token_id is not None:
+            token_id = str(token_id)
         if not token_id:
             fail(f"no token_id returned from create: {create_data}")
 

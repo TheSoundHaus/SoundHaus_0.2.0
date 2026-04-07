@@ -80,31 +80,32 @@ async def signup(
     if not supabase_user_id:
         raise HTTPException(status_code=500, detail="Supabase user created but no ID returned")
 
-    # Provision Gitea user with human-readable username (not UUID)
+    # Gitea login matches Supabase user id so repo/desktop code paths that pass user.id work unchanged.
+    gitea_login = str(supabase_user_id)
     gitea_result: Dict[str, Any]
     try:
         gitea = GiteaAdminService()
         logger.debug("signup", message="gitea service initialized")
 
-        existing_user = gitea.get_user_by_username(username)
+        existing_user = gitea.get_user_by_username(gitea_login)
 
         if existing_user.get("exists"):
-            logger.info("signup", gitea_user=username, message="Using existing Gitea account")
+            logger.info("signup", gitea_user=gitea_login, message="Using existing Gitea account")
             gitea_result = {
                 "success": True,
                 "status": 200,
                 "message": "Using existing SoundHaus Gitea account",
-                "username": username,
+                "username": gitea_login,
                 "data": existing_user.get("data"),
                 "is_new": False,
             }
         else:
-            logger.info("signup", gitea_user=username, message="Creating new Gitea user")
+            logger.info("signup", gitea_user=gitea_login, message="Creating new Gitea user")
             pw_len = len(signup_request.password) if signup_request.password else 0
             logger.debug("signup", password_present=bool(signup_request.password), password_length=pw_len)
 
             gitea_result = gitea.create_user(
-                username=username,
+                username=gitea_login,
                 email=signup_request.email,
                 password=(
                     signup_request.password

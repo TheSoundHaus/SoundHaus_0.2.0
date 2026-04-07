@@ -22,8 +22,9 @@ SoundHaus_0.2.0/
 │   ├── web/               # Next.js web app
 │   ├── desktop/           # Electron + Vite desktop app
 │   └── token-broker/      # Token broker microservice
-├── scripts/               # compose wrappers, deploy, backup, helpers
-├── workers/               # stem_worker (Demucs audio separation)
+├── compose.sh / compose.ps1   # Docker Compose profile wrappers (local | remote)
+├── scripts/               # deploy, backup, helpers
+├── workers/               # e.g. stem_worker (Demucs audio separation)
 ├── gitea/                 # Gitea bind-mount data (local dev)
 ├── docker-compose.yml     # Stack: gitea_db, gitea, redis, fastapi, worker, token-broker
 └── .env.compose.local     # Compose profile files (see below)
@@ -45,14 +46,21 @@ Copy from the `*.example` files at the repo root and under `apps/backend/`.
 
 **Important:** `GITEA_DB_PASSWORD`, `GITEA_SECRET_KEY`, and `GITEA_INTERNAL_TOKEN` are tied to the **Gitea Postgres volume** on that machine. Use **different** values on a droplet than on your laptop; do not change `GITEA_DB_PASSWORD` on an existing volume without updating Postgres or recreating the volume.
 
-## Scripts
+The compose wrappers write **`.soundhaus-compose-profile`** (`local` or `remote`) so the backend integration test runner (`apps/backend/tests/run_all.py`) picks the matching `apps/backend/.env.local` or `.env.remote`.
+
+## 📜 Compose (repo root) and `scripts/`
 
 | Script | Role |
 |--------|------|
-| `compose.sh` / `compose.ps1` | `compose.sh local up -d` runs `docker compose --env-file .env.compose.<profile>` and updates `.soundhaus-compose-profile`. |
-| `deploy-digital-ocean.sh` | Rsync files to `/opt/soundhaus` on a droplet, open firewall ports, `docker compose up -d`. |
-| `backup.sh` | Backup helper (Gitea / DB-related). |
-| `run_desktop.sh` | Local desktop app helper. |
+| **`compose.sh`** / **`compose.ps1`** (repo root) | `compose.sh local up -d` or `compose.ps1 remote up -d` — runs `docker compose --env-file .env.compose.<profile> …` from the repo root and updates `.soundhaus-compose-profile`. |
+| **`deploy-digital-ocean.sh`** (`scripts/`) | Rsync `docker-compose.yml`, root **`.env`**, and `apps/backend/` to `/opt/soundhaus` on a droplet, open firewall ports, `docker compose up -d`. See **`scripts/DEPLOYMENT.md`**. |
+| **`backup.sh`** | Backup helper (Gitea / DB-related; review script for flags). |
+| **`run_desktop.sh`** | Local desktop app helper. |
+| **`bootstrap_local_gitea_admin.py`** | Optional Gitea admin bootstrap (see script docstring). |
+
+**PowerShell (Windows):** from repo root, `.\compose.ps1 local up -d`
+
+**Legacy:** plain `docker compose up` without `--env-file .env.compose.local` uses default `BACKEND_ENV_FILE=./apps/backend/.env` if set nowhere else—prefer the **local** profile.
 
 ## Quick Start (Local Development)
 
@@ -89,11 +97,12 @@ REDIS_URL=redis://redis:6379/0
 
 #### Getting Gitea Admin Token
 
-1. Start the stack: `./scripts/compose.sh local up -d`
+1. Start the stack: `./compose.sh local up -d` (or `.\compose.ps1 local up -d` on Windows).
 2. Open Gitea: http://localhost:3000
-3. Log in as admin, go to **Settings > Applications > Manage Access Tokens**
-4. Generate a token with **ALL** scopes (including `write:admin`).
-5. Put the token in `apps/backend/.env.local` as `GITEA_ADMIN_TOKEN`, then: `./scripts/compose.sh local restart fastapi`
+3. Log in as admin → **Settings → Applications → Manage Access Tokens**
+4. Generate a token with **ALL** scopes (including **`write:admin`**).
+5. Put the token in **`apps/backend/.env.local`** as `GITEA_ADMIN_TOKEN`, then restart FastAPI:  
+   `./compose.sh local restart fastapi`
 
 #### Getting Supabase Credentials
 
@@ -103,7 +112,8 @@ REDIS_URL=redis://redis:6379/0
 ### 3. Start services
 
 ```bash
-./scripts/compose.sh local up -d --build
+./compose.sh local up -d --build
+# Logs (optional): docker compose --env-file .env.compose.local logs -f
 ```
 
 ### 4. Verify
@@ -475,12 +485,37 @@ docker compose --env-file .env.compose.local up -d
 
 Once the backend is running: **Swagger UI** at `/docs`, **ReDoc** at `/redoc`.
 
+For deployment details beyond this README, see **[scripts/DEPLOYMENT.md](scripts/DEPLOYMENT.md)** (firewall, `deploy-digital-ocean.sh`, optional **`./compose.sh remote up -d`** with **`.env.compose.remote`** and **`apps/backend/.env.remote`**).
+
+### Collaborators
+
+- `POST /repos/{repo_name}/collaborators/invite` — Invite collaborator
+- `GET /repos/{repo_name}/collaborators` — List collaborators
+- `GET /invitations/pending` — Get pending invitations
+- `POST /invitations/{id}/accept` — Accept invitation
+- `DELETE /repos/{repo_name}/collaborators/{username}` — Remove collaborator
+
+### File watching
+
+- `POST /watch/start` — Start file watch session
+- `POST /watch/stop` — Stop watch session
+- `GET /watch/status/{watch_id}` — Get watch status
+- `GET /watch/sessions` — List active sessions
+
 ## Security Notes
 
-- **Never commit `.env` files**
+- **Never commit `.env` files** — they contain sensitive credentials
 - **Rotate tokens regularly** (Gitea and Supabase)
 - **Use strong passwords** (especially admin accounts)
 - **Keep dependencies updated**
+- **Restrict the Gitea admin token** — use only for backend services
+
+## Contributing
+
+1. Create a feature branch
+2. Make your changes
+3. Run integration tests (`apps/backend/tests/README.md`) when touching the API
+4. Open a pull request
 
 ## License
 
