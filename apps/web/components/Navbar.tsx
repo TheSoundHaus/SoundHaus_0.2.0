@@ -2,10 +2,29 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Waves } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bell, Waves } from "lucide-react";
 import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "./UserAvatar";
+import { getPendingInvitations, acceptInvitation, declineInvitation } from "@/lib/api/invitations";
+import type { Invitation } from "@/lib/types/api";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function timeAgo(iso: string): string {
+    const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (seconds < 60) return "just now";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
 
 const Navbar = () => {
     const pathname = usePathname();
@@ -17,6 +36,59 @@ const Navbar = () => {
         window.addEventListener("scroll", onScroll, { passive: true });
         return () => window.removeEventListener("scroll", onScroll);
     }, []);
+
+    // Notification state
+    const [isOpen, setIsOpen] = useState(false);
+    const [invitations, setInvitations] = useState<Invitation[]>([]);
+    const [seenCount, setSeenCount] = useState(0);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Fetch notification data (Supabase only — no Gitea calls)
+    const fetchNotifications = useCallback(async () => {
+        const invResult = await getPendingInvitations();
+        if (invResult.success && invResult.data) {
+            setInvitations(invResult.data);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchNotifications();
+    }, [fetchNotifications]);
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        function handleClickOutside(e: MouseEvent) {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        }
+        if (isOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+        }
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [isOpen]);
+
+    // Badge count
+    const unreadCount = Math.max(0, invitations.length - seenCount);
+
+    // Toggle dropdown and mark as seen
+    const toggleDropdown = () => {
+        if (!isOpen) {
+            setSeenCount(invitations.length);
+        }
+        setIsOpen((prev) => !prev);
+    };
+
+    // Invitation action handlers
+    const handleAccept = async (id: number) => {
+        await acceptInvitation(id);
+        await fetchNotifications();
+    };
+
+    const handleDecline = async (id: number) => {
+        await declineInvitation(id);
+        await fetchNotifications();
+    };
 
     const navLinks = [
         { href: "/dashboard", label: "Dashboard" },
@@ -61,6 +133,7 @@ const Navbar = () => {
                             </Link>
                         );
                     })}
+                    {/* Profile avatar link */}
                     <Link
                         href="/settings"
                         className={`group relative ml-3 rounded-full p-1 transition-all duration-300 ${
