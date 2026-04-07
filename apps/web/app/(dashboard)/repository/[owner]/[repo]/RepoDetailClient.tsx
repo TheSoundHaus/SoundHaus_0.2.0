@@ -1022,72 +1022,184 @@ export default function RepoDetailClient({
       )}
 
       {/* ── Events Tab ─────────────────────────────────────────────── */}
-      {activeTab === "events" && (
-        <div className="glass-card rounded-lg p-6">
-          <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
-          {repoEvents.length === 0 ? (
-            <p className="text-zinc-400">No activity recorded yet.</p>
-          ) : (
-            <div className="relative pl-8">
-              {/* Vertical connector line */}
-              <div className="absolute left-[15px] top-2 bottom-2 w-px bg-zinc-700" />
+      {activeTab === "events" && (() => {
+        // Build unified timeline from push activity + repo events
+        type TimelineItem = {
+          id: string;
+          kind: "push" | "event";
+          timestamp: string | null;
+          actor: string;
+          eventType: string;
+          detail?: string | null;
+          commitMessage?: string | null;
+          commitCount?: number;
+          afterSha?: string | null;
+          ref?: string;
+        };
 
-              <div className="space-y-6">
-                {repoEvents.map((ev) => {
-                  // Event-type icon and color mapping
-                  const isCreate = ev.event_type.includes("create") || ev.event_type === "repository_created";
-                  const isDelete = ev.event_type.includes("delete");
-                  const isPush = ev.event_type.includes("push");
-                  const dotColor = isDelete
-                    ? "bg-red-500"
-                    : isCreate
-                    ? "bg-emerald-500"
-                    : isPush
-                    ? "bg-sky-500"
-                    : "bg-zinc-500";
-                  const IconComponent = isDelete
-                    ? Trash2
-                    : isCreate
-                    ? FilePlus
-                    : isPush
-                    ? GitCommit
-                    : Activity;
+        const items: TimelineItem[] = [];
 
-                  return (
-                    <div key={ev.id} className="relative flex items-start gap-4">
-                      {/* Timeline dot */}
-                      <div
-                        className={`absolute -left-8 top-1 flex h-[14px] w-[14px] items-center justify-center rounded-full ${dotColor} ring-4 ring-zinc-900`}
-                      >
-                        <IconComponent size={8} className="text-white" />
-                      </div>
+        // Add push events
+        for (const p of pushes) {
+          items.push({
+            id: `push-${p.id}`,
+            kind: "push",
+            timestamp: p.pushed_at,
+            actor: p.pusher,
+            eventType: "push",
+            commitMessage: p.commit_message,
+            commitCount: p.commit_count,
+            afterSha: p.after_sha,
+            ref: p.ref,
+          });
+        }
 
-                      {/* Avatar */}
-                      <div className="shrink-0">
-                        <UserAvatar src={null} alt={ev.actor} size={32} />
-                      </div>
+        // Add repo events (branch/tag, collab, snippet)
+        for (const ev of repoEvents) {
+          items.push({
+            id: `event-${ev.id}`,
+            kind: "event",
+            timestamp: ev.occurred_at,
+            actor: ev.actor,
+            eventType: ev.event_type,
+            detail: ev.detail,
+          });
+        }
 
-                      {/* Event details */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline gap-2 flex-wrap">
-                          <span className="font-medium text-zinc-200">{ev.actor}</span>
-                          <span className="text-sm text-zinc-400">
-                            {ev.event_type.replaceAll("_", " ")}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
-                          <Clock size={10} />
-                          {timeAgo(ev.occurred_at)}
-                        </div>
+        // Sort descending by timestamp
+        items.sort((a, b) => {
+          const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return tb - ta;
+        });
+
+        // Group by date bucket
+        type DateGroup = { label: string; items: TimelineItem[] };
+        const groups: DateGroup[] = [];
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+        const weekStart = new Date(todayStart.getTime() - 6 * 86400000);
+
+        function bucketLabel(iso: string | null): string {
+          if (!iso) return "Earlier";
+          const d = new Date(iso);
+          if (d >= todayStart) return "Today";
+          if (d >= yesterdayStart) return "Yesterday";
+          if (d >= weekStart) return "This Week";
+          return "Earlier";
+        }
+
+        for (const item of items) {
+          const label = bucketLabel(item.timestamp);
+          const last = groups[groups.length - 1];
+          if (last && last.label === label) {
+            last.items.push(item);
+          } else {
+            groups.push({ label, items: [item] });
+          }
+        }
+
+        // Icon + color helpers
+        function getEventStyle(eventType: string) {
+          if (eventType === "push") return { color: "bg-sky-500", Icon: GitCommit };
+          if (eventType.includes("create") || eventType === "repository_created") return { color: "bg-emerald-500", Icon: FilePlus };
+          if (eventType.includes("delete")) return { color: "bg-red-500", Icon: Trash2 };
+          if (eventType === "collaborator_joined") return { color: "bg-violet-500", Icon: UserPlus };
+          if (eventType === "collaborator_invited") return { color: "bg-amber-500", Icon: Send };
+          if (eventType === "snippet_updated") return { color: "bg-pink-500", Icon: Music };
+          return { color: "bg-zinc-500", Icon: Activity };
+        }
+
+        function formatEventLabel(item: TimelineItem): string {
+          if (item.kind === "push") {
+            const branch = item.ref?.replace("refs/heads/", "") ?? "main";
+            return `pushed ${item.commitCount ?? 1} commit${(item.commitCount ?? 1) > 1 ? "s" : ""} to ${branch}`;
+          }
+          return item.eventType.replaceAll("_", " ");
+        }
+
+        return (
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-6 text-2xl font-semibold">Timeline</h2>
+            {items.length === 0 ? (
+              <p className="text-zinc-400">No activity recorded yet.</p>
+            ) : (
+              <div className="space-y-8">
+                {groups.map((group) => (
+                  <div key={group.label}>
+                    {/* Date group header */}
+                    <div className="mb-4 flex items-center gap-3">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        {group.label}
+                      </span>
+                      <div className="h-px flex-1 bg-zinc-700/50" />
+                    </div>
+
+                    <div className="relative pl-8">
+                      {/* Vertical connector line */}
+                      <div className="absolute left-[15px] top-2 bottom-2 w-px bg-zinc-700" />
+
+                      <div className="space-y-5">
+                        {group.items.map((item) => {
+                          const { color, Icon } = getEventStyle(item.eventType);
+                          return (
+                            <div key={item.id} className="relative flex items-start gap-4">
+                              {/* Timeline dot */}
+                              <div
+                                className={`absolute -left-8 top-1 flex h-[14px] w-[14px] items-center justify-center rounded-full ${color} ring-4 ring-zinc-900`}
+                              >
+                                <Icon size={8} className="text-white" />
+                              </div>
+
+                              {/* Avatar */}
+                              <div className="shrink-0">
+                                <UserAvatar src={null} alt={item.actor} size={32} />
+                              </div>
+
+                              {/* Event details */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                  <span className="font-medium text-zinc-200">{item.actor}</span>
+                                  <span className="text-sm text-zinc-400">
+                                    {formatEventLabel(item)}
+                                  </span>
+                                  {item.afterSha && (
+                                    <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-[#A7C7E7]">
+                                      {item.afterSha}
+                                    </code>
+                                  )}
+                                </div>
+
+                                {/* Commit message preview */}
+                                {item.commitMessage && (
+                                  <p className="mt-1 truncate text-sm text-zinc-400 italic">
+                                    &ldquo;{item.commitMessage}&rdquo;
+                                  </p>
+                                )}
+
+                                {/* Detail line for collab/snippet events */}
+                                {item.detail && (
+                                  <p className="mt-0.5 text-xs text-zinc-500">{item.detail}</p>
+                                )}
+
+                                <div className="mt-0.5 flex items-center gap-1 text-xs text-zinc-500">
+                                  <Clock size={10} />
+                                  {timeAgo(item.timestamp)}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Collaborators Tab ──────────────────────────────────────── */}
       {activeTab === "collaborators" && (

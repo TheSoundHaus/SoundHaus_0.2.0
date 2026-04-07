@@ -42,8 +42,10 @@ class ProfileService:
         return self._profile_to_dict(profile)
 
     def get_profile_by_username(self, username: str, db: Session) -> Optional[Dict[str, Any]]:
-        """Fetch a user profile by username."""
+        """Fetch a user profile by username (falls back to display_name)."""
         profile = db.query(Profile).filter(Profile.username == username).first()
+        if not profile:
+            profile = db.query(Profile).filter(Profile.display_name == username).first()
         if not profile:
             return None
         return self._profile_to_dict(profile)

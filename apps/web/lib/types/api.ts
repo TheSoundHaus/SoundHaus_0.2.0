@@ -129,6 +129,7 @@ export interface EnrichedRepo {
   owner_display_name?: string;   // Profile display name
   created_at: string;            // ISO timestamp
   updated_at: string;            // ISO timestamp
+  total_commits: number;
   stars_count: number;
   clone_count: number;
   clone_url: string;
@@ -209,6 +210,7 @@ export interface PushActivity {
   before_sha: string | null;     // first 8 chars of previous commit SHA
   after_sha: string | null;      // first 8 chars of new commit SHA
   commit_count: number;
+  commit_message?: string | null; // latest commit message from push
   pusher: string;                // Gitea username
   pushed_at: string | null;      // ISO timestamp string
 }
@@ -222,9 +224,10 @@ export interface RepoActivity {
 
 // A single repository lifecycle event (from /events)
 export interface RepoEvent {
-  id: number;
-  event_type: string;           // e.g. "branch_created", "tag_deleted", "repository_created"
+  id: number | string;
+  event_type: string;           // e.g. "branch_created", "tag_deleted", "collaborator_joined", "snippet_updated"
   actor: string;                // Gitea username of the actor
+  detail?: string | null;       // extra context (invitation info, snippet version, etc.)
   occurred_at: string | null;   // ISO timestamp string
 }
 

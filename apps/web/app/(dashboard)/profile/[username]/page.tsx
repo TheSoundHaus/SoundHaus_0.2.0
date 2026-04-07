@@ -88,10 +88,12 @@ export default async function PublicProfilePage({
               {UUID_RE.test(profile.username) ? '@soundhaususer' : `@${profile.username}`}
             </p>
 
-            {profile.bio && (
+            {profile.bio ? (
               <p className="mt-4 text-sm leading-relaxed text-zinc-300">
                 {profile.bio}
               </p>
+            ) : (
+              <p className="mt-4 text-sm italic text-zinc-500">No bio yet.</p>
             )}
 
             <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">

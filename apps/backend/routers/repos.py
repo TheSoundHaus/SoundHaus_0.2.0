@@ -450,6 +450,8 @@ async def get_user_public_repos(
     Accepts either a Supabase UUID or a SoundHaus username."""
     profile = db.query(Profile).filter(Profile.username == username).first()
     if not profile:
+        profile = db.query(Profile).filter(Profile.display_name == username).first()
+    if not profile:
         profile = db.query(Profile).filter(Profile.id == username).first()
     owner_id = str(profile.id) if profile else username
     labels = _owner_profile_fields(profile, owner_id)
@@ -512,6 +514,8 @@ async def get_user_public_stats(
 ):
     """Get aggregate public stats for a user (no auth required)."""
     profile = db.query(Profile).filter(Profile.username == username).first()
+    if not profile:
+        profile = db.query(Profile).filter(Profile.display_name == username).first()
     if not profile:
         profile = db.query(Profile).filter(Profile.id == username).first()
     if not profile:
@@ -810,6 +814,7 @@ async def get_enriched_repos(
             "created_at": repo.get("created_at", ""),
             "updated_at": repo.get("updated_at", ""),
             "stars_count": repo.get("stars_count", 0),
+            "total_commits": rd.total_commits if rd else 0,
             "clone_count": rd.clone_count if rd else 0,
             "audio_snippet": rd.audio_snippet if rd else None,
             "snippet_metadata": {

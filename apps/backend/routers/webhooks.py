@@ -3,7 +3,7 @@ Webhook endpoints – receive Gitea events, list deliveries, activity feed, repo
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 import json as _json
 from starlette.requests import ClientDisconnect
@@ -13,6 +13,9 @@ from dependencies import limiter, verify_token
 from logging_config import get_logger
 from services.webhook_service import webhook_service
 from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent
+from models.commit_models import CommitDetail
+from models.invitation_models import CollaboratorInvitation
+from models.snippet_models import SnippetHistory
 
 logger = get_logger(__name__)
 
@@ -125,28 +128,41 @@ async def get_repo_activity(
 
     push_events = (
         db.query(PushEvent)
+        .options(selectinload(PushEvent.commit_details))
         .filter(PushEvent.repo_id == repo_id)
         .order_by(PushEvent.pushed_at.desc())
         .limit(min(limit, 50))
         .all()
     )
 
+    activity_items = []
+    for e in push_events:
+        # Get the latest commit message from the push's commit details
+        commit_message = None
+        if e.commit_details:
+            sorted_details = sorted(
+                e.commit_details,
+                key=lambda c: c.timestamp or c.created_at,
+                reverse=True,
+            )
+            commit_message = sorted_details[0].message if sorted_details else None
+
+        activity_items.append({
+            "id": e.id,
+            "ref": e.ref,
+            "before_sha": e.before_sha[:8] if e.before_sha else None,
+            "after_sha": e.after_sha[:8] if e.after_sha else None,
+            "commit_count": e.commit_count,
+            "commit_message": commit_message,
+            "pusher": e.pusher_username,
+            "pushed_at": str(e.pushed_at) if e.pushed_at else None,
+        })
+
     return {
         "success": True,
         "repo": repo_id,
         "count": len(push_events),
-        "activity": [
-            {
-                "id": e.id,
-                "ref": e.ref,
-                "before_sha": e.before_sha[:8] if e.before_sha else None,
-                "after_sha": e.after_sha[:8] if e.after_sha else None,
-                "commit_count": e.commit_count,
-                "pusher": e.pusher_username,
-                "pushed_at": str(e.pushed_at) if e.pushed_at else None,
-            }
-            for e in push_events
-        ],
+        "activity": activity_items,
     }
 
 
@@ -162,13 +178,15 @@ async def get_repo_events(
     db: Session = Depends(get_db),
 ):
     """
-    Get repository lifecycle events – branch creates/deletes, tags, etc. (public).
+    Get repository lifecycle events – branch creates/deletes, tags,
+    collaborator invitations, and snippet updates (public).
 
     DESKTOP TEAM: Use alongside /activity for a complete repo timeline.
     """
     repo_id = f"{owner}/{repo}"
 
-    events = (
+    # Core repository events (branch/tag/repo lifecycle)
+    repo_events = (
         db.query(RepositoryEvent)
         .filter(RepositoryEvent.repo_id == repo_id)
         .order_by(RepositoryEvent.occurred_at.desc())
@@ -176,17 +194,71 @@ async def get_repo_events(
         .all()
     )
 
+    all_events = [
+        {
+            "id": e.id,
+            "event_type": e.event_type,
+            "actor": e.actor_username,
+            "detail": None,
+            "occurred_at": str(e.occurred_at) if e.occurred_at else None,
+        }
+        for e in repo_events
+    ]
+
+    # Collaborator invitation events
+    invitations = (
+        db.query(CollaboratorInvitation)
+        .filter(
+            CollaboratorInvitation.owner_username == owner,
+            CollaboratorInvitation.repo_name == repo,
+            CollaboratorInvitation.status.in_(["accepted", "pending"]),
+        )
+        .order_by(CollaboratorInvitation.created_at.desc())
+        .limit(min(limit, 30))
+        .all()
+    )
+    for inv in invitations:
+        if inv.status == "accepted":
+            all_events.append({
+                "id": f"collab-{inv.id}",
+                "event_type": "collaborator_joined",
+                "actor": inv.invitee_email.split("@")[0],
+                "detail": f"Invited by {inv.owner_username} ({inv.permission})",
+                "occurred_at": str(inv.responded_at or inv.created_at),
+            })
+        elif inv.status == "pending":
+            all_events.append({
+                "id": f"collab-{inv.id}",
+                "event_type": "collaborator_invited",
+                "actor": inv.owner_username,
+                "detail": f"Invited {inv.invitee_email.split('@')[0]} ({inv.permission})",
+                "occurred_at": str(inv.created_at),
+            })
+
+    # Snippet update events
+    snippet_events = (
+        db.query(SnippetHistory)
+        .filter(SnippetHistory.repo_id == repo_id)
+        .order_by(SnippetHistory.replaced_at.desc())
+        .limit(min(limit, 20))
+        .all()
+    )
+    for s in snippet_events:
+        all_events.append({
+            "id": f"snippet-{s.id}",
+            "event_type": "snippet_updated",
+            "actor": s.replaced_by_user_id or "unknown",
+            "detail": f"v{s.version_number}" + (f" ({s.format})" if s.format else ""),
+            "occurred_at": str(s.replaced_at) if s.replaced_at else None,
+        })
+
+    # Sort all events by occurred_at descending, then limit
+    all_events.sort(key=lambda x: x["occurred_at"] or "", reverse=True)
+    all_events = all_events[:min(limit, 50)]
+
     return {
         "success": True,
         "repo": repo_id,
-        "count": len(events),
-        "events": [
-            {
-                "id": e.id,
-                "event_type": e.event_type,
-                "actor": e.actor_username,
-                "occurred_at": str(e.occurred_at) if e.occurred_at else None,
-            }
-            for e in events
-        ],
+        "count": len(all_events),
+        "events": all_events,
     }

@@ -95,7 +95,10 @@ export async function getDashboardData(): Promise<{
             ? (invitationsResult.data ?? []).length
             : 0;
 
-        // Fetch commit counts for the 5 most recently updated repos (in parallel)
+        // Use total_commits from enriched repo data (maintained by webhook on each push)
+        const totalCommits = repos.reduce((sum, r) => sum + (r.total_commits ?? 0), 0);
+
+        // Fetch commits for the 5 most recently updated repos (for activity feed only)
         const recentRepos = [...repos]
             .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
             .slice(0, 5);
@@ -110,14 +113,12 @@ export async function getDashboardData(): Promise<{
             })
         );
 
-        // Sum up total commits across recent repos and collect real push events
-        let totalCommits = 0;
+        // Collect real push events for activity feed
         const commitActivities: DashboardActivity[] = [];
         for (let i = 0; i < commitResults.length; i++) {
             const result = commitResults[i];
             if (result && result.success && result.data) {
                 const resp = result.data as CommitListResponse;
-                totalCommits += resp.total ?? 0;
                 const repo = recentRepos[i];
                 if (!repo) continue;
                 for (const commit of (resp.commits ?? [])) {
