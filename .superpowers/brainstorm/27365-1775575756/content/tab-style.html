@@ -1,0 +1,114 @@
+<h2>Project Tabs — Tab Style</h2>
+<p class="subtitle">How should the project tabs look and behave in the navbar?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Browser-style tabs</h3>
+      <p>Tabs sit in the navbar row with an X close button on each tab. The active tab is highlighted. Similar to VS Code or Chrome tabs.</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-body" style="background: #1C1A1A; padding: 0; border-radius: 8px; overflow: hidden;">
+          <!-- Navbar -->
+          <div style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,0.1); gap: 4px;">
+            <!-- Home button -->
+            <div style="display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; color: #A0A0A0; font-size: 13px;">
+              <span style="font-size: 14px;">⌂</span> Home
+            </div>
+            <!-- Divider -->
+            <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.08); margin: 0 4px;"></div>
+            <!-- Active tab -->
+            <div style="display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; background: rgba(255,255,255,0.08); color: #A7C7E7; font-size: 13px;">
+              <span style="font-size: 12px;">📁</span> My Beat
+              <span style="color: #6E6E6E; font-size: 11px; margin-left: 4px; cursor: pointer;">✕</span>
+            </div>
+            <!-- Inactive tab -->
+            <div style="display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; color: #A0A0A0; font-size: 13px;">
+              <span style="font-size: 12px;">📁</span> Collab Track
+              <span style="color: #6E6E6E; font-size: 11px; margin-left: 4px; cursor: pointer;">✕</span>
+            </div>
+            <!-- Search right-aligned -->
+            <div style="margin-left: auto; color: #6E6E6E; font-size: 14px;">🔍</div>
+          </div>
+          <!-- Content placeholder -->
+          <div style="padding: 40px; text-align: center; color: #6E6E6E; font-size: 13px;">
+            Project content area
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Pill tabs below navbar</h3>
+      <p>Home stays in the main navbar. Project tabs live in a second thin row below as rounded pills. Clean separation between navigation and project switching.</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-body" style="background: #1C1A1A; padding: 0; border-radius: 8px; overflow: hidden;">
+          <!-- Navbar -->
+          <div style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,0.06); gap: 4px;">
+            <div style="display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; color: #A7C7E7; font-size: 13px;">
+              <span style="font-size: 14px;">⌂</span> Home
+            </div>
+            <div style="margin-left: auto; color: #6E6E6E; font-size: 14px;">🔍</div>
+          </div>
+          <!-- Tab bar -->
+          <div style="display: flex; align-items: center; height: 32px; padding: 0 16px; gap: 6px; border-bottom: 1px solid rgba(255,255,255,0.1); background: #181616;">
+            <!-- Active pill -->
+            <div style="display: flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 12px; background: rgba(167,199,231,0.12); color: #A7C7E7; font-size: 12px;">
+              📁 My Beat
+              <span style="color: #6E6E6E; font-size: 10px; cursor: pointer;">✕</span>
+            </div>
+            <!-- Inactive pill -->
+            <div style="display: flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 12px; color: #A0A0A0; font-size: 12px;">
+              📁 Collab Track
+              <span style="color: #6E6E6E; font-size: 10px; cursor: pointer;">✕</span>
+            </div>
+          </div>
+          <!-- Content placeholder -->
+          <div style="padding: 40px; text-align: center; color: #6E6E6E; font-size: 13px;">
+            Project content area
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Integrated single row</h3>
+      <p>Everything in one row — Home on the left, project tabs in the middle, search on the right. Most compact, no extra vertical space used. The current navbar just gains closable tabs.</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-body" style="background: #1C1A1A; padding: 0; border-radius: 8px; overflow: hidden;">
+          <!-- Single navbar row -->
+          <div style="display: flex; align-items: center; height: 40px; padding: 0 16px; border-bottom: 1px solid rgba(255,255,255,0.1); gap: 4px;">
+            <!-- Home -->
+            <div style="display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 6px; color: #A0A0A0; font-size: 13px;">
+              <span style="font-size: 14px;">⌂</span> Home
+            </div>
+            <!-- Separator -->
+            <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.08); margin: 0 6px;"></div>
+            <!-- Active tab with bottom accent -->
+            <div style="display: flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 13px; color: #A7C7E7; border-bottom: 2px solid #A7C7E7; margin-bottom: -1px;">
+              <span style="font-size: 12px;">📁</span> My Beat
+              <span style="color: #6E6E6E; font-size: 11px; margin-left: 4px; cursor: pointer;">✕</span>
+            </div>
+            <!-- Inactive tab -->
+            <div style="display: flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 13px; color: #A0A0A0;">
+              <span style="font-size: 12px;">📁</span> Collab Track
+              <span style="color: #6E6E6E; font-size: 11px; margin-left: 4px; cursor: pointer;">✕</span>
+            </div>
+            <!-- Search -->
+            <div style="margin-left: auto; color: #6E6E6E; font-size: 14px;">🔍</div>
+          </div>
+          <!-- Content -->
+          <div style="padding: 40px; text-align: center; color: #6E6E6E; font-size: 13px;">
+            Project content area
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
