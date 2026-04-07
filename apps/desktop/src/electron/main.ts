@@ -412,6 +412,36 @@ async function diffSnapshotsFromAlsBlobs(
   return await parseXmlFromBuffer(newBuf, oldBuf);
 }
 
+/**
+ * After a successful pull (fetch + rebase), restore the committed snapshot.json
+ * so the working tree stays clean.  Without this, refreshSnapshot would re-parse
+ * the (possibly dirty) ALS and leave an uncommitted snapshot.json that causes
+ * autostash conflicts on the next pull.
+ */
+async function restoreSnapshotFromHead(repoPath: string): Promise<void> {
+  try {
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    if (!alsFile) return;
+
+    const sessionName = path.basename(alsFile.name, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    const checkoutResult = await gitExec(['checkout', 'HEAD', '--', snapshotRelPath], repoPath);
+    if (checkoutResult.exitCode !== 0) {
+      throw new Error(checkoutResult.stderr || checkoutResult.stdout || 'git checkout failed');
+    }
+    console.log('[restoreSnapshotFromHead] Restored', snapshotRelPath, 'from HEAD');
+  } catch {
+    // No HEAD or snapshot not tracked yet (first clone / legacy repo) — fall back
+    // to generating one from the current ALS so downstream code has a baseline.
+    const snap = await refreshSnapshot(repoPath);
+    if (snap.error) {
+      console.warn('[restoreSnapshotFromHead] Fallback refreshSnapshot also failed:', snap.error);
+    }
+  }
+}
+
 function createWindow() {
     const display = screen.getPrimaryDisplay();
     const { width: waW, height: waH } = display.workAreaSize;
@@ -555,17 +585,14 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
 });
 
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  const pullResult = await pull(repoPath);
-
-  // Regenerate snapshot so changelog baseline matches the newly pulled ALS.
-  const snap = await refreshSnapshot(repoPath);
-  if (snap.error) {
-    console.warn('[pull-repo] Post-pull snapshot refresh failed (non-fatal):', snap.error);
-  } else if (snap.alsPath) {
-    console.log('[pull-repo] Snapshot refreshed for', path.basename(snap.alsPath, '.als'));
+  try {
+    return await pull(repoPath);
+  } finally {
+    // Restore the committed snapshot so the working tree stays clean.
+    // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
+    // uncommitted snapshot.json that causes pull/rebase churn on the next pull.
+    await restoreSnapshotFromHead(repoPath);
   }
-
-  return pullResult;
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
