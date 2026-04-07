@@ -200,7 +200,7 @@ export default async function PublicProfilePage({
               >
                 <div className="min-w-0 flex-1">
                   <Link
-                    href={`/explore/${repo.owner}/${repo.repo_name}`}
+                    href={`/explore/${repo.owner_username ?? repo.owner}/${repo.repo_name}`}
                     className="text-sm font-medium text-zinc-200 hover:text-[#A7C7E7] transition-colors"
                   >
                     {repo.repo_name}
@@ -241,7 +241,7 @@ export default async function PublicProfilePage({
               return (
                 <Link
                   key={repo.gitea_id}
-                  href={`/explore/${repo.owner}/${repo.repo_name}`}
+                  href={`/explore/${repo.owner_username ?? repo.owner}/${repo.repo_name}`}
                   className="group block rounded-xl border border-white/[0.06] bg-white/[0.03] p-5 transition-all duration-200 hover:border-[#A7C7E7]/30 hover:shadow-[0_0_16px_rgba(167,199,231,0.1)] no-underline"
                 >
                   {/* Thumbnail */}

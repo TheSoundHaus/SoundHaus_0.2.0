@@ -79,6 +79,24 @@ def get_auth() -> SupabaseAuthService:
     return get_auth_service()
 
 
+# ── Repo Owner Resolution ────────────────────────────────────────────────────
+
+def resolve_owner_id(owner: str, db: Session) -> str:
+    """Resolve a SoundHaus username OR Supabase UUID to the owner UUID stored in RepoData.gitea_id.
+
+    In SoundHaus, Gitea user logins are Supabase UUIDs.  Web-facing URLs use
+    the human-readable username (e.g. 'nathanhall') but the DB stores repos as
+    'uuid/repo-name'.  This helper accepts either form and always returns the
+    UUID so callers can safely build 'repo_id = f"{resolve_owner_id(owner, db)}/{repo}"'.
+    """
+    from models.profile_models import Profile
+    profile = db.query(Profile).filter(Profile.username == owner).first()
+    if profile:
+        return str(profile.id)
+    # Assume it is already a UUID (legacy or desktop-originated request)
+    return owner
+
+
 async def verify_token(
     authorization: Optional[str] = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),

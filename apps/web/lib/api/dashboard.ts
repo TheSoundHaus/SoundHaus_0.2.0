@@ -49,7 +49,7 @@ function buildActivity(repos: EnrichedRepo[]): DashboardActivity[] {
                 type: "create",
                 description: `Created project`,
                 repoName: repo.name,
-                repoOwner: repo.owner_id,
+                repoOwner: repo.owner_username,
                 time: repo.created_at,
             });
         }
@@ -105,9 +105,8 @@ export async function getDashboardData(): Promise<{
 
         const commitResults = await Promise.all(
             recentRepos.map((repo) => {
-                const parts = repo.full_name.split("/");
-                const owner = parts[0] ?? "";
-                const repoName = parts[1] ?? "";
+                const owner = repo.owner_username;
+                const repoName = repo.name;
                 if (!owner || !repoName) return null;
                 return getCommits(owner, repoName, 1, 5).catch(() => null);
             })
@@ -127,7 +126,7 @@ export async function getDashboardData(): Promise<{
                             type: "push",
                             description: commit.message || "Pushed changes to",
                             repoName: repo.name,
-                            repoOwner: repo.owner_id,
+                            repoOwner: repo.owner_username,
                             time: commit.timestamp,
                         });
                     }

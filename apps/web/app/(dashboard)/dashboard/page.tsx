@@ -278,7 +278,7 @@ export default function DashboardPage() {
                                 recentRepos.slice(0, 5).map((repo) => (
                                     <Link
                                         key={repo.full_name}
-                                        href={`/repository/${repo.full_name}`}
+                                        href={`/repository/${repo.owner_username}/${repo.name}`}
                                         className="block group rounded-lg px-3 py-2.5 transition-colors hover:bg-zinc-800/40"
                                     >
                                         <div className="flex items-center justify-between">

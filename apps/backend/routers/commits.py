@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from database import get_db
-from dependencies import limiter, verify_token, verify_token_or_pat
+from dependencies import limiter, verify_token, verify_token_or_pat, resolve_owner_id
 from logging_config import get_logger
 from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
@@ -31,6 +31,7 @@ async def get_commit_list(
     db: Session = Depends(get_db),
 ):
     """Returns paginated commit history for a repository."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Verify the repo exists
@@ -128,6 +129,7 @@ async def get_commit_detail(
     db: Session = Depends(get_db),
 ):
     """Returns full metadata for a single commit by SHA (full or short)."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Support both full and short SHAs; reject on ambiguity
@@ -210,6 +212,7 @@ async def post_als_diff(
     if "tracks" not in diff_data:
         raise HTTPException(status_code=400, detail="diff_data must contain a 'tracks' key")
 
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Verify repo exists — auto-create the row if it's missing (the push already
@@ -312,6 +315,7 @@ async def get_commit_diff(
     db: Session = Depends(get_db),
 ):
     """Returns ALS diff data for a specific commit SHA."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Support both full and short SHAs
@@ -361,6 +365,7 @@ async def get_diff_status(
     Used by the web UI to check if pending diffs have arrived without refetching
     the full commit list.
     """
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
     sha_list = [s.strip() for s in shas.split(",") if s.strip()]
 

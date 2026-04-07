@@ -11,7 +11,7 @@ from typing import Optional
 
 from database import get_db
 from config import settings
-from dependencies import limiter, user_limiter, verify_token, verify_token_or_pat, get_auth
+from dependencies import limiter, user_limiter, verify_token, verify_token_or_pat, get_auth, resolve_owner_id
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
@@ -38,15 +38,11 @@ router = APIRouter(tags=["repos"])
 
 
 def _resolve_gitea_username(user_id: str, db: Session) -> str:
-    """Map Supabase UUID → Gitea login.
+    """Return the Gitea login for a Supabase UUID.
 
-    New-style users have a human-readable Profile.username that matches the
-    Gitea account created at signup.  Legacy users have username=None and
-    their Gitea login IS the UUID itself.
+    In SoundHaus, Gitea user logins ARE the Supabase UUID strings.
+    This function exists so call-sites remain readable.
     """
-    profile = db.query(Profile).filter(Profile.id == user_id).first()
-    if profile and profile.username:
-        return profile.username
     return user_id
 
 
@@ -61,11 +57,11 @@ def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[
 def _verify_owner(user_id: str, url_owner: str, db: Session) -> None:
     """Raise 403 if the authenticated user does not own the resource.
 
-    Resolves the Supabase UUID to the Gitea username first, so both
-    legacy (UUID-based) and new-style (human username) owners work.
+    url_owner can be a Supabase UUID or a SoundHaus username; we resolve
+    it to the canonical UUID before comparing.
     """
-    gitea_username = _resolve_gitea_username(user_id, db)
-    if gitea_username != url_owner and str(user_id) != str(url_owner):
+    owner_id = resolve_owner_id(url_owner, db)
+    if str(user_id) != str(owner_id):
         raise HTTPException(status_code=403, detail="Not authorized")
 
 
@@ -287,18 +283,19 @@ async def patch_repo_settings(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    _verify_owner(user_id, owner, db)
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
 
     svc = RepoService()
-    res = svc.update_repo_settings(owner, repo, settings)
+    res = svc.update_repo_settings(owner_id, repo, settings)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to update repo settings"))
 
     # If the repo was renamed, sync the gitea_id in RepoData
     new_name = settings.get("name")
     if new_name and new_name != repo:
-        old_id = f"{owner}/{repo}"
-        new_id = f"{owner}/{new_name}"
+        old_id = f"{owner_id}/{repo}"
+        new_id = f"{owner_id}/{new_name}"
         repo_data = db.query(RepoData).filter(RepoData.gitea_id == old_id).first()
         if repo_data:
             repo_data.gitea_id = new_id
@@ -325,7 +322,8 @@ async def record_clone_event(
         raise HTTPException(status_code=401, detail="Must be logged in to clone")
 
     user_id = user_res["user"]["id"]
-    repo_id = f"{owner}/{repo}"
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
 
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
@@ -565,7 +563,8 @@ async def get_repo_stats(
     db: Session = Depends(get_db),
 ):
     """Get detailed stats for a specific repo."""
-    repo_id = f"{owner}/{repo}"
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
 
     if not repo_data:
@@ -584,7 +583,7 @@ async def get_repo_stats(
     description = ""
     is_private = True
     try:
-        gitea_info = svc.get_repo(owner, repo)
+        gitea_info = svc.get_repo(owner_id, repo)
         if gitea_info.get("success"):
             repo_obj = gitea_info.get("repo", {})
             description = repo_obj.get("description", "")
@@ -593,8 +592,8 @@ async def get_repo_stats(
         pass  # Non-critical: description/privacy are cosmetic
 
     # Resolve owner UUID → username + display name
-    owner_profile = db.query(Profile).filter(Profile.id == owner).first()
-    olab = _owner_profile_fields(owner_profile, owner)
+    owner_profile = db.query(Profile).filter(Profile.id == owner_id).first()
+    olab = _owner_profile_fields(owner_profile, owner_id)
 
     return {
         "success": True,
@@ -602,7 +601,7 @@ async def get_repo_stats(
         "owner_username": olab["owner_username"],
         "description": description,
         "private": is_private,
-        "clone_url": f"{settings.gitea_public_url}/{owner}/{repo}.git",
+        "clone_url": f"{settings.gitea_public_url}/{owner_id}/{repo}.git",
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "thumbnail_url": repo_data.thumbnail_url,
@@ -631,8 +630,9 @@ async def star_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
     gitea = GiteaAdminService()
-    result = gitea.star_repo(user_id, owner, repo)
+    result = gitea.star_repo(user_id, owner_id, repo)
 
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Failed to star repo"))
@@ -653,8 +653,9 @@ async def unstar_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
     gitea = GiteaAdminService()
-    result = gitea.unstar_repo(user_id, owner, repo)
+    result = gitea.unstar_repo(user_id, owner_id, repo)
 
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Failed to unstar repo"))
@@ -698,13 +699,14 @@ async def delete_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    _verify_owner(user_id, owner, db)
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
 
     # Delete from Gitea
     svc = RepoService()
-    result = svc.delete_repo(owner, repo)
+    result = svc.delete_repo(owner_id, repo)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Failed to delete repo from Gitea"))
 
@@ -835,7 +837,8 @@ async def get_readme(
     db: Session = Depends(get_db),
 ):
     """Get the markdown README content for a repository."""
-    repo_id = f"{owner}/{repo}"
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
@@ -861,7 +864,8 @@ async def update_readme(
         raise HTTPException(status_code=401, detail="Invalid token")
     user_id = user_res["user"]["id"]
 
-    repo_id = f"{owner}/{repo}"
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
@@ -919,9 +923,10 @@ async def update_thumbnail(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    _verify_owner(user_id, owner, db)
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
@@ -981,9 +986,10 @@ async def upload_thumbnail_image(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    _verify_owner(user_id, owner, db)
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
@@ -1050,9 +1056,10 @@ async def delete_thumbnail(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    _verify_owner(user_id, owner, db)
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")

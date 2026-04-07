@@ -369,7 +369,7 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                     return (
                     <RepositoryCard
                         key={repo.id}
-                        id={repo.full_name}
+                        id={`${repo.owner_username}/${repo.name}`}
                         title={repo.name}
                         author={
                           repo.owner_username ||

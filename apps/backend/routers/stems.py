@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
-from dependencies import limiter, verify_token, get_auth
+from dependencies import limiter, verify_token, get_auth, resolve_owner_id
 from logging_config import get_logger
 from models.repo_models import RepoData
 from models.stem_models import SnippetVersion, StemJobStatus
@@ -27,7 +27,8 @@ router = APIRouter(tags=["stems"])
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _get_repo(db: Session, owner: str, repo: str) -> RepoData:
-    """Fetch a RepoData row or raise 404."""
+    """Fetch a RepoData row or raise 404. owner may be a UUID or username."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
@@ -43,9 +44,10 @@ async def _get_user_id(token: str) -> str:
     return user_res["user"]["id"]
 
 
-def _require_owner(user_id: str, owner: str):
+def _require_owner(user_id: str, owner: str, db: Session):
     """Ensure the authenticated user matches the repo owner."""
-    if str(user_id) != str(owner):
+    owner_id = resolve_owner_id(owner, db)
+    if str(user_id) != str(owner_id):
         raise HTTPException(status_code=403, detail="Not your repo")
 
 
@@ -70,7 +72,7 @@ async def create_stem_job(
     from services.demucs_service import DemucsService
 
     user_id = await _get_user_id(token)
-    _require_owner(user_id, owner)
+    _require_owner(user_id, owner, db)
 
     repo_data = _get_repo(db, owner, repo)
 
@@ -197,7 +199,7 @@ async def confirm_stem_job(
     Un-confirms any previously confirmed version.
     """
     user_id = await _get_user_id(token)
-    _require_owner(user_id, owner)
+    _require_owner(user_id, owner, db)
 
     repo_data = _get_repo(db, owner, repo)
 
@@ -231,7 +233,7 @@ async def get_stems_history(
 ):
     """Get all stem versions for a repo (owner only)."""
     user_id = await _get_user_id(token)
-    _require_owner(user_id, owner)
+    _require_owner(user_id, owner, db)
 
     repo_data = _get_repo(db, owner, repo)
 

@@ -9,7 +9,7 @@ import json as _json
 from starlette.requests import ClientDisconnect
 
 from database import get_db
-from dependencies import limiter, verify_token
+from dependencies import limiter, verify_token, resolve_owner_id
 from logging_config import get_logger
 from services.webhook_service import webhook_service
 from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent
@@ -125,6 +125,7 @@ async def get_repo_activity(
     DESKTOP TEAM: Primary endpoint for showing repo activity.
     Poll every 30 seconds while viewing a repo page.
     """
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     push_events = (
@@ -198,6 +199,7 @@ async def get_repo_events(
 
     DESKTOP TEAM: Use alongside /activity for a complete repo timeline.
     """
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     # Core repository events (branch/tag/repo lifecycle)

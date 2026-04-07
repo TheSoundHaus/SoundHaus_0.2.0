@@ -1,133 +1,108 @@
-# SoundHaus — Claude / Copilot Context File
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-SoundHaus is a collaborative music production platform enabling asynchronous file sharing for Ableton projects. Monorepo with three components:
-- **Desktop** (`/apps/desktop/`) — Electron + React + Vite + TypeScript
-- **Web** (`/apps/web/`) — React + Next.js 16 + Tailwind v4
-- **Backend** (`/apps/backend/`) — FastAPI (Uvicorn), Supabase (auth/db), Gitea (git), Docker
 
-## UI/UX Pro Max Skill (Installed)
-The [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) v2.x skill is installed at `.github/prompts/ui-ux-pro-max/`. It provides 67 UI styles, 161 color palettes, 57 font pairings, 99 UX guidelines, and a design-system reasoning engine.
+SoundHaus is a monorepo for a collaborative music production platform built around git-ified Ableton projects. Three apps live under `apps/`:
 
-### How to Invoke (GitHub Copilot — Workflow Mode)
-```
-/ui-ux-pro-max <your request>
-```
+- **`apps/desktop/`** — Electron + React app; the day-to-day user tool. Bundles its own git binaries. All git operations (clone/push/pull) bypass FastAPI entirely — git acts as the proxy directly to Gitea.
+- **`apps/web/`** — Next.js (App Router) frontend for social discovery and repo management. Read-only access to repos; all writes happen via the desktop app.
+- **`apps/backend/`** — FastAPI service (Uvicorn) that mediates between Supabase (auth + user data) and Gitea (git server on Digital Ocean). Also handles large audio file storage via Digital Ocean.
 
-### Generating a Design System
+## Running the Stack
+
+Start/stop via compose scripts at the repo root:
+
 ```bash
-python3 .github/prompts/ui-ux-pro-max/scripts/search.py "<keywords>" --design-system -p "SoundHaus"
+# Linux/Mac
+./compose.sh local up -d
+./compose.sh remote up -d
+
+# Windows PowerShell
+./compose.ps1 local up -d
+./compose.ps1 remote up -d
 ```
 
-### Domain-Specific Searches
+The profile (`local` or `remote`) is written to `.soundhaus-compose-profile` and controls which env file the test runner loads.
+
+## Backend
+
+### Running
+
 ```bash
-# Style details
-python3 .github/prompts/ui-ux-pro-max/scripts/search.py "<keywords>" --domain style
-
-# UX guidelines
-python3 .github/prompts/ui-ux-pro-max/scripts/search.py "<keywords>" --domain ux
-
-# Typography
-python3 .github/prompts/ui-ux-pro-max/scripts/search.py "<keywords>" --domain typography
-
-# Stack-specific (react, nextjs, html-tailwind, etc.)
-python3 .github/prompts/ui-ux-pro-max/scripts/search.py "<keywords>" --stack react
+cd apps/backend
+uvicorn main:app --reload
 ```
 
-### Persist Design System (optional)
+### Tests
+
+Tests are **integration tests**, not pytest unit tests. They implement `main()` HTTP flows and are run via a custom runner:
+
 ```bash
-python3 .github/prompts/ui-ux-pro-max/scripts/search.py "<query>" --design-system --persist -p "SoundHaus"
+cd apps/backend
+pip install -r tests/requirements.txt
+
+python tests/run_all.py              # full suite
+python tests/run_all.py --auth       # auth tests only
+python tests/run_all.py --gitea      # gitea/repo tests only
+python tests/run_all.py --supabase   # supabase tests only
+python tests/run_all.py --feature supabase/webhook_deliveries  # single feature
+python tests/run_all.py --base-url http://localhost:8000        # override base URL
+python tests/run_all.py --log-failures  # print logs for failed tests only
+python tests/run_all.py --dry-run       # list discovered tests without running
 ```
 
-## SoundHaus Design System (Active)
+Test credentials go in `apps/backend/.env.local` or `.env.remote` — set `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, and/or `TEST_PAT`. If running the full suite locally, set `RATE_LIMIT_ENABLED=false` in the backend env and restart the container to avoid hitting the 10 login/min rate limit.
 
-### Web (Next.js + Tailwind v4)
-- **Background**: `bg-[#111318]` (medium-dark, NOT pure black)
-- **Body gradient**: `#0f1318 → #111827 → #0f1520` (softened from original navy)
-- **Glass cards**: `backdrop-blur-2xl bg-white/[0.03] border border-white/[0.06]` (`.glass-card` class)
-- **Brand accent**: `#A7C7E7` (icy blue)
-- **Text**: `#F0F4F8` primary, `#6F8FAF` muted
-- **Ambient**: `<AmbientWaveform />` canvas in dashboard layout (wave opacities 0.07/0.055/0.045)
+### Test structure
 
-### Desktop (Electron + React)
-- **Background**: `--color-bg-primary: #141414`
-- **Glass panels**: `.glass-panel` / `.glass-panel-heavy` (defined in `index.css`)
-- **Brand accent**: `--color-accent: #A7C7E7`
-- **All inline styles MUST use dark colors** — no `#fff`, `#fafafa`, `#e6e6e6` in TSX
-- **Dark glass inline style pattern**:
-  ```ts
-  background: 'rgba(20,20,20,0.55)',
-  border: '1px solid rgba(255,255,255,0.08)',
-  backdropFilter: 'blur(16px)',
-  borderRadius: 8
-  ```
+Tests are organized under `tests/auth/`, `tests/gitea/`, and `tests/supabase/`. Each feature gets its own subfolder with `test_<name>.py`, `results/`, and `logs/`.
 
-### Note Diff Colors (PianoRollCanvas)
-- Added notes: `#22c55e` (green-500)
-- Removed notes: `#ef4444` (red-500)
-- Adjusted-from (outline): `#f59e0b` (amber-500)
-- Adjusted-to (solid): `#A7C7E7` (brand accent)
-- SVG background: `#111`
-- Grid lines: `rgba(255,255,255,0.04)`
-- Extension indicator: `#60a5fa` (blue-400)
-- Shortening indicator: `#f59e0b` at 0.45 opacity
+**Routers with no test coverage yet:** `audio`, `comments`, `health`, `stems`
+**Routers with partial coverage:** `collaborators`, `repos`, `snippets`
 
-## Pre-Delivery Checklist (from ui-ux-pro-max)
-- [ ] No emojis as icons (use SVG: Heroicons/Lucide)
-- [ ] `cursor-pointer` on all clickable/hoverable elements
-- [ ] Hover states with smooth transitions (150–300ms)
-- [ ] Text contrast ≥ 4.5:1
-- [ ] Focus states visible for keyboard nav
-- [ ] `prefers-reduced-motion` respected
-- [ ] Responsive: 375px, 768px, 1024px, 1440px
+### Architecture
 
-## Common Mistakes & Lessons Learned
+- `main.py` — app assembly, middleware, router registration
+- `routers/` — thin route handlers; all business logic lives in `services/`
+- `services/` — `auth_service`, `gitea_service`, `repo_service`, `snippet_service`, `demucs_service`, `webhook_service`, `pat_service`, `profile_service`, `redis_service`
+- `models/` — Pydantic request/response models (separate models per concern)
+- `dependencies.py` — shared `Depends()` factories (auth, DB, rate limiter)
+- `database.py` — Supabase PostgreSQL connection and init
+- `config.py` — settings loaded from `.env`
 
-### 1. File Objects can't cross Server Action boundaries
-Next.js Server Actions serialize inputs — `File` objects are lost. Use API routes (`/api/...`) for file uploads instead.
+Every non-public route requires auth via `Depends()`. Route handlers must be `async def` with explicit `response_model=` and `status_code=`.
 
-### 2. Supabase UUID ≠ Gitea username
-When verifying repo ownership, resolve the Supabase user UUID → Gitea username before comparing with URL params.
+## Web App (`apps/web/`)
 
-### 3. Desktop git credential persistence
-`setGiteaCredentials()` must clear old credential entries before writing new ones, otherwise stale tokens break pushes.
+Next.js App Router. Pages under `app/`. See `apps/web/CLAUDE.md` for web-specific rules — UI work requires the `frontend-design` skill.
 
-### 4. Inline styles override CSS modules
-SCRUM-37 branch introduced inline `style={{}}` with light colors (`#fff`, `#fafafa`) that override the dark CSS module classes. Always check inline styles when merging.
+Key constraints:
+- FastAPI URL is server-only — never prefix with `NEXT_PUBLIC_`
+- Never call FastAPI from client components — use Server Components or Server Actions
+- Auth protection enforced in `middleware.ts`
 
-### 5. Desktop blank screen != React crash
-If `<ErrorBoundary>` doesn't trigger, the blank screen is likely an unhandled promise rejection or silent hook failure, not a render error. Check DevTools console.
+## Desktop App (`apps/desktop/`)
 
-### 6. Glassmorphism opacity for dark mode
-- `bg-white/[0.03]` for cards (very subtle)
-- `bg-white/[0.025]` for headers
-- `border-white/[0.06-0.08]` for borders
-- Glass is transparent — needs a vibrant background behind it to work
+Electron main process at `src/electron/main.ts`. React renderer pages under `src/pages/`. Electron IPC handlers in `src/electron/` (`home.ts`, `login.ts`, `project.ts`, etc.).
 
-### 7. AmbientWaveform visibility
-Opacities below 0.04 are effectively invisible. Use 0.07/0.055/0.045 for wave strokes and 0.06/0.03 for orb glow stops.
+Git operations are executed via the bundled git binary — no FastAPI involvement for clone/push/pull.
 
-### 8. Tailwind v4 color syntax
-Use `bg-white/[0.03]` not `bg-white/3` — the bracket syntax is required for arbitrary opacity values in v4.
+## Code Style
 
-## Key Files
-| File | Purpose |
-|------|---------|
-| `SOUNDHAUS.md` | Complete design & API documentation (DO NOT EDIT) |
-| `structure.txt` | File structure diagram |
-| `apps/web/app/globals.css` | CSS tokens, glass utilities, body gradient |
-| `apps/web/app/(dashboard)/layout.tsx` | Dashboard wrapper with AmbientWaveform |
-| `apps/web/components/AmbientWaveform.tsx` | Ambient canvas background |
-| `apps/desktop/src/index.css` | Desktop dark design system tokens |
-| `apps/desktop/src/pages/ProjectPage.tsx` | Main project page (commit history, MIDI diff) |
-| `apps/desktop/src/components/diff/PianoRollCanvas.tsx` | MIDI note diff visualization |
-| `apps/backend/main.py` | FastAPI entry point |
-| `docker-compose.yml` | Full stack Docker orchestration |
+- **Python**: 4-space indent, `snake_case` variables/functions, `PascalCase` classes. All route functions `async def`. Pydantic v2.
+- **JS/TS**: 2-space indent, `camelCase` variables/functions, `PascalCase` components/types. `strict: true`. No `any`. `const` by default.
+- **Imports**: stdlib → external → internal → local, separated by blank lines. Use `@/` alias for Next.js internal imports.
+- Max line length: 100 characters.
 
-## Development Rules
-- **DO NOT** create new API endpoints unless explicitly instructed
-- **DO NOT** edit `SOUNDHAUS.md`
-- Check `structure.txt` before creating new files
-- Maximum 2 files edited per task unless instructed otherwise
-- Use `.env` for credentials — never hardcode
-- Graceful error handling: try/except, HTTPException
+## Key Constraints
+
+- **Do not create new API endpoints** unless explicitly instructed. Always read the full router file before making API decisions.
+- **Do not edit more than 2 files at a time** unless the user specifies which files.
+- **Do not refactor entire features.** Scope changes to exactly what was asked.
+- **Always check `structure.txt`** for the current file tree. If it's out of sync with reality, alert the user to rerun the ai-prep script.
+- **Do not edit `SOUNDHAUS.md`.**
+- Route handlers are thin — business logic belongs in `services/`, not in `routers/`.
+- Never expose stack traces in API responses. Never log PII or tokens.
+- Supabase service role key: FastAPI only. Anon key: Next.js client only.
