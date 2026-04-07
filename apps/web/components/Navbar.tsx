@@ -133,6 +133,83 @@ const Navbar = () => {
                             </Link>
                         );
                     })}
+
+                    {/* Notification Bell */}
+                    <div className="relative ml-2" ref={dropdownRef}>
+                        <button
+                            onClick={toggleDropdown}
+                            className="relative rounded-md p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-all duration-200 cursor-pointer"
+                            aria-label="Notifications"
+                        >
+                            <Bell className="w-5 h-5" />
+                            {unreadCount > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold min-w-[16px] h-4 rounded-full flex items-center justify-center px-1">
+                                    {unreadCount}
+                                </span>
+                            )}
+                        </button>
+
+                        {isOpen && (
+                            <div className="absolute right-0 top-full mt-2 w-80 z-50 glass-card rounded-xl bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 shadow-2xl shadow-black/40 overflow-hidden">
+                                <div className="px-4 py-3 border-b border-zinc-700/50 flex items-center justify-between">
+                                    <h3 className="text-sm font-semibold text-zinc-100">Notifications</h3>
+                                    <span className="text-xs text-zinc-500">{invitations.length} total</span>
+                                </div>
+
+                                <div className="max-h-96 overflow-y-auto">
+                                    {invitations.length > 0 && (
+                                        <div className="px-4 pt-3 pb-1">
+                                            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Invitations</p>
+                                            <div className="space-y-2">
+                                                {invitations.map((inv) => (
+                                                    <div
+                                                        key={inv.id}
+                                                        className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3 transition-all duration-200 hover:bg-white/[0.05]"
+                                                    >
+                                                        <p className="text-sm text-zinc-200 leading-snug">
+                                                            <span className="font-medium text-zinc-100">{inv.owner_username}</span>
+                                                            {" invited you to "}
+                                                            <span className="font-medium text-glass-blue-400">{inv.repo_name}</span>
+                                                        </p>
+                                                        <div className="mt-1.5 flex items-center gap-2">
+                                                            <span className="inline-flex items-center rounded-full bg-zinc-700/60 px-2 py-0.5 text-[10px] font-medium text-zinc-300 uppercase tracking-wide">
+                                                                {inv.permission}
+                                                            </span>
+                                                            <span className="text-[11px] text-zinc-500">{timeAgo(inv.created_at)}</span>
+                                                        </div>
+                                                        <div className="mt-2 flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => handleAccept(inv.id)}
+                                                                className="rounded-md bg-green-600/20 border border-green-500/30 px-3 py-1 text-xs font-medium text-green-400 hover:bg-green-600/30 transition-all duration-200 cursor-pointer"
+                                                            >
+                                                                Accept
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDecline(inv.id)}
+                                                                className="rounded-md bg-red-600/20 border border-red-500/30 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-all duration-200 cursor-pointer"
+                                                            >
+                                                                Decline
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {invitations.length === 0 && (
+                                        <div className="px-4 py-8 text-center">
+                                            <Bell className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+                                            <p className="text-sm text-zinc-500">You&apos;re all caught up</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="h-2" />
+                            </div>
+                        )}
+                    </div>
+
                     {/* Profile avatar link */}
                     <Link
                         href="/settings"
