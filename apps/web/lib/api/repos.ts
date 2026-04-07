@@ -18,16 +18,23 @@ export async function getMyRepos(): Promise<ApiResponse<GiteaRepo[]>> {
     return { success: true, data: result.data?.repos ?? [] };
 }
 
-export async function getPublicRepos(genres?: string[], match?: string) : Promise<ApiResponse<PublicRepo[]>> {
+export async function getPublicRepos(
+    genres?: string[],
+    match?: string,
+    page: number = 1,
+    limit: number = 10,
+): Promise<ApiResponse<{ repos: PublicRepo[]; total: number; page: number; has_more: boolean }>> {
     const params = new URLSearchParams();
     if (genres?.length) params.append("genres", genres.join(","));
     if (match) params.append("match", match);
-    
-    const query = params.toString() ? `?${params.toString()}` : "";
-    const result = await authFetch<{ repos: PublicRepo[]}>(`/repos/public${query}`);
+    params.append("page", String(page));
+    params.append("limit", String(limit));
+
+    const query = `?${params.toString()}`;
+    const result = await authFetch<{ repos: PublicRepo[]; total: number; page: number; has_more: boolean }>(`/repos/public${query}`);
 
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data?.repos ?? [] };
+    return { success: true, data: result.data! };
 }
 
 export async function getRepoStats(owner: string, repoName: string) : Promise<ApiResponse<RepoStats>> {

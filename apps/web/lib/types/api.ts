@@ -85,6 +85,7 @@ export interface PublicRepo {
   description?: string;
   stars?: number;
   updated_at?: string;
+  is_starred?: boolean;
 }
 
 // Minimal genre ref used in repo stats

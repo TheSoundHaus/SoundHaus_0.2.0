@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useUser } from "@/lib/context/UserContext";
 import { getPublicRepos } from "@/lib/api/repos";
 import type { PublicRepo } from "@/lib/types/api";
-import { Compass, TrendingUp, AudioLines } from "lucide-react";
+import { Compass, TrendingUp, AudioLines, Star } from "lucide-react";
+import { starRepoAction, unstarRepoAction } from "@/actions/repos";
 
 export default function ExplorePage() {
     const { user, loading } = useUser();
@@ -13,25 +14,118 @@ export default function ExplorePage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [repos, setRepos] = useState<PublicRepo[]>([]);
     const [reposLoading, setReposLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const loadMoreRef = useRef<HTMLDivElement>(null);
+    const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
+    const [starringId, setStarringId] = useState<string | null>(null);
 
+    const handleStar = async (e: React.MouseEvent, repo: PublicRepo) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!user || starringId) return;
+        const giteaId = repo.gitea_id;
+        const isStarred = starredIds.has(giteaId);
+        setStarringId(giteaId);
+
+        // Optimistic update
+        setStarredIds((prev) => {
+            const next = new Set(prev);
+            if (isStarred) next.delete(giteaId); else next.add(giteaId);
+            return next;
+        });
+        setRepos((prev) =>
+            prev.map((r) =>
+                r.gitea_id === giteaId
+                    ? { ...r, stars: (r.stars ?? 0) + (isStarred ? -1 : 1) }
+                    : r
+            )
+        );
+
+        const result = isStarred
+            ? await unstarRepoAction(repo.owner, repo.repo_name)
+            : await starRepoAction(repo.owner, repo.repo_name);
+
+        if (!result.success) {
+            // Revert on failure
+            setStarredIds((prev) => {
+                const next = new Set(prev);
+                if (isStarred) next.add(giteaId); else next.delete(giteaId);
+                return next;
+            });
+            setRepos((prev) =>
+                prev.map((r) =>
+                    r.gitea_id === giteaId
+                        ? { ...r, stars: (r.stars ?? 0) + (isStarred ? 1 : -1) }
+                        : r
+                )
+            );
+        }
+        setStarringId(null);
+    };
+
+    // Initial fetch
     useEffect(() => {
         let cancelled = false;
         async function fetchRepos() {
             setReposLoading(true);
             setError(null);
-            const result = await getPublicRepos();
+            const result = await getPublicRepos(undefined, undefined, 1, 10);
             if (cancelled) return;
-            if (result.success) {
-                setRepos(result.data);
+            if (result.success && result.data) {
+                setRepos(result.data.repos);
+                setHasMore(result.data.has_more);
+                setPage(1);
+                setStarredIds(new Set(
+                    result.data.repos
+                        .filter((r) => r.is_starred)
+                        .map((r) => r.gitea_id)
+                ));
             } else {
-                setError(result.error);
+                setError(result.error ?? "Unknown error");
             }
             setReposLoading(false);
         }
         fetchRepos();
         return () => { cancelled = true; };
     }, []);
+
+    // Infinite scroll — load more when sentinel enters viewport
+    useEffect(() => {
+        if (!loadMoreRef.current) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0]?.isIntersecting && hasMore && !loadingMore && !reposLoading) {
+                    setLoadingMore(true);
+                    const nextPage = page + 1;
+                    getPublicRepos(undefined, undefined, nextPage, 10).then((result) => {
+                        if (result.success && result.data) {
+                            setRepos((prev) => {
+                                const existing = new Set(prev.map((r) => r.gitea_id));
+                                const newRepos = result.data!.repos.filter((r) => !existing.has(r.gitea_id));
+                                return [...prev, ...newRepos];
+                            });
+                            setHasMore(result.data.has_more);
+                            setPage(nextPage);
+                            setStarredIds((prev) => {
+                                const next = new Set(prev);
+                                for (const r of result.data!.repos) {
+                                    if (r.is_starred) next.add(r.gitea_id);
+                                }
+                                return next;
+                            });
+                        }
+                        setLoadingMore(false);
+                    });
+                }
+            },
+            { threshold: 0.1 },
+        );
+        observer.observe(loadMoreRef.current);
+        return () => observer.disconnect();
+    }, [hasMore, loadingMore, reposLoading, page]);
 
     const filteredAndSortedRepos = useMemo(() => {
         let filtered = repos;
@@ -270,12 +364,18 @@ export default function ExplorePage() {
                                             </div>
                                         )}
                                         <div className="flex gap-4 text-sm text-glass-cyan-500">
-                                            <span className="flex items-center gap-1.5">
-                                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                                </svg>
+                                            <button
+                                                onClick={(e) => handleStar(e, repo)}
+                                                disabled={!user || starringId === repo.gitea_id}
+                                                className="flex items-center gap-1.5 transition-colors hover:text-yellow-400 disabled:opacity-50"
+                                            >
+                                                <Star
+                                                    className="w-3.5 h-3.5"
+                                                    fill={starredIds.has(repo.gitea_id) ? "currentColor" : "none"}
+                                                    stroke="currentColor"
+                                                />
                                                 {repo.stars ?? 0}
-                                            </span>
+                                            </button>
                                             <span className="flex items-center gap-1.5 text-zinc-400">
                                                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                                                     <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
@@ -294,6 +394,18 @@ export default function ExplorePage() {
                             ))
                         )}
                     </div>
+
+                    {/* Infinite scroll sentinel */}
+                    {hasMore && !reposLoading && (
+                        <div ref={loadMoreRef} className="flex justify-center py-8">
+                            {loadingMore && (
+                                <div className="w-6 h-6 border-2 border-zinc-700 border-t-glass-blue-400 rounded-full animate-spin" />
+                            )}
+                        </div>
+                    )}
+                    {!hasMore && repos.length > 0 && (
+                        <p className="text-center text-sm text-zinc-500 py-6">No more projects to load</p>
+                    )}
                 </section>
 
                 {/* RIGHT SIDEBAR: Trending */}

@@ -23,9 +23,9 @@ export function createAboutDialog(parentWindow: BrowserWindow): void {
   if (isDev) {
     dialog.loadURL('http://localhost:5173/#/about');
   } else if (isPreview) {
-    dialog.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/about' });
+    dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/about' });
   } else {
-    dialog.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: '/about' });
+    dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/about' });
   }
 
   dialog.once('ready-to-show', () => {

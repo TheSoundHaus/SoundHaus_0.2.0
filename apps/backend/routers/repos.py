@@ -3,7 +3,7 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, Header, Request, File, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -19,7 +19,7 @@ from services.webhook_service import webhook_service
 from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
-from models.profile_models import Profile
+from models.profile_models import Profile, UserStar
 from models.invitation_models import CollaboratorInvitation
 from models.schemas import (
     CreateRepoRequest,
@@ -331,9 +331,27 @@ async def get_public_repos(
     request: Request,
     genres: Optional[str] = None,
     match: str = "any",
+    page: int = 1,
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
-    """Get all publicly published repos with audio snippets (Explore page)."""
+    """Get publicly published repos with audio snippets (Explore page), paginated."""
+    # Optional auth — resolve user_id if a valid token is present
+    user_id = None
+    if authorization and authorization.startswith("Bearer "):
+        try:
+            token = authorization.replace("Bearer ", "")
+            auth = get_auth()
+            if await auth.verify_token(token):
+                user_res = await auth.get_user(token)
+                if user_res.get("success"):
+                    user_id = user_res["user"]["id"]
+        except Exception:
+            pass  # Unauthenticated is fine for this endpoint
+
+    limit = min(max(limit, 1), 50)
+
     genre_names = []
     if genres is not None:
         genre_names = [g.strip() for g in genres.split(",")]
@@ -354,12 +372,24 @@ async def get_public_repos(
         subq = base.subquery()
         query = query.filter(RepoData.gitea_id.in_(subq))
 
-    all_repos = query.all()
+    total = query.count()
+    offset = (max(page, 1) - 1) * limit
+    all_repos = query.order_by(RepoData.stars_count.desc().nullslast()).offset(offset).limit(limit).all()
 
     # Batch-resolve owner UUIDs → SoundHaus usernames
     owner_ids = list({r.gitea_id.split("/", 1)[0] for r in all_repos if "/" in r.gitea_id})
     profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
     profile_map = {str(p.id): p.username for p in profile_rows}
+
+    # Batch-resolve which repos the current user has starred
+    starred_ids: set = set()
+    if user_id:
+        repo_gitea_ids = [r.gitea_id for r in all_repos]
+        starred_rows = db.query(UserStar.gitea_id).filter(
+            UserStar.user_id == user_id,
+            UserStar.gitea_id.in_(repo_gitea_ids),
+        ).all()
+        starred_ids = {row.gitea_id for row in starred_rows}
 
     result = []
     for repo in all_repos:
@@ -385,9 +415,16 @@ async def get_public_repos(
             "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
             "thumbnail_url": repo.thumbnail_url,
             "thumbnail_type": repo.thumbnail_type,
+            "is_starred": repo.gitea_id in starred_ids,
         })
 
-    return {"success": True, "repos": result}
+    return {
+        "success": True,
+        "repos": result,
+        "total": total,
+        "page": max(page, 1),
+        "has_more": offset + len(all_repos) < total,
+    }
 
 
 @router.get("/repos/user/{username}")
@@ -510,14 +547,26 @@ async def star_repo(
     user_res = await get_auth().get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unable to fetch user")
+    user_id = user_res["user"]["id"]
 
     gitea_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repository not found")
 
+    existing = db.query(UserStar).filter(
+        UserStar.user_id == user_id, UserStar.gitea_id == gitea_id
+    ).first()
+    if existing:
+        return {"success": True, "message": "Already starred", "stars_count": repo_data.stars_count}
+
+    db.add(UserStar(user_id=user_id, gitea_id=gitea_id))
     repo_data.stars_count = (repo_data.stars_count or 0) + 1
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return {"success": True, "message": "Already starred", "stars_count": repo_data.stars_count}
     return {"success": True, "message": "Repository starred", "stars_count": repo_data.stars_count}
 
 
@@ -534,12 +583,20 @@ async def unstar_repo(
     user_res = await get_auth().get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unable to fetch user")
+    user_id = user_res["user"]["id"]
 
     gitea_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repository not found")
 
+    existing = db.query(UserStar).filter(
+        UserStar.user_id == user_id, UserStar.gitea_id == gitea_id
+    ).first()
+    if not existing:
+        return {"success": True, "message": "Not starred", "stars_count": repo_data.stars_count}
+
+    db.delete(existing)
     repo_data.stars_count = max(0, (repo_data.stars_count or 0) - 1)
     db.commit()
     return {"success": True, "message": "Repository unstarred", "stars_count": repo_data.stars_count}

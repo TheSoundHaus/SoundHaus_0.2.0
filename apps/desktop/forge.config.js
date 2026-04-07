@@ -1,27 +1,52 @@
+const path = require('path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
 module.exports = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/node_modules/dugite/git/**',
+    },
+    name: 'SoundHaus',
+    executableName: 'SoundHaus',
+    icon: path.join(__dirname, 'assets/icons/icon'),
   },
   rebuildConfig: {},
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        name: 'soundhaus',
+        setupExe: 'SoundHaus Setup.exe',
+        setupIcon: path.join(__dirname, 'assets/icons/icon.ico'),
+      },
     },
     {
       name: '@electron-forge/maker-zip',
       platforms: ['darwin'],
     },
     {
+      name: '@electron-forge/maker-dmg',
+      config: {
+        icon: path.join(__dirname, 'assets/icons/icon.icns'),
+        format: 'ULFO',
+      },
+    },
+    {
       name: '@electron-forge/maker-deb',
-      config: {},
+      config: {
+        options: {
+          icon: path.join(__dirname, 'assets/icons/icon.png'),
+        },
+      },
     },
     {
       name: '@electron-forge/maker-rpm',
-      config: {},
+      config: {
+        options: {
+          icon: path.join(__dirname, 'assets/icons/icon.png'),
+        },
+      },
     },
   ],
   plugins: [

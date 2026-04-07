@@ -1,21 +1,49 @@
 import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
-import './env';
+import { updateElectronApp } from 'update-electron-app';
+import { desktopEnv } from './env';
+
+updateElectronApp({ repo: 'TheSoundHaus/SoundHaus_0.2.0' });
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
-import { gitBin, pull, commit, push } from "./project";
+import { exec as gitExec } from 'dugite';
+import { pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { recentProjectsManager } from './recentProjectsManager';
 import * as fs from 'fs';
 import * as path from "path";
-import { parseAls, diffFromSnapshot, generateCommitMessage } from '../../native/semantic-diff/index.js'
+import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
+
+// Handle Squirrel.Windows install/update/uninstall events and exit immediately.
+// Without this, setup can launch the app at the wrong time and shortcut creation may fail.
+if (require('electron-squirrel-startup')) {
+  app.quit();
+}
 
 const isDev = process.env.DEV != undefined;
 const isPreview = process.env.PREVIEW != undefined;
+
+let mainWindow: BrowserWindow | null = null;
+
+if (process.platform === 'win32') {
+  // Keep a stable AppUserModelID so Start Menu/taskbar shortcuts resolve consistently.
+  app.setAppUserModelId('com.soundhaus.desktop');
+}
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+});
 
 // Tracks the last project path selected by the user so View > Project View
 // can navigate back to it. Starts null (menu item disabled).
@@ -69,15 +97,314 @@ function updateMenuForRoute(route: string) {
   }
 }
 
-const execFileP = promisify(execFile);
+type SnapshotNote = {
+  pitch: number;
+  start_beat: number;
+  duration_beats: number;
+  velocity: number;
+  note_id?: string | null;
+};
+
+type TrackNoteDiff = {
+  trackId: string;
+  trackName: string;
+  added: SnapshotNote[];
+  removed: SnapshotNote[];
+  adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
+};
+
+type GroupedNoteDiff = {
+  tracks: TrackNoteDiff[];
+};
+
+type CommitMeta = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  timestamp: string;
+};
+
+function buildTextSummary(changes: any[], depth = 0): string[] {
+  const lines: string[] = [];
+  const indent = '  '.repeat(depth);
+  for (const node of changes) {
+    if (node?.type === 'Note') {
+      continue;
+    }
+    const prefix = node.action === 'added' ? '+ ' : node.action === 'removed' ? '- ' : '~ ';
+    let line = `${indent}${prefix}${node.type}: ${node.label}`;
+    if (node.from && node.to && node.action === 'value_change') {
+      line += ` (${node.from} -> ${node.to})`;
+    }
+    lines.push(line);
+    if (node.children && node.children.length > 0) {
+      lines.push(...buildTextSummary(node.children, depth + 1));
+    }
+  }
+  return lines;
+}
+
+function parseNotePayload(raw: unknown): SnapshotNote | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.pitch !== 'number') return null;
+    if (typeof parsed?.start_beat !== 'number') return null;
+    if (typeof parsed?.duration_beats !== 'number') return null;
+    return {
+      pitch: parsed.pitch,
+      start_beat: parsed.start_beat,
+      duration_beats: parsed.duration_beats,
+      velocity: typeof parsed?.velocity === 'number' ? parsed.velocity : 100,
+      note_id: typeof parsed?.note_id === 'string' ? parsed.note_id : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractNoteDiffFromChanges(changes: any[], trackOrder: string[] = []): GroupedNoteDiff {
+  const byTrack = new Map<string, TrackNoteDiff>();
+  const orderIndex = new Map<string, number>();
+
+  trackOrder.forEach((id, index) => {
+    if (typeof id === 'string' && id.length > 0) {
+      orderIndex.set(id, index);
+    }
+  });
+
+  const ensureTrack = (trackId: string, trackName: string) => {
+    const existing = byTrack.get(trackId);
+    if (existing) {
+      if (!existing.trackName && trackName) {
+        existing.trackName = trackName;
+      }
+      return existing;
+    }
+
+    const created: TrackNoteDiff = {
+      trackId,
+      trackName: trackName || 'Unnamed Track',
+      added: [],
+      removed: [],
+      adjusted: [],
+    };
+    byTrack.set(trackId, created);
+    return created;
+  };
+
+  const visit = (nodes: any[], currentTrack: TrackNoteDiff | null) => {
+    for (const node of nodes || []) {
+      let nextTrack = currentTrack;
+
+      if (node?.type === 'Track') {
+        const trackId = typeof node?.id === 'string' && node.id.length > 0
+          ? node.id
+          : `track:${typeof node?.label === 'string' ? node.label : 'unknown'}`;
+        const trackName = typeof node?.label === 'string' && node.label.length > 0
+          ? node.label
+          : 'Unnamed Track';
+        nextTrack = ensureTrack(trackId, trackName);
+      } else if (node?.type === 'Note' && currentTrack) {
+        if (node.action === 'added') {
+          const note = parseNotePayload(node.to);
+          if (note) currentTrack.added.push(note);
+        } else if (node.action === 'removed') {
+          const note = parseNotePayload(node.from);
+          if (note) currentTrack.removed.push(note);
+        } else if (node.action === 'adjusted') {
+          const from = parseNotePayload(node.from);
+          const to = parseNotePayload(node.to);
+          if (from && to) currentTrack.adjusted.push({ from, to });
+        }
+      }
+
+      if (Array.isArray(node?.children) && node.children.length > 0) {
+        visit(node.children, nextTrack);
+      }
+    }
+  };
+
+  visit(changes || [], null);
+
+  const tracks = Array.from(byTrack.values()).filter((track) => {
+    return track.added.length + track.removed.length + track.adjusted.length > 0;
+  });
+
+  tracks.sort((a, b) => {
+    const ai = orderIndex.has(a.trackId) ? orderIndex.get(a.trackId)! : Number.MAX_SAFE_INTEGER;
+    const bi = orderIndex.has(b.trackId) ? orderIndex.get(b.trackId)! : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return a.trackName.localeCompare(b.trackName);
+  });
+
+  return { tracks };
+}
+
+/**
+ * Find the first .als file in a directory, parse it, and write/overwrite
+ * .soundhaus/{sessionName}/snapshot.json.  Returns the alsPath on success
+ * or null when no ALS exists or the write fails (non-fatal).
+ */
+async function refreshSnapshot(repoPath: string): Promise<{ alsPath: string | null; error?: string }> {
+  try {
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    if (!alsFile) return { alsPath: null };
+
+    const alsPath = path.join(repoPath, alsFile.name);
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
+    await fs.promises.mkdir(snapshotDir, { recursive: true });
+    const snapshotJson = await parseAls(alsPath);
+    await fs.promises.writeFile(path.join(snapshotDir, 'snapshot.json'), snapshotJson, 'utf8');
+    return { alsPath };
+  } catch (err: any) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn('[refreshSnapshot] Failed:', msg);
+    return { alsPath: null, error: msg };
+  }
+}
+
+function isLikelyLegacySnapshotWithoutMidi(snapshotRaw: string): boolean {
+  try {
+    const parsed = JSON.parse(snapshotRaw);
+    const tracks = Array.isArray(parsed?.tracks) ? parsed.tracks : [];
+    let sawAnyClip = false;
+    let sawMidiNotesField = false;
+
+    for (const track of tracks) {
+      const clips = Array.isArray(track?.clips) ? track.clips : [];
+      for (const clip of clips) {
+        sawAnyClip = true;
+        if (clip && typeof clip === 'object' && Object.prototype.hasOwnProperty.call(clip, 'midi_notes')) {
+          sawMidiNotesField = true;
+          const notes = (clip as any).midi_notes;
+          if (Array.isArray(notes) && notes.length > 0) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return sawAnyClip && !sawMidiNotesField;
+  } catch {
+    return false;
+  }
+}
+
+async function gitObjectExists(repoPath: string, objectSpec: string): Promise<boolean> {
+  const result = await gitExec(['cat-file', '-e', objectSpec], repoPath);
+  return result.exitCode === 0;
+}
+
+async function resolveAlsPathInRevision(
+  repoPath: string,
+  revision: string,
+  preferredAlsPathAbs?: string,
+): Promise<string | null> {
+  const preferredRel = preferredAlsPathAbs
+    ? path.relative(repoPath, preferredAlsPathAbs).split(path.sep).join('/')
+    : null;
+
+  if (preferredRel && preferredRel.length > 0 && !preferredRel.startsWith('..')) {
+    const exists = await gitObjectExists(repoPath, `${revision}:${preferredRel}`);
+    if (exists) return preferredRel;
+  }
+
+  const listResult = await gitExec(
+    ['ls-tree', '-r', '--name-only', revision],
+    repoPath,
+    { maxBuffer: 20 * 1024 * 1024 },
+  );
+
+  if (listResult.exitCode !== 0) {
+    throw new Error(listResult.stderr || `git ls-tree failed for ${revision}`);
+  }
+
+  const stdout = listResult.stdout;
+
+  const alsFiles = stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.toLowerCase().endsWith('.als'));
+
+  if (alsFiles.length === 0) return null;
+  if (alsFiles.length === 1) return alsFiles[0];
+
+  if (preferredRel) {
+    const preferredBase = path.basename(preferredRel).toLowerCase();
+    const basenameMatch = alsFiles.find((candidate) => path.basename(candidate).toLowerCase() === preferredBase);
+    if (basenameMatch) return basenameMatch;
+  }
+
+  return alsFiles[0];
+}
+
+async function getGitBlobBuffer(repoPath: string, revision: string, relPath: string): Promise<Buffer> {
+  const showResult = await gitExec(
+    ['show', `${revision}:${relPath}`],
+    repoPath,
+    { encoding: 'buffer', maxBuffer: 100 * 1024 * 1024 },
+  );
+
+  if (showResult.exitCode !== 0) {
+    const stderr = Buffer.isBuffer(showResult.stderr)
+      ? showResult.stderr.toString('utf8')
+      : showResult.stderr;
+    throw new Error(stderr || `git show failed for ${revision}:${relPath}`);
+  }
+
+  return Buffer.isBuffer(showResult.stdout)
+    ? showResult.stdout
+    : Buffer.from(showResult.stdout as string, 'utf8');
+}
+
+async function diffCurrentAlsAgainstRevision(
+  repoPath: string,
+  revision: string,
+  alsPath: string,
+): Promise<string | null> {
+  const relAlsPath = await resolveAlsPathInRevision(repoPath, revision, alsPath);
+  if (!relAlsPath) return null;
+
+  const [currentAlsBuffer, oldAlsBuffer] = await Promise.all([
+    fs.promises.readFile(alsPath),
+    getGitBlobBuffer(repoPath, revision, relAlsPath),
+  ]);
+
+  return await parseXmlFromBuffer(currentAlsBuffer, oldAlsBuffer);
+}
+
+async function diffSnapshotsFromAlsBlobs(
+  repoPath: string,
+  oldRevision: string,
+  newRevision: string,
+  preferredAlsPathAbs: string,
+): Promise<string | null> {
+  const oldRel = await resolveAlsPathInRevision(repoPath, oldRevision, preferredAlsPathAbs);
+  if (!oldRel) return null;
+
+  let newRel = await resolveAlsPathInRevision(repoPath, newRevision, preferredAlsPathAbs);
+  if (!newRel) newRel = oldRel;
+
+  const [oldBuf, newBuf] = await Promise.all([
+    getGitBlobBuffer(repoPath, oldRevision, oldRel),
+    getGitBlobBuffer(repoPath, newRevision, newRel),
+  ]);
+
+  return await parseXmlFromBuffer(newBuf, oldBuf);
+}
 
 function createWindow() {
-    const mainWindow = new BrowserWindow({
+    mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     backgroundColor: '#18181B',
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
+      spellcheck: false,
     },
   });
 
@@ -95,6 +422,10 @@ function createWindow() {
     shell.openExternal(details.url); // Open URL in user's browser.
     return { action: "deny" }; // Prevent the app from opening the URL.
   })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 ipcMain.handle('choose-folder', async (event: IpcMainInvokeEvent) => {
@@ -169,6 +500,25 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
   return null;
 });
 
+ipcMain.handle('open-als-file', async (_event: IpcMainInvokeEvent, folderPath: string) => {
+  if (!folderPath) {
+    return { ok: false, error: 'No project path provided' };
+  }
+  try {
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+    for (const ent of entries) {
+      if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+        const alsPath = path.join(folderPath, ent.name);
+        await shell.openPath(alsPath);
+        return { ok: true };
+      }
+    }
+    return { ok: false, error: 'No .als file found in this project' };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Failed to open file' };
+  }
+});
+
 ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) => {
   const projectJson = await parseAls(alsPath);
   return JSON.parse(projectJson);
@@ -200,7 +550,17 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
 });
 
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  return await pull(repoPath);
+  const pullResult = await pull(repoPath);
+
+  // Regenerate snapshot so changelog baseline matches the newly pulled ALS.
+  const snap = await refreshSnapshot(repoPath);
+  if (snap.error) {
+    console.warn('[pull-repo] Post-pull snapshot refresh failed (non-fatal):', snap.error);
+  } else if (snap.alsPath) {
+    console.log('[pull-repo] Snapshot refreshed for', path.basename(snap.alsPath, '.als'));
+  }
+
+  return pullResult;
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
@@ -255,18 +615,36 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
 
       // Check if HEAD exists — no commit message generation on first commit
       try {
-        await execFileP(gitBin, ['-C', repoPath, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+        const headCheck = await gitExec(['rev-parse', '--verify', 'HEAD'], repoPath);
+        if (headCheck.exitCode !== 0) throw new Error('No HEAD');
 
-        // Use the committed snapshot.json to diff against the current ALS file.
-        // This avoids touching the LFS-tracked ALS blob entirely.
+        // Diff current ALS against local snapshot (refreshed after pull/commit).
+        // Falls back to HEAD copy when no working-tree file exists.
         const sessionName = path.basename(alsPath, '.als');
         const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-        const { stdout: snapshotRaw } = await execFileP(
-          gitBin,
-          ['-C', repoPath, 'show', `HEAD:${snapshotRelPath}`],
-          { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 }
-        );
-        const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+        const snapshotAbsPath = path.join(repoPath, snapshotRelPath);
+        let snapshotRaw: string;
+        try {
+          snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
+        } catch {
+          const showResult = await gitExec(
+            ['show', `HEAD:${snapshotRelPath}`],
+            repoPath,
+            { maxBuffer: 50 * 1024 * 1024 }
+          );
+          snapshotRaw = showResult.stdout;
+        }
+        let rawJson: string | null = null;
+
+        if (isLikelyLegacySnapshotWithoutMidi(snapshotRaw)) {
+          console.log('[commit-changes] Detected legacy snapshot baseline; using HEAD ALS blob fallback diff');
+          rawJson = await diffCurrentAlsAgainstRevision(repoPath, 'HEAD', alsPath);
+        }
+
+        if (!rawJson) {
+          rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+        }
+
         commitMessage = await generateCommitMessage(rawJson);
       } catch (e) {
         // No HEAD yet, or no snapshot in HEAD (first commit / legacy repo)
@@ -274,18 +652,10 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
         commitMessage = `Initial snapshot: ${alsFileName.replace(/\.als$/i, '')}`;
       }
 
-      // Write the Minimal Project Description snapshot before committing so
-      // git add . stages it alongside the .als file.
-      // Path: .soundhaus/{als_session_name}/snapshot.json
-      try {
-        const sessionName = path.basename(alsPath, '.als');
-        const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
-        await fs.promises.mkdir(snapshotDir, { recursive: true });
-        const snapshotJson = await parseAls(alsPath);
-        await fs.promises.writeFile(path.join(snapshotDir, 'snapshot.json'), snapshotJson, 'utf8');
-      } catch (snapshotErr) {
-        // Non-fatal — commit proceeds without the snapshot if something goes wrong
-        console.warn('[commit-changes] Failed to write snapshot:', snapshotErr);
+      // Write snapshot before committing so git add . stages it alongside the .als file.
+      const snapResult = await refreshSnapshot(repoPath);
+      if (snapResult.error) {
+        console.warn('[commit-changes] Snapshot refresh failed (non-fatal):', snapResult.error);
       }
     }
   } catch (e) {
@@ -307,12 +677,13 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
 ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string) => {
   try {
     const startDir = path.dirname(alsPath);
-    const { stdout: rootStdout } = await execFileP(gitBin, ['-C', startDir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    const repoRoot = rootStdout.trim();
+    const rootResult = await gitExec(['rev-parse', '--show-toplevel'], startDir);
+    const repoRoot = rootResult.stdout.trim();
 
     // Check if any commits exist
     try {
-      await execFileP(gitBin, ['-C', repoRoot, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' });
+      const headResult = await gitExec(['rev-parse', '--verify', 'HEAD'], repoRoot);
+      if (headResult.exitCode !== 0) throw new Error('No HEAD');
     } catch {
       // No commits yet — return a no-commits baseline built from the current file
       const projectJson = await parseAls(alsPath);
@@ -327,32 +698,39 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
       return { ok: true, baselineStatus: 'no-commits', summary, project: { Tracks: legacyTracks } };
     }
 
-    // Diff from the committed snapshot.json — avoids touching the LFS-tracked ALS blob.
+    // Diff current ALS against the local snapshot.json on disk (refreshed after
+    // every pull and commit).  Falls back to the committed HEAD copy when no
+    // working-tree file exists yet.
     const sessionName = path.basename(alsPath, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
-    const { stdout: snapshotRaw } = await execFileP(
-      gitBin,
-      ['-C', repoRoot, 'show', `HEAD:${snapshotRelPath}`],
-      { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
-    );
-    const rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    const snapshotAbsPath = path.join(repoRoot, snapshotRelPath);
+    let snapshotRaw: string;
+    try {
+      snapshotRaw = await fs.promises.readFile(snapshotAbsPath, 'utf8');
+    } catch {
+      const showResult = await gitExec(
+        ['show', `HEAD:${snapshotRelPath}`],
+        repoRoot,
+        { maxBuffer: 10 * 1024 * 1024 }
+      );
+      snapshotRaw = showResult.stdout;
+    }
+    let rawJson: string | null = null;
+
+    if (isLikelyLegacySnapshotWithoutMidi(snapshotRaw)) {
+      console.log('[get-changes] Detected legacy snapshot baseline; using HEAD ALS blob fallback diff');
+      rawJson = await diffCurrentAlsAgainstRevision(repoRoot, 'HEAD', alsPath);
+    }
+
+    if (!rawJson) {
+      rawJson = await diffFromSnapshot(snapshotRaw, alsPath);
+    }
+
     const report = JSON.parse(rawJson);
 
     // Build a flat summary string for the Changes panel
     // TODO (Phase 5): move this formatting into Rust via generate_commit_message / format_changes_summary export
-    const summaryLines: string[] = [];
-    for (const change of (report.changes || [])) {
-      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
-      let line = `${prefix}${change.type}: ${change.label}`;
-      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
-      summaryLines.push(line);
-
-      for (const child of (change.children || [])) {
-        let childLine = `  ${child.action}: ${child.type} - ${child.label}`;
-        if (child.from && child.to) childLine += ` (${child.from} \u2192 ${child.to})`;
-        summaryLines.push(childLine);
-      }
-    }
+    const summaryLines = buildTextSummary(report.changes || []);
 
     // Map tracks to legacy field names for the Track Information panel
     const legacyTracks = (report.project?.tracks || []).map((t: any) => ({
@@ -374,6 +752,111 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
     return { ok: false, reason: e && e.message ? e.message : String(e) };
   }
 });
+
+ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath: string): Promise<CommitMeta[]> => {
+  try {
+    const logResult = await gitExec(
+      ['log', '--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s', '-n', '50'],
+      repoPath,
+      { maxBuffer: 5 * 1024 * 1024 }
+    );
+
+    if (logResult.exitCode !== 0) {
+      return [];
+    }
+
+    const stdout = logResult.stdout;
+
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line: string) => {
+        const [hash, shortHash, author, timestamp, subject] = line.split('\x1f');
+        return {
+          hash,
+          shortHash,
+          author,
+          timestamp,
+          subject,
+        };
+      })
+      .filter((item: CommitMeta) => item.hash && item.subject);
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: string, commitHash: string, alsPath: string) => {
+  try {
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    const currentSnapshotResult = await gitExec(
+      ['show', `${commitHash}:${snapshotRelPath}`],
+      repoPath,
+      { maxBuffer: 20 * 1024 * 1024 }
+    );
+    if (currentSnapshotResult.exitCode !== 0) {
+      throw new Error(currentSnapshotResult.stderr || `Unable to read snapshot for commit ${commitHash}`);
+    }
+    const currentSnapshot = currentSnapshotResult.stdout;
+
+    let parentSnapshot = '{}';
+    let parentHash: string | null = null;
+    try {
+      const parentCommitResult = await gitExec(['rev-parse', `${commitHash}^`], repoPath);
+      if (parentCommitResult.exitCode !== 0) {
+        throw new Error(parentCommitResult.stderr || 'No parent commit');
+      }
+      parentHash = parentCommitResult.stdout.trim();
+      const parentSnapshotResult = await gitExec(
+        ['show', `${parentHash}:${snapshotRelPath}`],
+        repoPath,
+        { maxBuffer: 20 * 1024 * 1024 }
+      );
+      if (parentSnapshotResult.exitCode !== 0) {
+        throw new Error(parentSnapshotResult.stderr || 'Parent snapshot missing');
+      }
+      parentSnapshot = parentSnapshotResult.stdout;
+    } catch {
+      parentSnapshot = '{"schema_version":1,"tracks":[]}';
+    }
+
+    // Get the full semantic diff from Rust (including track/device/clip structure)
+    let rawJson: string | null = null;
+
+    if (parentHash && (isLikelyLegacySnapshotWithoutMidi(parentSnapshot) || isLikelyLegacySnapshotWithoutMidi(currentSnapshot))) {
+      console.log('[get-commit-diff] Detected legacy snapshot(s); using commit ALS blob fallback diff');
+      rawJson = await diffSnapshotsFromAlsBlobs(repoPath, parentHash, commitHash, alsPath);
+    }
+
+    if (!rawJson) {
+      rawJson = await diffSnapshots(parentSnapshot, currentSnapshot);
+    }
+
+    const report = JSON.parse(rawJson);
+    const summaryLines = buildTextSummary(report.changes || []);
+
+    const trackOrder = Array.isArray(report?.project?.tracks)
+      ? report.project.tracks
+          .map((track: any) => (typeof track?.id === 'string' ? track.id : null))
+          .filter((id: string | null): id is string => id !== null)
+      : [];
+    const noteDiff = extractNoteDiffFromChanges(report.changes || [], trackOrder);
+
+    return {
+      ok: true,
+      summary: summaryLines.length > 0 ? summaryLines.join('\n') : 'No semantic changes detected',
+      noteDiff,
+    };
+  } catch (e: any) {
+    return {
+      ok: false,
+      reason: e && e.message ? e.message : String(e),
+    };
+  }
+});
+
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
   return await getSoundHausCredentials();
 })
@@ -398,6 +881,79 @@ ipcMain.handle('set-allowed-clone-remote', async(_event: IpcMainInvokeEvent, rem
   return await setAllowedCloneRemote(remote);
 });
 
+ipcMain.handle('auto-login', async () => {
+  const token = await getSoundHausCredentials();
+  if (!token) return { success: false, reason: 'no-token' };
+
+  const existingGiteaToken = await getGiteaCredentials();
+  const url = `${desktopEnv.supabasePublicUrl}/api/desktop/credentials`;
+  const headers: Record<string, string> = { Authorization: `token ${token}` };
+  if (existingGiteaToken) headers['X-Cached-Gitea-Token'] = existingGiteaToken;
+
+  try {
+    const res = await fetch(url, { method: 'GET', headers });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      return { success: false, reason: 'invalid-token', status: res.status, body: body.slice(0, 300) };
+    }
+    const data = await res.json() as Record<string, any>;
+    if (!existingGiteaToken || existingGiteaToken !== data.token) {
+      await setGiteaCredentials(data.token);
+    }
+    if (data.gitea_url) await setAllowedCloneRemote(data.gitea_url);
+    return { success: true };
+  } catch (err) {
+    return { success: false, reason: 'fetch-error', error: String(err) };
+  }
+});
+
+ipcMain.handle('manual-login', async (_event: IpcMainInvokeEvent, email: string, password: string) => {
+  const base = desktopEnv.supabasePublicUrl;
+  try {
+    const loginRes = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!loginRes.ok) {
+      const body = await loginRes.text().catch(() => '');
+      return { success: false, reason: 'login-failed', status: loginRes.status, body: body.slice(0, 300) };
+    }
+    const loginData = await loginRes.json() as Record<string, any>;
+    const accessToken: string | undefined = loginData.session?.access_token;
+    if (!accessToken) return { success: false, reason: 'no-access-token' };
+
+    const patRes = await fetch(`${base}/api/auth/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ token_name: 'Gitea Token', expires_in_days: 90 }),
+    });
+    if (!patRes.ok) {
+      const body = await patRes.text().catch(() => '');
+      return { success: false, reason: 'pat-failed', status: patRes.status, body: body.slice(0, 300) };
+    }
+    const patData = await patRes.json() as Record<string, any>;
+    const pat: string = patData.token;
+    await setSoundHausCredentials(pat);
+
+    const credRes = await fetch(`${base}/api/desktop/credentials`, {
+      method: 'GET',
+      headers: { Authorization: `token ${pat}` },
+    });
+    if (credRes.ok) {
+      const credData = await credRes.json() as Record<string, any>;
+      if (credData.token) await setGiteaCredentials(credData.token);
+      if (credData.gitea_url) await setAllowedCloneRemote(credData.gitea_url);
+    } else {
+      console.warn('[manual-login] Desktop credentials fetch failed:', credRes.status);
+    }
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, reason: 'fetch-error', error: String(err) };
+  }
+});
+
 ipcMain.handle('set-last-project-path', async(_event: IpcMainInvokeEvent, projectPath: string | null) => {
   if (projectPath !== null && typeof projectPath !== 'string') return;
   lastSelectedProjectPath = projectPath;
@@ -409,6 +965,35 @@ ipcMain.handle('set-current-route', async(_event: IpcMainInvokeEvent, route: str
   if (typeof route !== 'string') return;
   isOnProjectRoute = route === '/project';
   updateMenuForRoute(route);
+});
+
+ipcMain.handle('add-recent-project', async(_event: IpcMainInvokeEvent, projectPath: string, projectName: string) => {
+  if (typeof projectPath !== 'string' || typeof projectName !== 'string') return;
+  try {
+    await recentProjectsManager.addProject(projectPath, projectName);
+  } catch (error) {
+    console.error('[add-recent-project] Error:', error);
+    // Don't throw - this is a non-critical operation
+  }
+});
+
+ipcMain.handle('get-recent-projects', async(_event: IpcMainInvokeEvent) => {
+  try {
+    return await recentProjectsManager.getAllProjects();
+  } catch (error) {
+    console.error('[get-recent-projects] Error:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('remove-recent-project', async(_event: IpcMainInvokeEvent, projectPath: string) => {
+  if (typeof projectPath !== 'string') return;
+  try {
+    await recentProjectsManager.removeProject(projectPath);
+  } catch (error) {
+    console.error('[remove-recent-project] Error:', error);
+    // Don't throw - this is a non-critical operation
+  }
 });
 
 // This method will be called when Electron has finished
@@ -430,13 +1015,13 @@ app.whenReady().then(() => {
         },
         {
           id: 'import-soundhaus',
-          label: 'Import SoundHaus Project',
+          label: 'Open SoundHaus Project',
           click: () => BrowserWindow.getFocusedWindow()?.webContents.send('menu-action', 'import-soundhaus')
         },
         {
           id: 'browse-public',
           label: 'Browse Public Projects',
-          click: () => shell.openExternal('http://www.rickleinecker.com/')
+          click: () => shell.openExternal('https://www.thesound.haus/')
         },
         { type: 'separator' },
         { label: 'Options' },
@@ -517,7 +1102,7 @@ app.whenReady().then(() => {
         { 
           id: 'view-on-soundhaus',
           label: 'View On SoundHaus',
-          click: () => shell.openExternal('http://www.rickleinecker.com/')
+          click: () => shell.openExternal('https://www.thesound.haus/')
         },
         { label: 'Project Settings' }
       ]
@@ -556,7 +1141,7 @@ app.whenReady().then(() => {
         return { projectPath: lastSelectedProjectPath };
       }
       if (['browse-public', 'view-on-soundhaus'].includes(action)) {
-        return { url: 'http://www.rickleinecker.com/' };
+        return { url: 'https://www.thesound.haus/' };
       }
       return undefined;
     }).filter(e => e.action !== 'help-search'); // Exclude search itself (circular)
