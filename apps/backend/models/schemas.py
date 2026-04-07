@@ -9,7 +9,7 @@ class SignUpRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
-    display_name: Optional[str] = None
+    username: Optional[str] = None
     bio: Optional[str] = None
     is_public: Optional[bool] = None
     social_instagram: Optional[str] = None

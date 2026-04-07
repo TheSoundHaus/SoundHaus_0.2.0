@@ -16,8 +16,8 @@ import AudioPlayer from "@/components/AudioPlayer";
 
 /** Filter out raw UUIDs that legacy users have as their Gitea username */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function ownerLabel(display?: string | null, username?: string | null, fallback?: string | null): string {
-    for (const v of [display, username, fallback]) {
+function ownerLabel(username?: string | null, fallback?: string | null): string {
+    for (const v of [username, fallback]) {
         if (v && !UUID_RE.test(v)) return v;
     }
     return 'SoundHaus User';
@@ -70,12 +70,10 @@ export default function ExplorePage() {
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             filtered = filtered.filter((repo) => {
-                const dn = (repo.owner_display_name || "").toLowerCase();
                 const un = (repo.owner_username || "").toLowerCase();
                 return (
                     repo.repo_name.toLowerCase().includes(query) ||
                     repo.owner.toLowerCase().includes(query) ||
-                    dn.includes(query) ||
                     un.includes(query)
                 );
             });
@@ -170,7 +168,7 @@ export default function ExplorePage() {
                                     </div>
                                 </div>
                                 <h2 className="text-lg font-semibold text-zinc-100">
-                                    {user?.display_name || user?.username || "Guest"}
+                                    {user?.username || "Guest"}
                                 </h2>
                                 <div className="flex items-center gap-2 text-sm text-zinc-400">
                                     <svg className="w-4 h-4 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">
@@ -289,7 +287,6 @@ export default function ExplorePage() {
                                         ? extractYouTubeVideoId(repo.thumbnail_url)
                                         : null;
                                 const ownerShown = ownerLabel(
-                                    repo.owner_display_name,
                                     repo.owner_username,
                                     repo.owner,
                                 );
@@ -432,7 +429,7 @@ export default function ExplorePage() {
                                                 onClick={(e) => e.stopPropagation()}
                                                 className="hover:text-zinc-300 transition-colors"
                                             >
-                                                {ownerLabel(repo.owner_display_name, repo.owner_username, repo.owner)}
+                                                {ownerLabel(repo.owner_username, repo.owner)}
                                             </Link>
                                         </p>
                                         <div className="flex items-center gap-1 mt-1">

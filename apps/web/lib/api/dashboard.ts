@@ -190,7 +190,7 @@ export interface SnippetFeedItem {
     repo_id: string;
     repo_name: string;
     owner_id: string;
-    owner_display_name: string;
+    owner_display_name: string;  // same as owner_username
     owner_username: string;
     owner_avatar_url: string | null;
     audio_snippet: string;
@@ -222,7 +222,7 @@ export interface CollaborationItem {
     repo_id: string;
     repo_name: string;
     owner_username: string;
-    owner_display_name: string;
+    owner_display_name: string;  // same as owner_username
     unread_count: number;
     last_seen_at: string | null;
     last_push_at: string | null;

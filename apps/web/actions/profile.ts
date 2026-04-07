@@ -22,7 +22,7 @@ export async function getProfileAction(): Promise<
 
 export async function updateProfileAction(
     updates: {
-        display_name?: string;
+        username?: string;
         bio?: string;
         is_public?: boolean;
         social_instagram?: string | null;

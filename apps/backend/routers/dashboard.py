@@ -101,9 +101,9 @@ async def get_snippet_feed(
         repo_name = parts[1] if len(parts) == 2 else r.gitea_id
         owner_slug = parts[0] if len(parts) == 2 else ""
 
-        # Look up profile for display name / username / avatar
+        # Look up profile for username / avatar
         profile = db.query(Profile).filter(Profile.id == r.owner_id).first()
-        owner_display = profile.display_name if profile else owner_slug
+        owner_display = profile.username if profile else owner_slug
         owner_username = profile.username if profile else owner_slug
         avatar_url = profile.avatar_url if profile else None
 
@@ -208,7 +208,7 @@ async def get_collaborations(
         # Owner profile
         owner_profile = db.query(Profile).filter(Profile.id == repo.owner_id).first()
         owner_username = owner_profile.username if owner_profile else inv.owner_username
-        owner_display = owner_profile.display_name if owner_profile else inv.owner_username
+        owner_display = owner_profile.username if owner_profile else inv.owner_username
 
         parts = inv.repo_name.split("/", 1)
         repo_name = parts[1] if len(parts) == 2 else inv.repo_name

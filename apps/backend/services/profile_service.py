@@ -42,10 +42,8 @@ class ProfileService:
         return self._profile_to_dict(profile)
 
     def get_profile_by_username(self, username: str, db: Session) -> Optional[Dict[str, Any]]:
-        """Fetch a user profile by username (falls back to display_name)."""
+        """Fetch a user profile by username."""
         profile = db.query(Profile).filter(Profile.username == username).first()
-        if not profile:
-            profile = db.query(Profile).filter(Profile.display_name == username).first()
         if not profile:
             return None
         return self._profile_to_dict(profile)
@@ -55,7 +53,6 @@ class ProfileService:
         user_id: str,
         username: str,
         email: str,
-        display_name: Optional[str] = None,
         db: Session = None,
     ) -> Dict[str, Any]:
         """Create a new profile row at signup time."""
@@ -70,7 +67,7 @@ class ProfileService:
             id=user_id,
             email=email,
             username=username,
-            display_name=display_name or username,
+            display_name=username,
         )
         db.add(profile)
         db.commit()
@@ -84,13 +81,23 @@ class ProfileService:
         updates: Dict[str, Any],
         db: Session,
     ) -> Dict[str, Any]:
-        """Update display_name and/or bio for an existing profile."""
+        """Update username and/or bio for an existing profile."""
         profile = db.query(Profile).filter(Profile.id == user_id).first()
         if not profile:
             return {"success": False, "message": "Profile not found"}
 
-        if "display_name" in updates and updates["display_name"] is not None:
-            profile.display_name = updates["display_name"].strip()[:100]
+        if "username" in updates and updates["username"] is not None:
+            new_username = updates["username"].strip()[:40]
+            self._validate_username(new_username)
+            # Check uniqueness (excluding self)
+            existing = db.query(Profile).filter(
+                Profile.username == new_username,
+                Profile.id != user_id,
+            ).first()
+            if existing:
+                return {"success": False, "message": f"Username '{new_username}' is already taken"}
+            profile.username = new_username
+            profile.display_name = new_username  # keep in sync
         if "bio" in updates and updates["bio"] is not None:
             profile.bio = updates["bio"].strip()[:500]
         if "is_public" in updates and updates["is_public"] is not None:
@@ -217,7 +224,7 @@ class ProfileService:
             "id": profile.id,
             "email": profile.email,
             "username": profile.username,
-            "display_name": profile.display_name,
+            "display_name": profile.username,  # unified: always same as username
             "avatar_url": profile.avatar_url,
             "bio": profile.bio,
             "is_public": profile.is_public if profile.is_public is not None else False,

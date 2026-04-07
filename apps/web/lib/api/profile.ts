@@ -9,7 +9,7 @@ export interface UserProfile {
     id: string;
     email: string;
     username: string;
-    display_name: string;
+    display_name: string;  // always same as username
     avatar_url: string | null;
     bio: string | null;
     is_public: boolean;
@@ -24,7 +24,7 @@ export interface UserProfile {
 
 export interface PublicProfile {
     username: string;
-    display_name: string | null;
+    display_name: string | null;  // always same as username
     avatar_url: string | null;
     bio: string | null;
     created_at: string | null;
@@ -48,7 +48,7 @@ export async function getProfile(): Promise<ApiResponse<UserProfile>> {
 
 export async function updateProfile(
     updates: {
-        display_name?: string;
+        username?: string;
         bio?: string;
         is_public?: boolean;
         social_instagram?: string | null;

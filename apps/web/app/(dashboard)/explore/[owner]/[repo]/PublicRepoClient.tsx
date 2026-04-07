@@ -97,7 +97,7 @@ export default function PublicRepoClient({
   const cloneCount = stats?.clone_count ?? 0;
   const profileSlug = encodeURIComponent(stats?.owner_username || owner);
   const ownerLabel =
-    stats?.owner_display_name || stats?.owner_username || owner;
+    stats?.owner_username || owner;
 
   // Thumbnail / YouTube
   const thumbnailUrl = stats?.thumbnail_url ?? null;
@@ -474,10 +474,10 @@ export default function PublicRepoClient({
                 <div className="space-y-3">
                   {collaborators.map((c) => (
                     <Link key={c.login} href={`/profile/${c.username || c.login}`} className="flex items-center gap-3 hover:bg-zinc-800/50 rounded-md p-1 -m-1 transition-colors">
-                      <UserAvatar src={c.avatar_url} alt={c.display_name || c.username || c.login} size={28} />
+                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={28} />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-zinc-200 truncate hover:text-glass-blue transition-colors">
-                          {c.display_name || c.username || c.login}
+                          {c.username || c.login}
                         </div>
                         <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
                       </div>
@@ -910,10 +910,10 @@ export default function PublicRepoClient({
                   key={c.login}
                   className="flex items-center gap-4 rounded-lg border border-zinc-800 p-4"
                 >
-                  <UserAvatar src={c.avatar_url} alt={c.display_name || c.username || c.login} size={40} />
+                  <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={40} />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-zinc-200 truncate">
-                      {c.display_name || c.username || c.login}
+                      {c.username || c.login}
                     </div>
                     <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
                   </div>

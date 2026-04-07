@@ -98,8 +98,8 @@ export default function DashboardPage() {
         return () => { cancelled = true; };
     }, []);
 
-    const greeting = user?.display_name
-        ? `Welcome back, ${user.display_name}`
+    const greeting = user?.username
+        ? `Welcome back, ${user.username}`
         : "Welcome back to SoundHaus";
 
     const stats = data?.stats;

@@ -607,7 +607,7 @@ class RepoService:
                 enriched.append({
                     "login": gitea_login,  # UUID, needed for remove operations
                     "username": profile.username if profile else gitea_login,
-                    "display_name": profile.display_name if profile else None,
+                    "display_name": profile.username if profile else None,
                     "email": profile.email if profile else collab.get("email", ""),
                     "avatar_url": profile.avatar_url if profile else collab.get("avatar_url", ""),
                     "bio": profile.bio if profile else None,

@@ -19,6 +19,7 @@ export default function SettingsPage() {
   );
 
   const [displayName, setDisplayName] = useState("");
+  const [usernameError, setUsernameError] = useState<string | null>(null);
   const [bio, setBio] = useState("");
   const [socialInstagram, setSocialInstagram] = useState("");
   const [socialYoutube, setSocialYoutube] = useState("");
@@ -56,7 +57,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (user) {
-      setDisplayName(user.display_name || "");
+      setDisplayName(user.username || "");
       setBio(user.bio || "");
       setSocialInstagram(user.social_instagram || "");
       setSocialYoutube(user.social_youtube || "");
@@ -69,8 +70,23 @@ export default function SettingsPage() {
   const handleProfileSave = async () => {
     setProfileSaving(true);
     setProfileMessage(null);
+    setUsernameError(null);
+
+    // Validate username format
+    const trimmed = displayName.trim();
+    if (trimmed.length < 2 || trimmed.length > 40) {
+      setUsernameError("Username must be 2–40 characters");
+      setProfileSaving(false);
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+      setUsernameError("Only letters, numbers, hyphens, and underscores");
+      setProfileSaving(false);
+      return;
+    }
+
     const result = await updateProfileAction({
-      display_name: displayName,
+      username: trimmed,
       bio: bio,
       social_instagram: socialInstagram || null,
       social_youtube: socialYoutube || null,
@@ -82,6 +98,10 @@ export default function SettingsPage() {
       setProfileMessage({ type: "success", text: "Profile updated!" });
       await refreshUser();
     } else {
+      // Surface uniqueness errors from the backend
+      if (result.error?.toLowerCase().includes("already taken")) {
+        setUsernameError(result.error);
+      }
       setProfileMessage({ type: "error", text: result.error });
     }
     setProfileSaving(false);
@@ -367,7 +387,7 @@ export default function SettingsPage() {
                       <div className="relative group">
                         <UserAvatar
                           src={user?.avatar_url}
-                          alt={user?.display_name || user?.username || "Avatar"}
+                          alt={user?.username || "Avatar"}
                           size={80}
                         />
                         <button
@@ -428,16 +448,25 @@ export default function SettingsPage() {
 
                     <div>
                       <label className="mb-2 block text-sm font-medium text-zinc-100">
-                        Display Name
+                        Username
                       </label>
                       <input
                         type="text"
-                        placeholder="Your name"
+                        placeholder="Your username"
                         value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        maxLength={100}
-                        className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
+                        onChange={(e) => {
+                          setDisplayName(e.target.value);
+                          setUsernameError(null);
+                        }}
+                        maxLength={40}
+                        className={`w-full rounded-md border px-4 py-2 text-zinc-100 bg-zinc-800 focus:ring-1 focus:outline-none transition-all ${usernameError ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : 'border-zinc-700 focus:border-glass-blue-500 focus:ring-glass-blue-500'}`}
                       />
+                      {usernameError && (
+                        <p className="mt-1 text-xs text-red-400">{usernameError}</p>
+                      )}
+                      <p className="mt-1 text-xs text-zinc-500">
+                        2–40 characters. Letters, numbers, hyphens, and underscores only. Must be unique.
+                      </p>
                     </div>
                     <div>
                       <label className="mb-2 block text-sm font-medium text-zinc-100">Bio</label>

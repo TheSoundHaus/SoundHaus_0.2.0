@@ -447,14 +447,13 @@ async def search_users(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        # Search in our profiles table first (has real usernames, emails, display names)
+        # Search in our profiles table first (has real usernames, emails)
         q_lower = q.lower()
         profiles = (
             db.query(Profile)
             .filter(
                 (Profile.username.ilike(f"%{q_lower}%"))
                 | (Profile.email.ilike(f"%{q_lower}%"))
-                | (Profile.display_name.ilike(f"%{q_lower}%"))
             )
             .limit(10)
             .all()
@@ -469,9 +468,9 @@ async def search_users(
             shown_email = "" if is_generated else email
 
             users.append({
-                "username": p.display_name or p.username or "",
+                "username": p.username or "",
                 "email": shown_email,
-                "display_name": p.display_name or p.username or "",
+                "display_name": p.username or "",
                 "avatar_url": p.avatar_url or "",
                 "invite_email": p.email or "",  # always include real email for invite action
             })

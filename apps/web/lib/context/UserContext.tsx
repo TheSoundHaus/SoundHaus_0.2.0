@@ -9,7 +9,7 @@ export interface UserProfile {
     id: string;
     email: string;
     username: string;
-    display_name: string;
+    display_name: string;  // always same as username
     avatar_url: string | null;
     bio: string | null;
     is_public: boolean;

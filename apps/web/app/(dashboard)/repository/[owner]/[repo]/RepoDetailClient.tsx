@@ -174,7 +174,7 @@ export default function RepoDetailClient({
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
   const genres = stats?.genres ?? [];
   const cloneCount = stats?.clone_count ?? 0;
-  const ownerDisplayName = stats?.owner_display_name || stats?.owner_username || owner;
+  const ownerDisplayName = stats?.owner_username || owner;
 
   // Refresh timeline events from the server
   const refreshEvents = useCallback(async () => {
@@ -729,10 +729,10 @@ export default function RepoDetailClient({
                 <div className="space-y-3">
                   {collaborators.map((c) => (
                     <div key={c.login} className="flex items-center gap-3">
-                      <UserAvatar src={c.avatar_url} alt={c.display_name || c.username || c.login} size={28} />
+                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={28} />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-zinc-200 truncate">
-                          {c.display_name || c.username || c.login}
+                          {c.username || c.login}
                         </div>
                         <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
                       </div>
@@ -1269,9 +1269,9 @@ export default function RepoDetailClient({
                             className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
                           >
                             <div className="flex items-center gap-3">
-                              <UserAvatar src={u.avatar_url} alt={u.display_name || u.username} size={20} />
+                              <UserAvatar src={u.avatar_url} alt={u.username} size={20} />
                               <div>
-                                <div className="text-sm font-medium text-zinc-200">{u.display_name || u.username}</div>
+                                <div className="text-sm font-medium text-zinc-200">{u.username}</div>
                                 {u.email && <div className="text-xs text-zinc-400">{u.email}</div>}
                               </div>
                             </div>
@@ -1412,7 +1412,7 @@ export default function RepoDetailClient({
                                 {c.permission === "admin" ? "Admin" : "Contributor"}
                               </span>
                             </div>
-                            <div className="text-sm text-zinc-400">{c.display_name || c.email || ""}</div>
+                            <div className="text-sm text-zinc-400">{c.username || c.email || ""}</div>
                           </div>
                           <ChevronDown
                             size={14}

@@ -55,8 +55,8 @@ function SnippetCard({ item }: { item: SnippetFeedItem }) {
                     href={`/profile/${ownerSlug}`}
                     className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors w-fit"
                 >
-                    <UserAvatar src={item.owner_avatar_url} alt={item.owner_display_name} size={14} />
-                    <span>{item.owner_display_name}</span>
+                    <UserAvatar src={item.owner_avatar_url} alt={item.owner_username} size={14} />
+                    <span>{item.owner_username}</span>
                     {item.last_activity_at && (
                         <span className="text-zinc-600">&middot; {timeAgo(item.last_activity_at)}</span>
                     )}

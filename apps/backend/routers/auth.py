@@ -134,7 +134,6 @@ async def signup(
             user_id=supabase_user_id,
             username=username,
             email=signup_request.email,
-            display_name=username,
             db=db,
         )
         if not profile_result.get("success"):
@@ -289,7 +288,7 @@ async def get_profile(
     auth_service: SupabaseAuthService = Depends(get_auth),
     db: Session = Depends(get_db),
 ):
-    """Get the current user's profile (username, display_name, bio, avatar_url)."""
+    """Get the current user's profile (username, bio, avatar_url)."""
     user_res = await auth_service.get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -305,7 +304,6 @@ async def get_profile(
             user_id=user_id,
             username=username,
             email=email,
-            display_name=username,
             db=db,
         )
         if result.get("success"):
@@ -325,15 +323,15 @@ async def update_profile(
     auth_service: SupabaseAuthService = Depends(get_auth),
     db: Session = Depends(get_db),
 ):
-    """Update display_name and/or bio for the current user."""
+    """Update username and/or bio for the current user."""
     user_res = await auth_service.get_user(token)
     if not user_res.get("success"):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     user_id = user_res["user"]["id"]
     updates = {}
-    if body.display_name is not None:
-        updates["display_name"] = body.display_name
+    if body.username is not None:
+        updates["username"] = body.username
     if body.bio is not None:
         updates["bio"] = body.bio
     if body.is_public is not None:
@@ -488,13 +486,13 @@ async def get_public_profile(
     is_public = profile.get("is_public", False)
 
     # Return only public-safe fields (exclude email and id)
-    pub_username = profile.get("username") or profile.get("display_name") or profile.get("id") or ""
+    pub_username = profile.get("username") or profile.get("id") or ""
     return {
         "success": True,
         "is_public": is_public,
         "profile": {
             "username": pub_username,
-            "display_name": profile["display_name"],
+            "display_name": pub_username,
             "avatar_url": profile["avatar_url"],
             "bio": profile["bio"] if is_public else None,
             "created_at": profile["created_at"],

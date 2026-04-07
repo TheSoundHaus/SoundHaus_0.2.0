@@ -372,7 +372,6 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                         id={repo.full_name}
                         title={repo.name}
                         author={
-                          repo.owner_display_name ||
                           repo.owner_username ||
                           giteaOwner
                         }

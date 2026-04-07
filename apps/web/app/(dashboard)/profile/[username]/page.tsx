@@ -77,12 +77,12 @@ export default async function PublicProfilePage({
         <div className="flex items-start gap-6">
           <UserAvatar
             src={profile.avatar_url}
-            alt={profile.display_name || profile.username}
+            alt={profile.username}
             size={96}
           />
           <div className="flex-1">
             <h1 className="text-3xl font-bold tracking-tight">
-              {profile.display_name || (!UUID_RE.test(profile.username) ? profile.username : 'SoundHaus User')}
+              {!UUID_RE.test(profile.username) ? profile.username : 'SoundHaus User'}
             </h1>
             <p className="mt-1 text-lg text-zinc-400">
               {UUID_RE.test(profile.username) ? '@soundhaususer' : `@${profile.username}`}

@@ -101,7 +101,7 @@ export default function CollaborationPanel() {
                                             className="hover:text-zinc-300 transition-colors"
                                             onClick={(e) => e.stopPropagation()}
                                         >
-                                            {item.owner_display_name}
+                                            {item.owner_username}
                                         </Link>
                                         {item.last_push_at && (
                                             <> · {timeAgo(item.last_push_at)}</>

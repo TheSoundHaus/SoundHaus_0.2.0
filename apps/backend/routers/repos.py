@@ -55,8 +55,7 @@ def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[
     if profile is None:
         return {"owner_username": gitea_owner, "owner_display_name": gitea_owner}
     username = profile.username or gitea_owner
-    display = (profile.display_name or "").strip() or username
-    return {"owner_username": username, "owner_display_name": display}
+    return {"owner_username": username, "owner_display_name": username}
 
 
 def _verify_owner(user_id: str, url_owner: str, db: Session) -> None:
@@ -450,8 +449,6 @@ async def get_user_public_repos(
     Accepts either a Supabase UUID or a SoundHaus username."""
     profile = db.query(Profile).filter(Profile.username == username).first()
     if not profile:
-        profile = db.query(Profile).filter(Profile.display_name == username).first()
-    if not profile:
         profile = db.query(Profile).filter(Profile.id == username).first()
     owner_id = str(profile.id) if profile else username
     labels = _owner_profile_fields(profile, owner_id)
@@ -514,8 +511,6 @@ async def get_user_public_stats(
 ):
     """Get aggregate public stats for a user (no auth required)."""
     profile = db.query(Profile).filter(Profile.username == username).first()
-    if not profile:
-        profile = db.query(Profile).filter(Profile.display_name == username).first()
     if not profile:
         profile = db.query(Profile).filter(Profile.id == username).first()
     if not profile:

@@ -73,7 +73,7 @@ export interface PublicRepo {
   gitea_id: string;              // "owner/repo-name"
   owner: string;                 // Supabase UUID (used in API routes)
   owner_username?: string;       // Human-readable SoundHaus username
-  owner_display_name?: string;   // Profile display name (falls back to username)
+  owner_display_name?: string;   // Same as owner_username (kept for compat)
   repo_name: string;
   clone_count: number;
   clone_url: string;
@@ -105,7 +105,7 @@ export interface RepoStats {
   success: boolean;
   gitea_id: string;              // "owner/repo-name"
   owner_username?: string;       // Human-readable SoundHaus username
-  owner_display_name?: string;
+  owner_display_name?: string;   // Same as owner_username (kept for compat)
   description: string;           // Gitea repo description
   private: boolean;              // Gitea repo visibility
   clone_url: string;
@@ -126,7 +126,7 @@ export interface EnrichedRepo {
   private: boolean;
   owner_id: string;              // Gitea login (= Supabase UUID)
   owner_username: string;        // SoundHaus username (human-readable)
-  owner_display_name?: string;   // Profile display name
+  owner_display_name?: string;   // Same as owner_username (kept for compat)
   created_at: string;            // ISO timestamp
   updated_at: string;            // ISO timestamp
   total_commits: number;

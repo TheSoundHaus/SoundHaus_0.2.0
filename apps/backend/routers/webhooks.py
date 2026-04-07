@@ -239,7 +239,7 @@ async def get_repo_events(
     if invitee_emails:
         rows = db.query(Profile).filter(Profile.email.in_(invitee_emails)).all()
         for p in rows:
-            email_to_username[p.email] = p.username or p.display_name or p.email.split("@")[0]
+            email_to_username[p.email] = p.username or p.email.split("@")[0]
 
     for inv in invitations:
         invitee_name = email_to_username.get(inv.invitee_email, inv.invitee_email.split("@")[0])
@@ -275,7 +275,7 @@ async def get_repo_events(
     if uploader_ids:
         rows = db.query(Profile).filter(Profile.id.in_(uploader_ids)).all()
         for p in rows:
-            id_to_username[p.id] = p.username or p.display_name or p.id
+            id_to_username[p.id] = p.username or p.id
 
     for s in snippet_events:
         all_events.append({
