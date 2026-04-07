@@ -122,7 +122,7 @@ const LoginPage = () => {
                 </div>
 
                 <p className="text-center text-xs text-text-tertiary mt-5">
-                    Create an account at <span className="text-accent">soundhaus.dev</span>
+                    Create an account at <span className="text-accent"> <a href="https://www.thesound.haus" target="_blank">thesound.haus</a></span>
                 </p>
             </div>
         </div>
