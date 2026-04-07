@@ -9,6 +9,7 @@ import ProjectInitDialog from './pages/ProjectInitDialog'
 import CloneUrlDialog from './pages/CloneUrlDialog'
 import AboutDialog from './pages/AboutDialog'
 import SearchPalette from './components/SearchPalette'
+import ErrorBoundary from './components/ErrorBoundary'
 import Navbar from './components/Navbar'
 import { useMenuActions } from './hooks/useMenuActions'
 
@@ -18,6 +19,7 @@ function MenuActionListener() {
 }
 
 function App() {
+  console.log('[SoundHaus] App: rendering')
   const [isPaletteOpen, setIsPaletteOpen] = useState(false)
 
   useEffect(() => {
@@ -28,19 +30,21 @@ function App() {
 
   return (
     <Router>
-      <MenuActionListener />
-      <SearchPalette isOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
-      <Navbar />
-      <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-        <Routes>
-          <Route path="/" element={<LoginPage />} />
-          <Route path="/home" element={<HomePage />} />
-          <Route path="/project" element={<ProjectPage />} />
-          <Route path="/project-setup" element={<ProjectInitDialog />} />
-          <Route path="/clone-url" element={<CloneUrlDialog />} />
-          <Route path="/about" element={<AboutDialog />} />
-        </Routes>
-      </div>
+      <ErrorBoundary>
+        <MenuActionListener />
+        <SearchPalette isOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
+        <Navbar />
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+          <Routes>
+            <Route path="/" element={<LoginPage />} />
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/project" element={<ProjectPage />} />
+            <Route path="/project-setup" element={<ProjectInitDialog />} />
+            <Route path="/clone-url" element={<CloneUrlDialog />} />
+            <Route path="/about" element={<AboutDialog />} />
+          </Routes>
+        </div>
+      </ErrorBoundary>
     </Router>
   )
 }

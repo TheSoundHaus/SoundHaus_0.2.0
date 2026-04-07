@@ -193,9 +193,10 @@ export default function StemPlayer({
     const allWs = Object.values(wsMapRef.current);
     if (allWs.length < 2) return;
     const ref = allWs[0];
+    if (!ref) return;
     const pos = ref.getCurrentTime() / ref.getDuration();
     for (let i = 1; i < allWs.length; i++) {
-      allWs[i].seekTo(pos);
+      allWs[i]?.seekTo(pos);
     }
   }, []);
 
@@ -409,7 +410,7 @@ export default function StemPlayer({
         )}
         <button
           onClick={handleGenerate}
-          className="flex items-center gap-2 rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+          className="btn btn-primary btn-sm"
         >
           <Music size={14} /> Generate Stems
         </button>

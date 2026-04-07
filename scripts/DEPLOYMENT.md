@@ -9,7 +9,7 @@ This guide covers deploying the SoundHaus backend (**FastAPI + Gitea + token-bro
 | **Compose profiles (`local` / `remote`)** | Everyday dev on your laptop (`compose.sh local` / `compose.ps1 local`) or running the stack **on the server** with **`.env.compose.remote`** + **`apps/backend/.env.remote`**. Uses `docker compose --env-file .env.compose.<profile> …`. |
 | **`deploy-digital-ocean.sh`** | One-shot **rsync** from your machine: copies **`docker-compose.yml`**, a root **`.env`**, and **`apps/backend/`** to **`/opt/soundhaus`**, then runs **`docker compose up -d`** **without** the profile env file. Expects certain variables in that root **`.env`** (see script + below). |
 
-You can standardize the droplet on **profiles** instead: copy the repo, create **`.env.compose.remote`** and **`apps/backend/.env.remote`**, then `docker compose --env-file .env.compose.remote up -d` (or `./scripts/compose.sh remote up -d`). The deploy script is optional automation on top of the same `docker-compose.yml`.
+You can standardize the droplet on **profiles** instead: copy the repo, create **`.env.compose.remote`** and **`apps/backend/.env.remote`**, then `docker compose --env-file .env.compose.remote up -d` (or `./compose.sh remote up -d`). The deploy script is optional automation on top of the same `docker-compose.yml`.
 
 **Secrets on the droplet:** use **different** `GITEA_DB_PASSWORD`, `GITEA_SECRET_KEY`, and `GITEA_INTERNAL_TOKEN` than on your laptop; each host has its own Postgres volume and Gitea data.
 
@@ -94,8 +94,8 @@ Ensure **`apps/backend/.env`** on the droplet (or the merged layout after rsync)
 ## Step 2: Test locally (recommended)
 
 ```bash
-./scripts/compose.sh local up -d
-# Windows: .\scripts\compose.ps1 local up -d
+./compose.sh local up -d
+# Windows: .\compose.ps1 local up -d
 ```
 
 - Gitea: http://localhost:3000  
@@ -104,7 +104,7 @@ Ensure **`apps/backend/.env`** on the droplet (or the merged layout after rsync)
 Stop when done:
 
 ```bash
-./scripts/compose.sh local down
+./compose.sh local down
 ```
 
 ## Step 3: Deploy to DigitalOcean
@@ -134,7 +134,7 @@ The script will:
 ```bash
 ssh user@droplet
 cd /opt/soundhaus   # or your clone path
-./scripts/compose.sh remote up -d --build
+./compose.sh remote up -d --build
 ```
 
 Requires **`.env.compose.remote`** and **`apps/backend/.env.remote`** on that machine.

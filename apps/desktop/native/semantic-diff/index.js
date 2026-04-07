@@ -579,6 +579,7 @@ module.exports = nativeBinding
 module.exports.diffFromSnapshot = nativeBinding.diffFromSnapshot
 module.exports.diffSnapshots = nativeBinding.diffSnapshots
 module.exports.generateCommitMessage = nativeBinding.generateCommitMessage
+module.exports.mergeAlsFiles = nativeBinding.mergeAlsFiles
 module.exports.parseAls = nativeBinding.parseAls
 module.exports.parseXml = nativeBinding.parseXml
 module.exports.parseXmlFromBuffer = nativeBinding.parseXmlFromBuffer

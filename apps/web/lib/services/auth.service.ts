@@ -4,7 +4,8 @@
 import {
   LoginFormSchema,
   SignupFormSchema,
-  type SignUpFormState,
+  type FormState as SignUpFormState,
+  type LoginFormState,
 } from "@/lib/zod/authDefinition";
 import { redirect } from "next/navigation";
 import { clearAuthCookies, getAccessToken, setAuthCookies } from "@/lib/utils/authUtil";
@@ -83,9 +84,9 @@ export async function signup(
 }
 
 export async function login(
-  _prevState: LoginFormSchema,
+  _prevState: LoginFormState,
   formData: FormData,
-): Promise<LoginFormSchema> {
+): Promise<LoginFormState> {
     const validatedFields = LoginFormSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),

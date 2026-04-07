@@ -1,6 +1,6 @@
 "use server";
 
-import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo, updateRepoDescription } from "@/lib/api/repos";
+import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo, updateRepoDescription, updateRepoVisibility } from "@/lib/api/repos";
 
 // Thin server action wrapper for createRepo
 // Returns a simple serializable object (no complex GiteaRepo nesting)
@@ -68,6 +68,20 @@ export async function renameRepoAction(
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Failed to rename project" };
+  }
+}
+
+export async function updateVisibilityAction(
+  owner: string,
+  repo: string,
+  isPrivate: boolean,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const result = await updateRepoVisibility(owner, repo, isPrivate);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to update visibility" };
   }
 }
 

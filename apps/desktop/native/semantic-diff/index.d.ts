@@ -26,6 +26,17 @@ export declare function diffSnapshots(oldSnapshotJson: string, newSnapshotJson: 
 export declare function generateCommitMessage(diffReportJson: string): Promise<string>
 
 /**
+ * Merge two Ableton Live Set files at the XML track level.
+ *
+ * * `local_als_path`  — path to User B's uncommitted `.als` (their edits).
+ * * `remote_als_path` — path to User A's `.als` (current HEAD after rebase).
+ *
+ * Returns a gzip-compressed Buffer ready to be written back as a `.als` file.
+ * Track ID conflicts are automatically resolved.
+ */
+export declare function mergeAlsFiles(localAlsPath: string, remoteAlsPath: string): Promise<Buffer>
+
+/**
  * Parse a single Ableton Live Set file and serialize it as a Project JSON snapshot.
  * Primary snapshot serialization path: result is written to `.soundhaus/{session}/snapshot.json`.
  */

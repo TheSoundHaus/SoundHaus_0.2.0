@@ -9,12 +9,16 @@ export interface UserProfile {
     id: string;
     email: string;
     username: string;
-    display_name: string;
     avatar_url: string | null;
     bio: string | null;
     is_public: boolean;
     created_at: string | null;
     updated_at: string | null;
+    social_instagram: string | null;
+    social_youtube: string | null;
+    social_spotify: string | null;
+    social_twitter: string | null;
+    social_website: string | null;
 }
 
 interface UserContextValue {

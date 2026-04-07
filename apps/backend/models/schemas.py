@@ -5,13 +5,18 @@ class SignUpRequest(BaseModel):
     email: EmailStr
     password: str
     metadata: Optional[Dict[str, Any]] = None
-    name: str  # username — required
+    name: str  # SoundHaus profile username (unique); Gitea login is provisioned as Supabase user id
 
 
 class ProfileUpdateRequest(BaseModel):
-    display_name: Optional[str] = None
+    username: Optional[str] = None
     bio: Optional[str] = None
     is_public: Optional[bool] = None
+    social_instagram: Optional[str] = None
+    social_youtube: Optional[str] = None
+    social_spotify: Optional[str] = None
+    social_twitter: Optional[str] = None
+    social_website: Optional[str] = None
 
 class SignInRequest(BaseModel):
     email: EmailStr
@@ -29,6 +34,12 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 class CreateRepoRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    private: bool = True
+
+class RegisterRepoRequest(BaseModel):
+    """Register a Gitea repo in the local database (used by desktop app after direct Gitea creation)."""
     name: str
     description: Optional[str] = ""
     private: bool = True

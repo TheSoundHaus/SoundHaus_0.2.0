@@ -46,7 +46,7 @@ class SnippetVersion(Base):
     # FK to repo_data.gitea_id  (e.g. "uuid/repo-name")
     repo_gitea_id = Column(
         String(255),
-        ForeignKey("repo_data.gitea_id"),
+        ForeignKey("repo_data.gitea_id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
