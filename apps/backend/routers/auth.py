@@ -485,23 +485,23 @@ async def get_public_profile(
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not profile.get("is_public", False):
-        raise HTTPException(status_code=404, detail="This profile is private")
+    is_public = profile.get("is_public", False)
 
     # Return only public-safe fields (exclude email and id)
-    pub_username = profile.get("username") or profile.get("id") or ""
+    pub_username = profile.get("username") or profile.get("display_name") or profile.get("id") or ""
     return {
         "success": True,
+        "is_public": is_public,
         "profile": {
             "username": pub_username,
             "display_name": profile["display_name"],
             "avatar_url": profile["avatar_url"],
-            "bio": profile["bio"],
+            "bio": profile["bio"] if is_public else None,
             "created_at": profile["created_at"],
-            "social_instagram": profile.get("social_instagram"),
-            "social_youtube": profile.get("social_youtube"),
-            "social_spotify": profile.get("social_spotify"),
-            "social_twitter": profile.get("social_twitter"),
-            "social_website": profile.get("social_website"),
+            "social_instagram": profile.get("social_instagram") if is_public else None,
+            "social_youtube": profile.get("social_youtube") if is_public else None,
+            "social_spotify": profile.get("social_spotify") if is_public else None,
+            "social_twitter": profile.get("social_twitter") if is_public else None,
+            "social_website": profile.get("social_website") if is_public else None,
         },
     }

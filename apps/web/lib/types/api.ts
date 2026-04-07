@@ -212,6 +212,7 @@ export interface PushActivity {
   commit_count: number;
   commit_message?: string | null; // latest commit message from push
   pusher: string;                // Gitea username
+  pusher_avatar?: string | null; // avatar URL from profile
   pushed_at: string | null;      // ISO timestamp string
 }
 
@@ -227,6 +228,7 @@ export interface RepoEvent {
   id: number | string;
   event_type: string;           // e.g. "branch_created", "tag_deleted", "collaborator_joined", "snippet_updated"
   actor: string;                // Gitea username of the actor
+  actor_avatar?: string | null;  // avatar URL from profile
   detail?: string | null;       // extra context (invitation info, snippet version, etc.)
   occurred_at: string | null;   // ISO timestamp string
 }

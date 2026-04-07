@@ -1029,6 +1029,7 @@ export default function RepoDetailClient({
           kind: "push" | "event";
           timestamp: string | null;
           actor: string;
+          actorAvatar?: string | null;
           eventType: string;
           detail?: string | null;
           commitMessage?: string | null;
@@ -1046,6 +1047,7 @@ export default function RepoDetailClient({
             kind: "push",
             timestamp: p.pushed_at,
             actor: p.pusher,
+            actorAvatar: p.pusher_avatar ?? null,
             eventType: "push",
             commitMessage: p.commit_message,
             commitCount: p.commit_count,
@@ -1061,6 +1063,7 @@ export default function RepoDetailClient({
             kind: "event",
             timestamp: ev.occurred_at,
             actor: ev.actor,
+            actorAvatar: ev.actor_avatar ?? null,
             eventType: ev.event_type,
             detail: ev.detail,
           });
@@ -1154,7 +1157,7 @@ export default function RepoDetailClient({
 
                               {/* Avatar */}
                               <div className="shrink-0">
-                                <UserAvatar src={null} alt={item.actor} size={32} />
+                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} size={32} />
                               </div>
 
                               {/* Event details */}

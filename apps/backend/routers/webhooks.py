@@ -16,6 +16,7 @@ from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent
 from models.commit_models import CommitDetail
 from models.invitation_models import CollaboratorInvitation
 from models.snippet_models import SnippetHistory
+from models.profile_models import Profile
 
 logger = get_logger(__name__)
 
@@ -135,6 +136,19 @@ async def get_repo_activity(
         .all()
     )
 
+    # Batch-resolve pusher avatars
+    pusher_names = {e.pusher_username for e in push_events if e.pusher_username}
+    pusher_avatars: dict[str, str | None] = {}
+    if pusher_names:
+        rows = db.query(Profile).filter(Profile.username.in_(pusher_names)).all()
+        for p in rows:
+            pusher_avatars[p.username] = p.avatar_url
+        unresolved = pusher_names - set(pusher_avatars.keys())
+        if unresolved:
+            rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
+            for p in rows:
+                pusher_avatars[p.id] = p.avatar_url
+
     activity_items = []
     for e in push_events:
         # Get the latest commit message from the push's commit details
@@ -155,6 +169,7 @@ async def get_repo_activity(
             "commit_count": e.commit_count,
             "commit_message": commit_message,
             "pusher": e.pusher_username,
+            "pusher_avatar": pusher_avatars.get(e.pusher_username),
             "pushed_at": str(e.pushed_at) if e.pushed_at else None,
         })
 
@@ -217,13 +232,23 @@ async def get_repo_events(
         .limit(min(limit, 30))
         .all()
     )
+
+    # Resolve invitee emails -> usernames
+    invitee_emails = {inv.invitee_email for inv in invitations if inv.invitee_email}
+    email_to_username: dict[str, str] = {}
+    if invitee_emails:
+        rows = db.query(Profile).filter(Profile.email.in_(invitee_emails)).all()
+        for p in rows:
+            email_to_username[p.email] = p.username or p.display_name or p.email.split("@")[0]
+
     for inv in invitations:
+        invitee_name = email_to_username.get(inv.invitee_email, inv.invitee_email.split("@")[0])
         if inv.status == "accepted":
             all_events.append({
                 "id": f"collab-{inv.id}",
                 "event_type": "collaborator_joined",
-                "actor": inv.invitee_email.split("@")[0],
-                "detail": f"Invited by {inv.owner_username} ({inv.permission})",
+                "actor": invitee_name,
+                "detail": f"Invited by {inv.owner_username} with {inv.permission} access",
                 "occurred_at": str(inv.responded_at or inv.created_at),
             })
         elif inv.status == "pending":
@@ -231,7 +256,7 @@ async def get_repo_events(
                 "id": f"collab-{inv.id}",
                 "event_type": "collaborator_invited",
                 "actor": inv.owner_username,
-                "detail": f"Invited {inv.invitee_email.split('@')[0]} ({inv.permission})",
+                "detail": f"Invited {invitee_name} with {inv.permission} access",
                 "occurred_at": str(inv.created_at),
             })
 
@@ -243,11 +268,20 @@ async def get_repo_events(
         .limit(min(limit, 20))
         .all()
     )
+
+    # Resolve snippet uploader UUIDs -> usernames
+    uploader_ids = {s.replaced_by_user_id for s in snippet_events if s.replaced_by_user_id}
+    id_to_username: dict[str, str] = {}
+    if uploader_ids:
+        rows = db.query(Profile).filter(Profile.id.in_(uploader_ids)).all()
+        for p in rows:
+            id_to_username[p.id] = p.username or p.display_name or p.id
+
     for s in snippet_events:
         all_events.append({
             "id": f"snippet-{s.id}",
             "event_type": "snippet_updated",
-            "actor": s.replaced_by_user_id or "unknown",
+            "actor": id_to_username.get(s.replaced_by_user_id, "unknown") if s.replaced_by_user_id else "unknown",
             "detail": f"v{s.version_number}" + (f" ({s.format})" if s.format else ""),
             "occurred_at": str(s.replaced_at) if s.replaced_at else None,
         })
@@ -255,6 +289,22 @@ async def get_repo_events(
     # Sort all events by occurred_at descending, then limit
     all_events.sort(key=lambda x: x["occurred_at"] or "", reverse=True)
     all_events = all_events[:min(limit, 50)]
+
+    # Batch-resolve avatar URLs for all actors
+    actor_names = {ev["actor"] for ev in all_events if ev.get("actor")}
+    actor_avatars: dict[str, str | None] = {}
+    if actor_names:
+        rows = db.query(Profile).filter(Profile.username.in_(actor_names)).all()
+        for p in rows:
+            actor_avatars[p.username] = p.avatar_url
+        unresolved = actor_names - set(actor_avatars.keys())
+        if unresolved:
+            rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
+            for p in rows:
+                actor_avatars[p.id] = p.avatar_url
+
+    for ev in all_events:
+        ev["actor_avatar"] = actor_avatars.get(ev.get("actor"))
 
     return {
         "success": True,
