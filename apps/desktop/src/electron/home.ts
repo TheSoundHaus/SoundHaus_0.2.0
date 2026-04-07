@@ -2,7 +2,7 @@ import { exec as gitExec } from 'dugite';
 import { dialog, BrowserWindow } from 'electron'
 import type { OpenDialogOptions } from 'electron'
 import { getAllowedCloneRemote, getGiteaCredentials } from './login';
-import { ensureSoundHausGitignore } from './project';
+import { ensureSoundHausGitignore, ensureAbletonProjectInfoTracked } from './project';
 import { desktopEnv } from './env';
 import { join } from 'path'
 import * as path from 'path';
@@ -168,6 +168,9 @@ async function init(folderPath: string, projectInfo?: ProjectSetupData): Promise
 
         ensureSoundHausGitignore(folderPath);
         console.log('[init] ✓ Default .gitignore (Icon / Backup) applied');
+
+        await ensureAbletonProjectInfoTracked(folderPath);
+        console.log('[init] ✓ Ableton Project Info/ preserved for git tracking');
 
         // Step 2: Prepare remote repository creation
         const repoName = path.basename(folderPath).replace(/\s+/g, '_');
