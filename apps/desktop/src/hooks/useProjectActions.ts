@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom'
-import { useElectronIPC } from './useElectronIPC'
 import { useState } from 'react'
+import { useToast } from '../components/ToastProvider'
+import { useElectronIPC } from './useElectronIPC'
 
 export function useProjectActions() {
+    const { showToast } = useToast()
     const { chooseFolder, hasGitFile, initRepo, cloneRepo, showProjectSetup, showCloneUrl } = useElectronIPC()
     const navigate = useNavigate()
     const [isOpenDialogVisible, setIsOpenDialogVisible] = useState(false)
@@ -34,7 +36,12 @@ export function useProjectActions() {
         try {
             const git = await hasGitFile(projectPath);
             if (!git) {
-                alert(`This is not a valid SoundHaus project (no git repository found):\n${projectPath}`);
+                showToast({
+                    type: 'error',
+                    title: 'Not a SoundHaus project',
+                    detail:
+                        "This folder doesn't look like a SoundHaus project yet. Choose a folder that was created or downloaded with SoundHaus.",
+                });
                 return false;
             }
 
@@ -44,7 +51,11 @@ export function useProjectActions() {
             navigate('/project', { state: { projectPath } });
             return true;
         } catch (error) {
-            alert(`Failed to open project:\n${error instanceof Error ? error.message : String(error)}`);
+            showToast({
+                type: 'error',
+                title: "Couldn't open project",
+                detail: error instanceof Error ? error.message : String(error),
+            });
             return false;
         }
     }
@@ -57,7 +68,12 @@ export function useProjectActions() {
 
         try {
             const clonedRepoPath = await cloneRepo(cloneInfo.url, cloneInfo.path);
-            alert(`Clone complete:\n${clonedRepoPath}`)
+            const name = getProjectName(clonedRepoPath);
+            showToast({
+                type: 'success',
+                title: 'Project downloaded',
+                detail: `${name}\n${clonedRepoPath}`,
+            })
 
             const git = await hasGitFile(clonedRepoPath);
             if (git) {
@@ -66,8 +82,12 @@ export function useProjectActions() {
                 await trackRecentProject(clonedRepoPath, projectName);
                 navigate('/project', {state: {projectPath: clonedRepoPath}});
             }
-        } catch(error) {
-            alert(`Clone failed:\n${error}`)
+        } catch (error) {
+            showToast({
+                type: 'error',
+                title: "Couldn't download project",
+                detail: error instanceof Error ? error.message : String(error),
+            })
         }
     }
 
@@ -87,18 +107,26 @@ export function useProjectActions() {
             }
 
             try {
-                const result = await initRepo(folder, projectInfo);
-                alert(`Init complete:\n${result}`)
+                await initRepo(folder, projectInfo);
+                showToast({
+                    type: 'success',
+                    title: 'Project created',
+                    detail: `${projectInfo.name} is ready on your computer.`,
+                });
 
                 // Only navigate on success
                 const git = await hasGitFile(folder);
-                if(git) {
+                if (git) {
                     await window.electron?.setLastProjectPath(folder);
                     await trackRecentProject(folder, projectInfo.name);
-                    navigate('/project', {state: {projectPath: folder}});
+                    navigate('/project', { state: { projectPath: folder } });
                 }
-            } catch(error) {
-                alert(`Failed to create repository:\n${error instanceof Error ? error.message : String(error)}`)
+            } catch (error) {
+                showToast({
+                    type: 'error',
+                    title: "Couldn't create project",
+                    detail: error instanceof Error ? error.message : String(error),
+                });
             }
         }
     }

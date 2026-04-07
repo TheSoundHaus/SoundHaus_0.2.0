@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { FolderOpen, X, Clock, FolderSearch, Trash2 } from 'lucide-react'
 import type { RecentProject } from '../types/index'
+import { useToast } from './ToastProvider'
 
 interface OpenProjectDialogProps {
   isOpen: boolean
@@ -15,6 +16,7 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   onSelectProject,
   onOpenFromFilepath,
 }) => {
+  const { showToast } = useToast()
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -77,7 +79,11 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
         onClose()
       }
     } catch (error) {
-      alert(`Failed to open project:\n${error instanceof Error ? error.message : String(error)}`)
+      showToast({
+        type: 'error',
+        title: "Couldn't open project",
+        detail: error instanceof Error ? error.message : String(error),
+      })
     } finally {
       setLoading(false)
     }
