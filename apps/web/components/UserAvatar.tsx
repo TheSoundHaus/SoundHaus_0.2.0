@@ -1,11 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import DefaultAvatar from "./DefaultAvatar";
 
-/**
- * UserAvatar – Displays a user's avatar image or the default silhouette.
- * Handles loading states and broken image URLs gracefully.
- */
 export default function UserAvatar({
     src,
     alt = "User avatar",
@@ -17,7 +14,9 @@ export default function UserAvatar({
     size?: number;
     className?: string;
 }) {
-    if (!src) {
+    const [failed, setFailed] = useState(false);
+
+    if (!src || failed) {
         return <DefaultAvatar size={size} className={`rounded-full ${className}`} />;
     }
 
@@ -29,10 +28,7 @@ export default function UserAvatar({
             height={size}
             className={`rounded-full object-cover ${className}`}
             style={{ width: size, height: size }}
-            onError={(e) => {
-                // Hide broken image and show nothing (parent should have fallback bg)
-                (e.target as HTMLImageElement).style.display = "none";
-            }}
+            onError={() => setFailed(true)}
         />
     );
 }

@@ -7,13 +7,14 @@ stores delivery records, and updates RepoData activity timestamps.
 import hmac
 import hashlib
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 from sqlalchemy.orm import Session
 from logging_config import get_logger
 from config import settings
 from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig
 from models.repo_models import RepoData
 from models.commit_models import CommitDetail
+from services.repo_service import RepoService
 
 logger = get_logger(__name__)
 
@@ -209,7 +210,16 @@ class WebhookService:
             db.flush()
 
             # Create CommitDetail rows from push payload
+            now = datetime.now(timezone.utc)
             for commit in commits:
+                # Check if any .als files were touched in this commit
+                all_files: List[str] = (
+                    commit.get("added", [])
+                    + commit.get("modified", [])
+                    + commit.get("removed", [])
+                )
+                has_als = any(f.lower().endswith(".als") for f in all_files)
+
                 cd = CommitDetail(
                     push_event_id=push_event.id,
                     repo_id=repo_full_name,
@@ -222,13 +232,19 @@ class WebhookService:
                     files_added=commit.get("added", []),
                     files_modified=commit.get("modified", []),
                     files_removed=commit.get("removed", []),
+                    diff_pending="pending" if has_als else "none",
+                    diff_pending_since=now if has_als else None,
                 )
                 db.add(cd)
 
-            # Update RepoData activity
+            # Update RepoData activity — fetch real total from Gitea so the
+            # count is accurate even for repos that pre-date the webhook.
             now = datetime.now(timezone.utc)
             repo_data.last_push_at = now
-            repo_data.total_commits = (repo_data.total_commits or 0) + len(commits)
+            owner_id, _, repo_slug = repo_full_name.partition("/")
+            svc = RepoService()
+            real_count = svc.get_commit_count(owner_id, repo_slug)
+            repo_data.total_commits = real_count if real_count > 0 else (repo_data.total_commits or 0) + len(commits)
             repo_data.last_activity_at = now
 
             # Flag repo as having new commits for the web UI
@@ -370,6 +386,11 @@ class WebhookService:
                 actor_username=sender_username
             )
             db.add(repo_event)
+
+            # Sync cached description from the webhook payload
+            new_description = payload.get("repository", {}).get("description")
+            if new_description is not None:
+                repo_data.description = new_description or None
 
         # If repo deleted in Gitea, clean up our metadata
         if action == "deleted" and repo_data:

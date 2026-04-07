@@ -607,7 +607,6 @@ class RepoService:
                 enriched.append({
                     "login": gitea_login,  # UUID, needed for remove operations
                     "username": profile.username if profile else gitea_login,
-                    "display_name": profile.display_name if profile else None,
                     "email": profile.email if profile else collab.get("email", ""),
                     "avatar_url": profile.avatar_url if profile else collab.get("avatar_url", ""),
                     "bio": profile.bio if profile else None,
@@ -657,3 +656,29 @@ class RepoService:
         except requests.RequestException as e:
             logger.error("remove_collaborator_error", owner=owner, repo=repo_name, collaborator=username, error=str(e))
             return {"success": False, "message": str(e)}
+
+    def get_commit_count(self, owner: str, repo_name: str) -> int:
+        """
+        Fetch the real total commit count from Gitea for a repository.
+        Uses the X-Total-Count header on the paginated commits endpoint.
+        Returns 0 on any error so callers degrade gracefully.
+        """
+        try:
+            url_path = f"/api/v1/repos/{owner}/{repo_name}/commits"
+            # limit=1 minimises payload; Gitea still returns X-Total-Count for full set
+            headers = {**self.headers, "Content-Type": "application/json"}
+            resp = requests.get(
+                self._url(url_path),
+                headers=headers,
+                params={"limit": 1, "page": 1, "stat": "false", "verification": "false", "files": "false"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                total = int(resp.headers.get("X-Total-Count", 0))
+                logger.debug("get_commit_count", owner=owner, repo=repo_name, total=total)
+                return total
+            logger.warning("get_commit_count_failed", owner=owner, repo=repo_name, status=resp.status_code)
+            return 0
+        except Exception as e:
+            logger.error("get_commit_count_error", owner=owner, repo=repo_name, error=str(e))
+            return 0

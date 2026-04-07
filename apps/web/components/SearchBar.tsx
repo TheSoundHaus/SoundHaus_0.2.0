@@ -176,7 +176,8 @@ export function SearchBar({
             case 'Enter':
                 e.preventDefault();
                 if (selectedIndex >= 0 && selectedIndex < computedSuggestions.length) {
-                    handleSuggestionClick(computedSuggestions[selectedIndex]);
+                    const suggestion = computedSuggestions[selectedIndex];
+                    if (suggestion) handleSuggestionClick(suggestion);
                 }
                 break;
             case 'Escape':

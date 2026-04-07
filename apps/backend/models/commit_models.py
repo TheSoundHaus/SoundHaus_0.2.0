@@ -48,6 +48,12 @@ class CommitDetail(Base):
     files_modified = Column(JSON, nullable=True, default=list)
     files_removed = Column(JSON, nullable=True, default=list)
 
+    # ── Diff upload tracking ───────────────────────────────────────────────
+    # True when ALS file was changed and desktop diff upload is expected but
+    # hasn't arrived yet.  Cleared when POST /repos/{owner}/{repo}/diff lands.
+    diff_pending = Column(String(20), nullable=False, server_default="none")
+    diff_pending_since = Column(DateTime(timezone=True), nullable=True)
+
     # ── Housekeeping ───────────────────────────────────────────────────────
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

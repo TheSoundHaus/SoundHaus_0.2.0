@@ -53,7 +53,6 @@ class ProfileService:
         user_id: str,
         username: str,
         email: str,
-        display_name: Optional[str] = None,
         db: Session = None,
     ) -> Dict[str, Any]:
         """Create a new profile row at signup time."""
@@ -68,7 +67,6 @@ class ProfileService:
             id=user_id,
             email=email,
             username=username,
-            display_name=display_name or username,
         )
         db.add(profile)
         db.commit()
@@ -82,17 +80,36 @@ class ProfileService:
         updates: Dict[str, Any],
         db: Session,
     ) -> Dict[str, Any]:
-        """Update display_name and/or bio for an existing profile."""
+        """Update username and/or bio for an existing profile."""
         profile = db.query(Profile).filter(Profile.id == user_id).first()
         if not profile:
             return {"success": False, "message": "Profile not found"}
 
-        if "display_name" in updates and updates["display_name"] is not None:
-            profile.display_name = updates["display_name"].strip()[:100]
+        if "username" in updates and updates["username"] is not None:
+            new_username = updates["username"].strip()[:40]
+            self._validate_username(new_username)
+            # Check uniqueness (excluding self)
+            existing = db.query(Profile).filter(
+                Profile.username == new_username,
+                Profile.id != user_id,
+            ).first()
+            if existing:
+                return {"success": False, "message": f"Username '{new_username}' is already taken"}
+            profile.username = new_username
         if "bio" in updates and updates["bio"] is not None:
             profile.bio = updates["bio"].strip()[:500]
         if "is_public" in updates and updates["is_public"] is not None:
             profile.is_public = bool(updates["is_public"])
+        if "social_instagram" in updates:
+            profile.social_instagram = (updates["social_instagram"] or "")[:255] or None
+        if "social_youtube" in updates:
+            profile.social_youtube = (updates["social_youtube"] or "")[:255] or None
+        if "social_spotify" in updates:
+            profile.social_spotify = (updates["social_spotify"] or "")[:255] or None
+        if "social_twitter" in updates:
+            profile.social_twitter = (updates["social_twitter"] or "")[:255] or None
+        if "social_website" in updates:
+            profile.social_website = (updates["social_website"] or "")[:255] or None
 
         db.commit()
         db.refresh(profile)
@@ -205,12 +222,16 @@ class ProfileService:
             "id": profile.id,
             "email": profile.email,
             "username": profile.username,
-            "display_name": profile.display_name,
             "avatar_url": profile.avatar_url,
             "bio": profile.bio,
             "is_public": profile.is_public if profile.is_public is not None else False,
             "created_at": profile.created_at.isoformat() if profile.created_at else None,
             "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+            "social_instagram": profile.social_instagram,
+            "social_youtube": profile.social_youtube,
+            "social_spotify": profile.social_spotify,
+            "social_twitter": profile.social_twitter,
+            "social_website": profile.social_website,
         }
 
 

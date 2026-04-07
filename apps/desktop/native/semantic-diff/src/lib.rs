@@ -8,10 +8,12 @@
 //! - `diffFromSnapshot(snapshotJson, alsPath)` — fast diff from committed snapshot JSON
 //! - `generateCommitMessage(diffReportJson)` — human-readable commit message from a DiffReport
 //! - `parseXml(currentPath, oldPath)` — file-path based (kept for compatibility)
+//! - `mergeAlsFiles(localPath, remotePath)` — XML-level track merge for pull/rebase
 
 mod models;
 mod parser;
 mod diff;
+mod merge;
 mod utils;
 
 use napi_derive::napi;
@@ -137,6 +139,31 @@ pub async fn generate_commit_message(diff_report_json: String) -> napi::Result<S
         let report: models::DiffReport = serde_json::from_str(&diff_report_json)
             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to deserialize diff report: {}", e)))?;
         Ok(build_commit_message(&report))
+    })
+    .await
+    .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Task panicked: {}", e)))?
+}
+
+/// Merge two Ableton Live Set files at the XML track level.
+///
+/// * `local_als_path`  — path to User B's uncommitted `.als` (their edits).
+/// * `remote_als_path` — path to User A's `.als` (current HEAD after rebase).
+///
+/// Returns a gzip-compressed Buffer ready to be written back as a `.als` file.
+/// Track ID conflicts are automatically resolved.
+#[napi]
+pub async fn merge_als_files(local_als_path: String, remote_als_path: String) -> napi::Result<Buffer> {
+    tokio::task::spawn_blocking(move || {
+        let local_bytes = std::fs::read(&local_als_path)
+            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to read local ALS '{}': {}", local_als_path, e)))?;
+
+        let remote_bytes = std::fs::read(&remote_als_path)
+            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Failed to read remote ALS '{}': {}", remote_als_path, e)))?;
+
+        let merged = merge::merge_als(&local_bytes, &remote_bytes)
+            .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("ALS merge failed: {}", e)))?;
+
+        Ok(Buffer::from(merged))
     })
     .await
     .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Task panicked: {}", e)))?

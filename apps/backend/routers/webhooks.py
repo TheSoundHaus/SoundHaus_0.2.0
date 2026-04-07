@@ -3,15 +3,20 @@ Webhook endpoints – receive Gitea events, list deliveries, activity feed, repo
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 import json as _json
+from starlette.requests import ClientDisconnect
 
 from database import get_db
-from dependencies import limiter, verify_token
+from dependencies import limiter, verify_token, resolve_owner_id
 from logging_config import get_logger
 from services.webhook_service import webhook_service
 from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent
+from models.commit_models import CommitDetail
+from models.invitation_models import CollaboratorInvitation
+from models.snippet_models import SnippetHistory
+from models.profile_models import Profile
 
 logger = get_logger(__name__)
 
@@ -31,11 +36,16 @@ async def receive_gitea_webhook(
     DESKTOP TEAM: Do NOT call this endpoint from the desktop app.
     This is called exclusively by Gitea when git events occur.
     """
-    body = await request.body()
-
+    # Read headers first (available even if body stream disconnects)
     event_type = request.headers.get("X-Gitea-Event") or request.headers.get("x-gitea-event", "unknown")
     delivery_id = request.headers.get("X-Gitea-Delivery") or request.headers.get("x-gitea-delivery", "unknown")
     signature = request.headers.get("X-Gitea-Signature") or request.headers.get("x-gitea-signature", "")
+
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        logger.error("webhook_client_disconnect", event_type=event_type, delivery_id=delivery_id)
+        return {"status": "error", "detail": "Client disconnected before body could be read"}
 
     logger.info("webhook_received", event_type=event_type, delivery_id=delivery_id, body_size=len(body))
 
@@ -115,32 +125,60 @@ async def get_repo_activity(
     DESKTOP TEAM: Primary endpoint for showing repo activity.
     Poll every 30 seconds while viewing a repo page.
     """
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
     push_events = (
         db.query(PushEvent)
+        .options(selectinload(PushEvent.commit_details))
         .filter(PushEvent.repo_id == repo_id)
         .order_by(PushEvent.pushed_at.desc())
         .limit(min(limit, 50))
         .all()
     )
 
+    # Batch-resolve pusher avatars
+    pusher_names = {e.pusher_username for e in push_events if e.pusher_username}
+    pusher_avatars: dict[str, str | None] = {}
+    if pusher_names:
+        rows = db.query(Profile).filter(Profile.username.in_(pusher_names)).all()
+        for p in rows:
+            pusher_avatars[p.username] = p.avatar_url
+        unresolved = pusher_names - set(pusher_avatars.keys())
+        if unresolved:
+            rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
+            for p in rows:
+                pusher_avatars[p.id] = p.avatar_url
+
+    activity_items = []
+    for e in push_events:
+        # Get the latest commit message from the push's commit details
+        commit_message = None
+        if e.commit_details:
+            sorted_details = sorted(
+                e.commit_details,
+                key=lambda c: c.timestamp or c.created_at,
+                reverse=True,
+            )
+            commit_message = sorted_details[0].message if sorted_details else None
+
+        activity_items.append({
+            "id": e.id,
+            "ref": e.ref,
+            "before_sha": e.before_sha[:8] if e.before_sha else None,
+            "after_sha": e.after_sha[:8] if e.after_sha else None,
+            "commit_count": e.commit_count,
+            "commit_message": commit_message,
+            "pusher": e.pusher_username,
+            "pusher_avatar": pusher_avatars.get(e.pusher_username),
+            "pushed_at": str(e.pushed_at) if e.pushed_at else None,
+        })
+
     return {
         "success": True,
         "repo": repo_id,
         "count": len(push_events),
-        "activity": [
-            {
-                "id": e.id,
-                "ref": e.ref,
-                "before_sha": e.before_sha[:8] if e.before_sha else None,
-                "after_sha": e.after_sha[:8] if e.after_sha else None,
-                "commit_count": e.commit_count,
-                "pusher": e.pusher_username,
-                "pushed_at": str(e.pushed_at) if e.pushed_at else None,
-            }
-            for e in push_events
-        ],
+        "activity": activity_items,
     }
 
 
@@ -156,13 +194,16 @@ async def get_repo_events(
     db: Session = Depends(get_db),
 ):
     """
-    Get repository lifecycle events – branch creates/deletes, tags, etc. (public).
+    Get repository lifecycle events – branch creates/deletes, tags,
+    collaborator invitations, and snippet updates (public).
 
     DESKTOP TEAM: Use alongside /activity for a complete repo timeline.
     """
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
-    events = (
+    # Core repository events (branch/tag/repo lifecycle)
+    repo_events = (
         db.query(RepositoryEvent)
         .filter(RepositoryEvent.repo_id == repo_id)
         .order_by(RepositoryEvent.occurred_at.desc())
@@ -170,17 +211,106 @@ async def get_repo_events(
         .all()
     )
 
+    all_events = [
+        {
+            "id": e.id,
+            "event_type": e.event_type,
+            "actor": e.actor_username,
+            "detail": None,
+            "occurred_at": str(e.occurred_at) if e.occurred_at else None,
+        }
+        for e in repo_events
+    ]
+
+    # Collaborator invitation events
+    invitations = (
+        db.query(CollaboratorInvitation)
+        .filter(
+            CollaboratorInvitation.owner_username == owner,
+            CollaboratorInvitation.repo_name == repo,
+            CollaboratorInvitation.status.in_(["accepted", "pending"]),
+        )
+        .order_by(CollaboratorInvitation.created_at.desc())
+        .limit(min(limit, 30))
+        .all()
+    )
+
+    # Resolve invitee emails -> usernames
+    invitee_emails = {inv.invitee_email for inv in invitations if inv.invitee_email}
+    email_to_username: dict[str, str] = {}
+    if invitee_emails:
+        rows = db.query(Profile).filter(Profile.email.in_(invitee_emails)).all()
+        for p in rows:
+            email_to_username[p.email] = p.username or p.email.split("@")[0]
+
+    for inv in invitations:
+        invitee_name = email_to_username.get(inv.invitee_email, inv.invitee_email.split("@")[0])
+        if inv.status == "accepted":
+            all_events.append({
+                "id": f"collab-{inv.id}",
+                "event_type": "collaborator_joined",
+                "actor": invitee_name,
+                "detail": f"Invited by {inv.owner_username} with {inv.permission} access",
+                "occurred_at": str(inv.responded_at or inv.created_at),
+            })
+        elif inv.status == "pending":
+            all_events.append({
+                "id": f"collab-{inv.id}",
+                "event_type": "collaborator_invited",
+                "actor": inv.owner_username,
+                "detail": f"Invited {invitee_name} with {inv.permission} access",
+                "occurred_at": str(inv.created_at),
+            })
+
+    # Snippet update events
+    snippet_events = (
+        db.query(SnippetHistory)
+        .filter(SnippetHistory.repo_id == repo_id)
+        .order_by(SnippetHistory.replaced_at.desc())
+        .limit(min(limit, 20))
+        .all()
+    )
+
+    # Resolve snippet uploader UUIDs -> usernames
+    uploader_ids = {s.replaced_by_user_id for s in snippet_events if s.replaced_by_user_id}
+    id_to_username: dict[str, str] = {}
+    if uploader_ids:
+        rows = db.query(Profile).filter(Profile.id.in_(uploader_ids)).all()
+        for p in rows:
+            id_to_username[p.id] = p.username or p.id
+
+    for s in snippet_events:
+        all_events.append({
+            "id": f"snippet-{s.id}",
+            "event_type": "snippet_updated",
+            "actor": id_to_username.get(s.replaced_by_user_id, "unknown") if s.replaced_by_user_id else "unknown",
+            "detail": f"v{s.version_number}" + (f" ({s.format})" if s.format else ""),
+            "occurred_at": str(s.replaced_at) if s.replaced_at else None,
+        })
+
+    # Sort all events by occurred_at descending, then limit
+    all_events.sort(key=lambda x: x["occurred_at"] or "", reverse=True)
+    all_events = all_events[:min(limit, 50)]
+
+    # Batch-resolve avatar URLs for all actors
+    actor_names = {ev["actor"] for ev in all_events if ev.get("actor")}
+    actor_avatars: dict[str, str | None] = {}
+    if actor_names:
+        rows = db.query(Profile).filter(Profile.username.in_(actor_names)).all()
+        for p in rows:
+            actor_avatars[p.username] = p.avatar_url
+        unresolved = actor_names - set(actor_avatars.keys())
+        if unresolved:
+            rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
+            for p in rows:
+                actor_avatars[p.id] = p.avatar_url
+
+    for ev in all_events:
+        ev["actor_avatar"] = actor_avatars.get(ev.get("actor"))
+
     return {
         "success": True,
         "repo": repo_id,
-        "count": len(events),
-        "events": [
-            {
-                "id": e.id,
-                "event_type": e.event_type,
-                "actor": e.actor_username,
-                "occurred_at": str(e.occurred_at) if e.occurred_at else None,
-            }
-            for e in events
-        ],
+        "count": len(all_events),
+        "events": all_events,
     }

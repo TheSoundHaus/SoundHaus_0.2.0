@@ -16,6 +16,22 @@ import { recentProjectsManager } from './recentProjectsManager';
 import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
+import { changesToProjectDiff } from './diffTransformer'
+import { promisify } from 'util';
+import { execFile } from 'child_process';
+
+const execFileP = promisify(execFile);
+
+// Resolve the git binary path (bundled vendor or system fallback)
+const platformMap: Partial<Record<NodeJS.Platform, string>> = { win32: 'windows', darwin: 'macos', linux: 'linux' };
+const platformDir = platformMap[process.platform] || process.platform;
+let gitBin = process.env.SOUNDHAUS_GIT_BIN || path.join(__dirname, '..', 'vendor', 'git', platformDir, process.platform === 'win32' ? 'git.exe' : 'git');
+try {
+  if (gitBin !== 'git' && !fs.existsSync(gitBin)) {
+    console.warn('Configured git binary not found at', gitBin, '— falling back to system `git` in PATH');
+    gitBin = 'git';
+  }
+} catch { gitBin = 'git'; }
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
 // Without this, setup can launch the app at the wrong time and shortcut creation may fail.
@@ -111,6 +127,7 @@ type TrackNoteDiff = {
   added: SnapshotNote[];
   removed: SnapshotNote[];
   adjusted: Array<{ from: SnapshotNote; to: SnapshotNote }>;
+  unchanged?: SnapshotNote[];
 };
 
 type GroupedNoteDiff = {
@@ -440,6 +457,36 @@ async function diffSnapshotsFromAlsBlobs(
   return await parseXmlFromBuffer(newBuf, oldBuf);
 }
 
+/**
+ * After a successful pull (fetch + rebase), restore the committed snapshot.json
+ * so the working tree stays clean.  Without this, refreshSnapshot would re-parse
+ * the (possibly dirty) ALS and leave an uncommitted snapshot.json that causes
+ * autostash conflicts on the next pull.
+ */
+async function restoreSnapshotFromHead(repoPath: string): Promise<void> {
+  try {
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    if (!alsFile) return;
+
+    const sessionName = path.basename(alsFile.name, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    const checkoutResult = await gitExec(['checkout', 'HEAD', '--', snapshotRelPath], repoPath);
+    if (checkoutResult.exitCode !== 0) {
+      throw new Error(checkoutResult.stderr || checkoutResult.stdout || 'git checkout failed');
+    }
+    console.log('[restoreSnapshotFromHead] Restored', snapshotRelPath, 'from HEAD');
+  } catch {
+    // No HEAD or snapshot not tracked yet (first clone / legacy repo) — fall back
+    // to generating one from the current ALS so downstream code has a baseline.
+    const snap = await refreshSnapshot(repoPath);
+    if (snap.error) {
+      console.warn('[restoreSnapshotFromHead] Fallback refreshSnapshot also failed:', snap.error);
+    }
+  }
+}
+
 function createWindow() {
     const display = screen.getPrimaryDisplay();
     const { width: waW, height: waH } = display.workAreaSize;
@@ -456,7 +503,6 @@ function createWindow() {
     y: winY,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
-      spellcheck: false,
     },
   });
 
@@ -528,7 +574,28 @@ ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) =>
 });
 
 ipcMain.handle('init-repo', async(_event: IpcMainInvokeEvent, folderPath: string, projectInfo?: any) => {
-  return init(folderPath, projectInfo);
+  const remoteUrl = await init(folderPath, projectInfo);
+
+  // Create initial snapshot + commit so HEAD exists immediately.
+  // Without this, commit-changes fails the HEAD check and get-commit-diff
+  // cannot find a parent snapshot, causing deserialization errors.
+  try {
+    const snap = await refreshSnapshot(folderPath);
+    if (snap.alsPath) {
+      await gitExec(['add', '.'], folderPath);
+      const sessionName = path.basename(snap.alsPath, '.als');
+      await gitExec(['commit', '-m', `Initial snapshot: ${sessionName}`], folderPath);
+      console.log('[init-repo] Initial commit created for', sessionName);
+    } else {
+      // No ALS file yet — create an empty initial commit so HEAD exists
+      await gitExec(['commit', '--allow-empty', '-m', 'Initialize repository'], folderPath);
+      console.log('[init-repo] Empty initial commit created (no ALS found)');
+    }
+  } catch (e: any) {
+    console.warn('[init-repo] Initial commit failed (non-fatal):', e?.message || String(e));
+  }
+
+  return remoteUrl;
 })
 
 ipcMain.handle('show-project-setup', async (event: IpcMainInvokeEvent) => {
@@ -553,17 +620,14 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
 });
 
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  const pullResult = await pull(repoPath);
-
-  // Regenerate snapshot so changelog baseline matches the newly pulled ALS.
-  const snap = await refreshSnapshot(repoPath);
-  if (snap.error) {
-    console.warn('[pull-repo] Post-pull snapshot refresh failed (non-fatal):', snap.error);
-  } else if (snap.alsPath) {
-    console.log('[pull-repo] Snapshot refreshed for', path.basename(snap.alsPath, '.als'));
+  try {
+    return await pull(repoPath);
+  } finally {
+    // Restore the committed snapshot so the working tree stays clean.
+    // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
+    // uncommitted snapshot.json that causes pull/rebase churn on the next pull.
+    await restoreSnapshotFromHead(repoPath);
   }
-
-  return pullResult;
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
@@ -635,8 +699,156 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
 })
 
 ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  return await push(repoPath);
+  const pushResult = await push(repoPath);
+
+  // ── Best-effort diff upload after successful push ──
+  try {
+    const { stdout: headRaw } = await gitExec(['rev-parse', 'HEAD'], repoPath);
+    const commitSha = headRaw.trim();
+
+    let beforeSha: string | undefined;
+    try {
+      const { stdout: parentRaw } = await gitExec(['rev-parse', 'HEAD^'], repoPath);
+      beforeSha = parentRaw.trim();
+    } catch { /* first commit — no parent */ }
+
+    // Find ALS file
+    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
+    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    if (!alsFile) throw new Error('No .als file found — skipping diff upload');
+    const alsPath = path.join(repoPath, alsFile.name);
+    const sessionName = path.basename(alsPath, '.als');
+    const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
+
+    // Get parent snapshot (before state)
+    let parentSnapshot = '{"schema_version":1,"tracks":[]}';
+    if (beforeSha) {
+      try {
+        const { stdout: parentSnap } = await gitExec(
+          ['show', `${beforeSha}:${snapshotRelPath}`],
+          repoPath,
+          { maxBuffer: 20 * 1024 * 1024 }
+        );
+        parentSnapshot = parentSnap;
+      } catch { /* first snapshot */ }
+    }
+
+    // Diff parent snapshot vs current ALS file
+    const rawJson = await diffFromSnapshot(parentSnapshot, alsPath);
+    const report = JSON.parse(rawJson);
+
+    // Build summary lines
+    const summaryLines: string[] = [];
+    for (const change of (report.changes || [])) {
+      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
+      let line = `${prefix}${change.type}: ${change.label}`;
+      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
+      summaryLines.push(line);
+    }
+    const projectDiff = changesToProjectDiff(report, summaryLines.join('\n'));
+
+    // Inject unchanged notes from the snapshot into the projectDiff so
+    // the web piano roll can render the full track context.
+    try {
+      const snapshotPath = path.join(repoPath, '.soundhaus', sessionName, 'snapshot.json');
+      const snapRaw = await fs.promises.readFile(snapshotPath, 'utf8');
+      const snapshot = JSON.parse(snapRaw);
+      if (Array.isArray(snapshot?.tracks)) {
+        for (const diffTrack of projectDiff.tracks) {
+          const snapTrack = snapshot.tracks.find((st: any) => st.id === diffTrack.trackId);
+          if (!snapTrack?.clips?.length || !diffTrack.midiClips?.length) continue;
+          const clip = diffTrack.midiClips[0];
+
+          // Build signature set from changed notes (camelCase keys for ProjectDiff format)
+          const changedSet = new Set<string>();
+          for (const n of clip.addedNotes) {
+            changedSet.add(`${n.pitch}:${n.startBeat}:${n.durationBeats}:${n.velocity}`);
+          }
+          for (const m of clip.modifiedNotes) {
+            changedSet.add(`${m.after.pitch}:${m.after.startBeat}:${m.after.durationBeats}:${m.after.velocity}`);
+          }
+
+          // Collect unchanged = snapshot notes NOT in added/modified (convert snake_case → camelCase)
+          const unchanged: { pitch: number; startBeat: number; durationBeats: number; velocity: number }[] = [];
+          for (const snapClip of snapTrack.clips) {
+            if (!Array.isArray(snapClip.midi_notes)) continue;
+            for (const n of snapClip.midi_notes) {
+              const vel = typeof n.velocity === 'number' ? n.velocity : 100;
+              const sig = `${n.pitch}:${n.start_beat}:${n.duration_beats}:${vel}`;
+              if (!changedSet.has(sig)) {
+                unchanged.push({
+                  pitch: n.pitch,
+                  startBeat: n.start_beat,
+                  durationBeats: n.duration_beats,
+                  velocity: vel,
+                });
+              }
+            }
+          }
+
+          if (unchanged.length > 0) {
+            clip.unchangedNotes = unchanged;
+            for (const n of unchanged) {
+              clip.endBeat = Math.max(clip.endBeat, n.startBeat + n.durationBeats);
+            }
+          }
+        }
+      }
+    } catch (unchErr: any) {
+      console.warn('[push-repo] Failed to inject unchanged notes (non-fatal):', unchErr?.message || String(unchErr));
+    }
+
+    // Get owner/repo from git remote
+    const remoteResult = await gitExec(['remote', 'get-url', 'origin'], repoPath);
+    const remoteUrl = remoteResult.stdout.trim();
+    const remoteMatch = remoteUrl.match(/\/([^/]+)\/([^/.]+?)(?:\.git)?$/);
+    if (!remoteMatch) throw new Error('Could not parse owner/repo from remote URL');
+    const [, owner, repo] = remoteMatch;
+
+    const pat = await getSoundHausCredentials();
+    if (!pat) throw new Error('No SoundHaus PAT — skipping diff upload');
+
+    // Auto-register repo in SoundHaus DB (idempotent — handles repos created before registration was fixed)
+    try {
+      const regRes = await fetch(`${desktopEnv.supabasePublicUrl}/repos/register`, {
+        method: 'POST',
+        headers: { 'Authorization': `token ${pat}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: repo, description: '', private: false }),
+      });
+      const regBody = await regRes.text().catch(() => '');
+      console.log(`[push-repo] Register response (${regRes.status}): ${regBody.slice(0, 200)}`);
+    } catch (regErr: any) {
+      console.warn('[push-repo] Register request failed (non-fatal):', regErr?.message || String(regErr));
+    }
+
+    // Upload diff
+    const diffPayload = {
+      commit_sha: commitSha,
+      before_sha: beforeSha,
+      diff_data: projectDiff,
+      diff_summary: summaryLines.join('\n'),
+      diff_type: 'semantic',
+      desktop_version: app.getVersion(),
+    };
+    const res = await fetch(`${desktopEnv.supabasePublicUrl}/repos/${owner}/${repo}/diff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `token ${pat}` },
+      body: JSON.stringify(diffPayload),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[push-repo] Diff upload failed (${res.status}): ${body.slice(0, 300)}`);
+    } else {
+      console.log(`[push-repo] Diff uploaded for ${commitSha.slice(0, 8)}`);
+    }
+  } catch (e: any) {
+    // Diff upload is non-blocking — push already succeeded
+    console.warn('[push-repo] Diff upload skipped:', e?.message || String(e));
+  }
+
+  return pushResult;
 });
+
 
 // TODO: Revamp file selection — the ALS session name is currently derived by auto-discovering
 // the first .als file in the project folder. In a future ticket, the user will select a
@@ -698,7 +910,19 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
 
     // Build a flat summary string for the Changes panel
     // TODO (Phase 5): move this formatting into Rust via generate_commit_message / format_changes_summary export
-    const summaryLines = buildTextSummary(report.changes || []);
+    const summaryLines: string[] = [];
+    for (const change of (report.changes || [])) {
+      const prefix = change.action === 'added' ? '+ ' : change.action === 'removed' ? '- ' : '~ ';
+      let line = `${prefix}${change.type}: ${change.label}`;
+      if (change.from && change.to) line += ` (${change.from} \u2192 ${change.to})`;
+      summaryLines.push(line);
+
+      for (const child of (change.children || [])) {
+        let childLine = `  ${child.action}: ${child.type} - ${child.label}`;
+        if (child.from && child.to) childLine += ` (${child.from} \u2192 ${child.to})`;
+        summaryLines.push(childLine);
+      }
+    }
 
     // Map tracks to legacy field names for the Track Information panel
     const legacyTracks = (report.project?.tracks || []).map((t: any) => ({
@@ -811,6 +1035,52 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
           .filter((id: string | null): id is string => id !== null)
       : [];
     const noteDiff = extractNoteDiffFromChanges(report.changes || [], trackOrder);
+
+    // Inject unchanged notes from the current snapshot so the piano roll
+    // can render the full track context (not just the diff).
+    try {
+      const currentSnapshotObj = JSON.parse(currentSnapshot);
+      if (Array.isArray(currentSnapshotObj?.tracks)) {
+        for (const trackDiff of noteDiff.tracks) {
+          const snapTrack = currentSnapshotObj.tracks.find((st: any) => st.id === trackDiff.trackId);
+          if (!snapTrack || !Array.isArray(snapTrack.clips)) continue;
+
+          // Build a signature set from changed notes (added + adjusted-to)
+          const changedSet = new Set<string>();
+          for (const n of trackDiff.added) {
+            changedSet.add(`${n.pitch}:${n.start_beat}:${n.duration_beats}:${n.velocity}`);
+          }
+          for (const pair of trackDiff.adjusted) {
+            changedSet.add(`${pair.to.pitch}:${pair.to.start_beat}:${pair.to.duration_beats}:${pair.to.velocity}`);
+          }
+
+          // Collect unchanged = snapshot notes NOT in the changed set
+          const unchanged: SnapshotNote[] = [];
+          for (const snapClip of snapTrack.clips) {
+            if (!Array.isArray(snapClip.midi_notes)) continue;
+            for (const n of snapClip.midi_notes) {
+              const vel = typeof n.velocity === 'number' ? n.velocity : 100;
+              const sig = `${n.pitch}:${n.start_beat}:${n.duration_beats}:${vel}`;
+              if (!changedSet.has(sig)) {
+                unchanged.push({
+                  pitch: n.pitch,
+                  start_beat: n.start_beat,
+                  duration_beats: n.duration_beats,
+                  velocity: vel,
+                  note_id: typeof n.note_id === 'string' ? n.note_id : null,
+                });
+              }
+            }
+          }
+
+          if (unchanged.length > 0) {
+            trackDiff.unchanged = unchanged;
+          }
+        }
+      }
+    } catch (unchErr: any) {
+      console.warn('[get-commit-diff] Failed to inject unchanged notes (non-fatal):', unchErr?.message || String(unchErr));
+    }
 
     return {
       ok: true,

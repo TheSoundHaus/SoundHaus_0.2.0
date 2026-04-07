@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
     ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine,
@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
+import WaveformSpinner from '../components/WaveformSpinner'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
 import type { GitError } from '../hooks/useProjectGitActions'
 import type { CommitEntry, NoteDiff } from '../types'
@@ -13,6 +14,7 @@ import electronAPI from '../services/electronAPI';
 import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
 
 const ProjectPage = () => {
+    console.log('[SoundHaus] ProjectPage: rendering')
     const location = useLocation();
     const selectedProject = (location.state as any)?.projectPath || null
 
@@ -32,6 +34,8 @@ const ProjectPage = () => {
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
     const { runPull, runCommit, runPush } = useProjectGitActions()
+
+    const commitDetailRef = useRef<HTMLDivElement>(null)
 
     const trackDiffs = selectedNoteDiff?.tracks ?? []
     const noteCounts = {
@@ -169,6 +173,13 @@ const ProjectPage = () => {
         handleLoadHistory()
     }, [handleLoadHistory])
 
+    // Scroll commit details into view when a commit is selected
+    useEffect(() => {
+        if (selectedCommit && commitDetailRef.current) {
+            commitDetailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+    }, [selectedCommit])
+
     useEffect(() => {
         const onRefreshRequest = (event: Event) => {
             const customEvent = event as CustomEvent<{ projectPath?: string }>
@@ -284,9 +295,19 @@ const ProjectPage = () => {
                                 </div>
                             ) : alsStruct.diffStatus === 'has-changes' ? (
                                 <div className="diff-panel rounded-lg p-3">
-                                    {alsStruct.summary.split('\n').map((line: string, i: number) => (
-                                        <div key={i} className="text-sm text-text-secondary py-0.5 font-mono">{line}</div>
-                                    ))}
+                                    {alsStruct.summary.split('\n').map((line: string, i: number) => {
+                                        const trimmed = line.trimStart()
+                                        const colorClass = trimmed.startsWith('+ ')
+                                            ? 'text-diff-added'
+                                            : trimmed.startsWith('- ')
+                                            ? 'text-diff-removed'
+                                            : trimmed.startsWith('~ ')
+                                            ? 'text-diff-modified'
+                                            : 'text-text-secondary'
+                                        return (
+                                            <div key={i} className={`text-sm py-0.5 font-mono ${colorClass}`}>{line}</div>
+                                        )
+                                    })}
                                 </div>
                             ) : (
                                 <p className="text-sm text-text-tertiary">Press ↻ to compare with last snapshot</p>
@@ -323,7 +344,9 @@ const ProjectPage = () => {
                     {showHistory && (
                         <div className="bg-bg-secondary border-t border-border-subtle max-h-60 overflow-y-auto">
                             {historyLoading ? (
-                                <p className="text-sm text-text-tertiary p-4">Loading commit history...</p>
+                                <div className="flex justify-center py-4">
+                                    <WaveformSpinner size="sm" label="Loading commit history..." />
+                                </div>
                             ) : history.length === 0 ? (
                                 <p className="text-sm text-text-tertiary p-4">No commits found.</p>
                             ) : (
@@ -356,7 +379,7 @@ const ProjectPage = () => {
 
                 {/* Selected Commit Details */}
                 {selectedCommit && (
-                    <div className="rounded-xl border border-border-default overflow-hidden animate-slide-up">
+                    <div ref={commitDetailRef} className="rounded-xl border border-border-default overflow-hidden animate-slide-up">
                         <div className="flex items-center justify-between px-4 py-3 bg-bg-elevated border-b border-border-subtle">
                             <div className="flex items-center gap-2">
                                 <h3 className="text-sm font-semibold text-text-primary">Selected Commit Details</h3>
@@ -374,9 +397,19 @@ const ProjectPage = () => {
                                 <div className="p-3">
                                     {selectedCommitSummary ? (
                                         <div className="diff-panel rounded-lg p-3">
-                                            {selectedCommitSummary.split('\n').map((line: string, i: number) => (
-                                                <div key={i} className="text-sm text-text-secondary py-0.5 font-mono">{line}</div>
-                                            ))}
+                                            {selectedCommitSummary.split('\n').map((line: string, i: number) => {
+                                                const trimmed = line.trimStart()
+                                                const colorClass = trimmed.startsWith('+ ')
+                                                    ? 'text-diff-added'
+                                                    : trimmed.startsWith('- ')
+                                                    ? 'text-diff-removed'
+                                                    : trimmed.startsWith('~ ')
+                                                    ? 'text-diff-modified'
+                                                    : 'text-text-secondary'
+                                                return (
+                                                    <div key={i} className={`text-sm py-0.5 font-mono ${colorClass}`}>{line}</div>
+                                                )
+                                            })}
                                         </div>
                                     ) : (
                                         <p className="text-sm text-text-tertiary">No summary for this commit.</p>

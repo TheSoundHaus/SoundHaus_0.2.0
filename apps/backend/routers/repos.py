@@ -3,7 +3,7 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,7 +11,7 @@ from typing import Optional
 
 from database import get_db
 from config import settings
-from dependencies import limiter, user_limiter, verify_token, get_auth
+from dependencies import limiter, user_limiter, verify_token, verify_token_or_pat, get_auth, resolve_owner_id
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
@@ -20,8 +20,10 @@ from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
 from models.profile_models import Profile
+from models.invitation_models import CollaboratorInvitation
 from models.schemas import (
     CreateRepoRequest,
+    RegisterRepoRequest,
     UploadFileRequest,
     DeleteFileRequest,
 )
@@ -32,11 +34,42 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["repos"])
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _resolve_gitea_username(user_id: str, db: Session) -> str:
+    """Return the Gitea login for a Supabase UUID.
+
+    In SoundHaus, Gitea user logins ARE the Supabase UUID strings.
+    This function exists so call-sites remain readable.
+    """
+    return user_id
+
+
+def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[str, str]:
+    """SoundHaus username (for /profile links)."""
+    if profile is None:
+        return {"owner_username": gitea_owner}
+    username = profile.username or gitea_owner
+    return {"owner_username": username}
+
+
+def _verify_owner(user_id: str, url_owner: str, db: Session) -> None:
+    """Raise 403 if the authenticated user does not own the resource.
+
+    url_owner can be a Supabase UUID or a SoundHaus username; we resolve
+    it to the canonical UUID before comparing.
+    """
+    owner_id = resolve_owner_id(url_owner, db)
+    if str(user_id) != str(owner_id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+
 # ── List / Create ────────────────────────────────────────────────────────────
 
 @router.get("/repos")
 @user_limiter.limit("60/minute")
-async def list_repos(request: Request, token: str = Depends(verify_token)):
+async def list_repos(request: Request, token: str = Depends(verify_token), db: Session = Depends(get_db)):
     """List Gitea repositories for the current user (protected)."""
     logger.debug("list_repos", endpoint="/repos", method="GET")
     user_res = await get_auth().get_user(token)
@@ -47,13 +80,16 @@ async def list_repos(request: Request, token: str = Depends(verify_token)):
         raise HTTPException(status_code=401, detail=user_res.get("message", "Unable to fetch user"))
 
     user_id = user_res["user"]["id"]
-    logger.debug("list_repos", user_id=user_id)
+    gitea_username = _resolve_gitea_username(user_id, db)
+    logger.debug("list_repos", user_id=user_id, gitea_username=gitea_username)
 
     svc = RepoService()
-    res = svc.list_user_repos(user_id)
+    res = svc.list_user_repos(gitea_username)
     logger.info("list_repos", success=res.get("success"), repo_count=len(res.get("repos", [])))
 
     if not res.get("success"):
+        if "does not exist" in str(res.get("message", "")):
+            return {"success": True, "repos": []}
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to list repos"))
     return {"success": True, "repos": res.get("repos", [])}
 
@@ -72,7 +108,7 @@ async def create_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    gitea_username = user_id
+    gitea_username = _resolve_gitea_username(user_id, db)
 
     svc = RepoService()
     res = svc.create_user_repo(
@@ -105,6 +141,55 @@ async def create_repo(
         "repo": res.get("repo"),
         "repo_data": {"gitea_id": repo_data.gitea_id},
     }
+
+
+@router.post("/repos/register")
+@user_limiter.limit("20/minute")
+async def register_repo(
+    request: Request,
+    register_request: RegisterRepoRequest,
+    user_info: dict = Depends(verify_token_or_pat),
+    db: Session = Depends(get_db),
+):
+    """Register an existing Gitea repo in the database.
+
+    Called by the desktop app after it creates a repo directly via the Gitea
+    user API so that the repo_data row (needed for stars, clones, genres, etc.)
+    also exists.  If the row already exists this is a no-op and returns success.
+    """
+    if not user_info or not user_info.get("user_id"):
+        raise HTTPException(status_code=401, detail="Unable to identify user")
+
+    user_id = user_info["user_id"]
+    gitea_username = _resolve_gitea_username(user_id, db)
+    gitea_id = f"{gitea_username}/{register_request.name}"
+
+    existing = db.query(RepoData).filter(RepoData.gitea_id == gitea_id).first()
+    if existing:
+        return {"success": True, "repo_data": {"gitea_id": existing.gitea_id}, "created": False}
+
+    repo_data = RepoData(
+        gitea_id=gitea_id,
+        audio_snippet=None,
+        clone_count=0,
+        owner_id=user_id,
+    )
+    try:
+        db.add(repo_data)
+        db.commit()
+        db.refresh(repo_data)
+    except IntegrityError:
+        db.rollback()
+        return {"success": True, "repo_data": {"gitea_id": gitea_id}, "created": False}
+
+    # Set up a webhook for this repo so push events are tracked
+    try:
+        svc = RepoService()
+        svc._create_repo_webhook(user_id, register_request.name, db)
+    except Exception as e:
+        logger.warning("register_repo", msg="webhook creation failed", error=str(e))
+
+    return {"success": True, "repo_data": {"gitea_id": repo_data.gitea_id}, "created": True}
 
 
 # ── Contents / Upload / Delete ───────────────────────────────────────────────
@@ -198,19 +283,19 @@ async def patch_repo_settings(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
-        raise HTTPException(status_code=403, detail="Not authorized to modify this repo")
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
 
     svc = RepoService()
-    res = svc.update_repo_settings(owner, repo, settings)
+    res = svc.update_repo_settings(owner_id, repo, settings)
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to update repo settings"))
 
     # If the repo was renamed, sync the gitea_id in RepoData
     new_name = settings.get("name")
     if new_name and new_name != repo:
-        old_id = f"{owner}/{repo}"
-        new_id = f"{owner}/{new_name}"
+        old_id = f"{owner_id}/{repo}"
+        new_id = f"{owner_id}/{new_name}"
         repo_data = db.query(RepoData).filter(RepoData.gitea_id == old_id).first()
         if repo_data:
             repo_data.gitea_id = new_id
@@ -237,7 +322,8 @@ async def record_clone_event(
         raise HTTPException(status_code=401, detail="Must be logged in to clone")
 
     user_id = user_res["user"]["id"]
-    repo_id = f"{owner}/{repo}"
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
 
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
@@ -273,12 +359,15 @@ async def get_public_repos(
     match: str = "any",
     db: Session = Depends(get_db),
 ):
-    """Get all publicly published repos with audio snippets (Explore page)."""
+    """Get all publicly published repos with audio snippets (Explore page).
+    
+    Only repos whose Gitea visibility is public are returned.
+    """
     genre_names = []
     if genres is not None:
         genre_names = [g.strip() for g in genres.split(",")]
 
-    query = db.query(RepoData)
+    query = db.query(RepoData).filter(RepoData.is_public == True)
 
     if genre_names:
         base = (
@@ -294,16 +383,32 @@ async def get_public_repos(
         subq = base.subquery()
         query = query.filter(RepoData.gitea_id.in_(subq))
 
+    all_repos = query.all()
+
+    # Batch-resolve owner UUIDs → SoundHaus username + display name
+    owner_ids = list({r.gitea_id.split("/", 1)[0] for r in all_repos if "/" in r.gitea_id})
+    profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
+    profile_map = {str(p.id): _owner_profile_fields(p, str(p.id)) for p in profile_rows}
+
     svc = RepoService()
     result = []
-    for repo in query:
+    for repo in all_repos:
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
-            gitea_data = svc.get_repo_contents(owner, repo_name)
+            fields = profile_map.get(owner, _owner_profile_fields(None, owner))
+
+            # Check Gitea visibility — skip private repos
+            gitea_info = svc.get_repo(owner, repo_name)
+            if not gitea_info.get("success"):
+                continue
+            gitea_repo = gitea_info.get("repo", {})
+            if gitea_repo.get("private", True):
+                continue
 
             repo_info = {
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
+                "owner_username": fields["owner_username"],
                 "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
@@ -316,20 +421,53 @@ async def get_public_repos(
                 } if repo.audio_snippet else None,
                 "genres": [g.genre_name for g in repo.genres],
                 "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
+                "thumbnail_url": repo.thumbnail_url,
+                "thumbnail_type": repo.thumbnail_type,
+                "description": gitea_repo.get("description", ""),
+                "stars": gitea_repo.get("stars_count", 0),
+                "updated_at": gitea_repo.get("updated_at", ""),
             }
-
-            if gitea_data.get("success"):
-                contents = gitea_data.get("contents", {})
-                if isinstance(contents, list) and len(contents) > 0:
-                    repo_info["description"] = contents[0].get("repository", {}).get("description", "")
-                    repo_info["stars"] = contents[0].get("repository", {}).get("stars_count", 0)
-                    repo_info["updated_at"] = contents[0].get("repository", {}).get("updated_at", "")
 
             result.append(repo_info)
         except Exception as e:
             logger.warning("get_public_repos", gitea_id=repo.gitea_id, error=str(e))
-            result.append({
+
+    return {"success": True, "repos": result}
+
+
+@router.get("/repos/user/{username}")
+@limiter.limit("60/minute")
+async def get_user_public_repos(
+    request: Request,
+    username: str,
+    db: Session = Depends(get_db),
+):
+    """Get all public repos owned by a specific user (no auth required).
+    Accepts either a Supabase UUID or a SoundHaus username."""
+    profile = db.query(Profile).filter(Profile.username == username).first()
+    if not profile:
+        profile = db.query(Profile).filter(Profile.id == username).first()
+    owner_id = str(profile.id) if profile else username
+    labels = _owner_profile_fields(profile, owner_id)
+    owner_username = labels["owner_username"]
+
+    repos = db.query(RepoData).filter(
+        RepoData.owner_id == owner_id,
+        RepoData.is_public == True,
+    ).all()
+
+    svc = RepoService()
+    result = []
+    for repo in repos:
+        try:
+            owner, repo_name = repo.gitea_id.split("/", 1)
+            gitea_data = svc.get_repo_contents(owner, repo_name)
+
+            repo_info = {
                 "gitea_id": repo.gitea_id,
+                "owner": owner,
+                "owner_username": owner_username,
+                "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
                 "snippet_metadata": {
@@ -341,9 +479,79 @@ async def get_public_repos(
                 } if repo.audio_snippet else None,
                 "genres": [g.genre_name for g in repo.genres],
                 "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
-            })
+                "thumbnail_url": repo.thumbnail_url,
+                "thumbnail_type": repo.thumbnail_type,
+            }
+
+            if gitea_data.get("success"):
+                contents = gitea_data.get("contents", {})
+                if isinstance(contents, list) and len(contents) > 0:
+                    repo_info["description"] = contents[0].get("repository", {}).get("description", "")
+                    repo_info["stars"] = contents[0].get("repository", {}).get("stars_count", 0)
+                    repo_info["updated_at"] = contents[0].get("repository", {}).get("updated_at", "")
+
+            result.append(repo_info)
+        except Exception as e:
+            logger.warning("get_user_public_repos", gitea_id=repo.gitea_id, error=str(e))
 
     return {"success": True, "repos": result}
+
+
+@router.get("/repos/user/{username}/stats")
+@limiter.limit("60/minute")
+async def get_user_public_stats(
+    request: Request,
+    username: str,
+    db: Session = Depends(get_db),
+):
+    """Get aggregate public stats for a user (no auth required)."""
+    profile = db.query(Profile).filter(Profile.username == username).first()
+    if not profile:
+        profile = db.query(Profile).filter(Profile.id == username).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_id = str(profile.id)
+
+    pub_filter = [
+        RepoData.owner_id == user_id,
+        RepoData.is_public == True,
+    ]
+    total_repos = (
+        db.query(func.count(RepoData.gitea_id))
+        .filter(*pub_filter)
+        .scalar() or 0
+    )
+    total_commits = (
+        db.query(func.sum(RepoData.total_commits))
+        .filter(*pub_filter)
+        .scalar() or 0
+    )
+    total_clones = (
+        db.query(func.sum(RepoData.clone_count))
+        .filter(*pub_filter)
+        .scalar() or 0
+    )
+    collaborations = 0
+    if profile.email:
+        collaborations = (
+            db.query(func.count(CollaboratorInvitation.id))
+            .filter(
+                CollaboratorInvitation.invitee_email == profile.email,
+                CollaboratorInvitation.status == "accepted",
+            )
+            .scalar() or 0
+        )
+
+    return {
+        "success": True,
+        "stats": {
+            "total_repos": total_repos,
+            "total_commits": int(total_commits),
+            "total_clones_received": int(total_clones),
+            "collaborations": collaborations,
+        },
+    }
 
 
 @router.get("/repos/{owner}/{repo}/stats")
@@ -355,7 +563,8 @@ async def get_repo_stats(
     db: Session = Depends(get_db),
 ):
     """Get detailed stats for a specific repo."""
-    repo_id = f"{owner}/{repo}"
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
 
     if not repo_data:
@@ -369,22 +578,34 @@ async def get_repo_stats(
         .all()
     )
 
-    # Fetch description from Gitea
+    # Fetch description and privacy from Gitea
     svc = RepoService()
     description = ""
+    is_private = True
     try:
-        gitea_info = svc.get_repo(owner, repo)
+        gitea_info = svc.get_repo(owner_id, repo)
         if gitea_info.get("success"):
-            description = gitea_info.get("repo", {}).get("description", "")
+            repo_obj = gitea_info.get("repo", {})
+            description = repo_obj.get("description", "")
+            is_private = repo_obj.get("private", True)
     except Exception:
-        pass  # Non-critical: description is cosmetic
+        pass  # Non-critical: description/privacy are cosmetic
+
+    # Resolve owner UUID → username + display name
+    owner_profile = db.query(Profile).filter(Profile.id == owner_id).first()
+    olab = _owner_profile_fields(owner_profile, owner_id)
 
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
+        "owner_username": olab["owner_username"],
         "description": description,
+        "private": is_private,
+        "clone_url": f"{settings.gitea_public_url}/{owner_id}/{repo}.git",
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
+        "thumbnail_url": repo_data.thumbnail_url,
+        "thumbnail_type": repo_data.thumbnail_type,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
         "recent_clones": [
             {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
@@ -409,8 +630,9 @@ async def star_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
     gitea = GiteaAdminService()
-    result = gitea.star_repo(user_id, owner, repo)
+    result = gitea.star_repo(user_id, owner_id, repo)
 
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Failed to star repo"))
@@ -431,8 +653,9 @@ async def unstar_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
     gitea = GiteaAdminService()
-    result = gitea.unstar_repo(user_id, owner, repo)
+    result = gitea.unstar_repo(user_id, owner_id, repo)
 
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Failed to unstar repo"))
@@ -476,14 +699,14 @@ async def delete_repo(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
-        raise HTTPException(status_code=403, detail="Not authorized to delete this repo")
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
 
     # Delete from Gitea
     svc = RepoService()
-    result = svc.delete_repo(owner, repo)
+    result = svc.delete_repo(owner_id, repo)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("message", "Failed to delete repo from Gitea"))
 
@@ -493,6 +716,20 @@ async def delete_repo(
         db.delete(repo_data)
         db.commit()
         logger.info("repo_deleted", repo_id=repo_id)
+
+    # Mark orphaned invitations: expire pending ones, flag accepted/declined
+    orphaned = (
+        db.query(CollaboratorInvitation)
+        .filter(CollaboratorInvitation.repo_name == repo)
+        .all()
+    )
+    if orphaned:
+        for inv in orphaned:
+            if inv.status == "pending":
+                inv.status = "expired"
+            inv.repo_name = f"{inv.repo_name} [deleted]"
+        db.commit()
+        logger.info("repo_invitations_flagged", repo=repo, count=len(orphaned))
 
     return {"success": True, "message": f"Repository '{repo}' deleted"}
 
@@ -516,11 +753,14 @@ async def get_enriched_repos(
         raise HTTPException(status_code=401, detail="Unable to fetch user")
 
     user_id = user_res["user"]["id"]
+    gitea_username = _resolve_gitea_username(user_id, db)
 
     # Fetch Gitea repos
     svc = RepoService()
-    gitea_result = svc.list_user_repos(user_id)
+    gitea_result = svc.list_user_repos(gitea_username)
     if not gitea_result.get("success"):
+        if "does not exist" in str(gitea_result.get("message", "")):
+            return {"success": True, "repos": []}
         raise HTTPException(status_code=400, detail=gitea_result.get("message", "Failed to list repos"))
 
     gitea_repos = gitea_result.get("repos", [])
@@ -528,7 +768,7 @@ async def get_enriched_repos(
 
     # Fetch starred repos for this user
     gitea_admin = GiteaAdminService()
-    starred_result = gitea_admin.list_user_starred(user_id)
+    starred_result = gitea_admin.list_user_starred(gitea_username)
     starred_ids = set()
     if starred_result.get("success"):
         for sr in starred_result.get("repos", []):
@@ -543,16 +783,17 @@ async def get_enriched_repos(
     )
     repo_data_map = {rd.gitea_id: rd for rd in repo_data_rows}
 
-    # Batch-resolve owner UUIDs → SoundHaus usernames
+    # Batch-resolve owner UUIDs → SoundHaus username + display name
     owner_ids = list({r.get("owner", {}).get("login", "") for r in gitea_repos})
     profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
-    profile_map = {p.id: p.username for p in profile_rows}
+    profile_map = {str(p.id): _owner_profile_fields(p, str(p.id)) for p in profile_rows}
 
     enriched = []
     for repo in gitea_repos:
         full_name = repo.get("full_name", "")
         rd = repo_data_map.get(full_name)
         owner_login = repo.get("owner", {}).get("login", "")
+        olab = profile_map.get(owner_login, _owner_profile_fields(None, owner_login))
 
         enriched.append({
             "id": repo.get("id"),
@@ -561,10 +802,11 @@ async def get_enriched_repos(
             "description": repo.get("description", ""),
             "private": repo.get("private", True),
             "owner_id": owner_login,
-            "owner_username": profile_map.get(owner_login, owner_login),
+            "owner_username": olab["owner_username"],
             "created_at": repo.get("created_at", ""),
             "updated_at": repo.get("updated_at", ""),
             "stars_count": repo.get("stars_count", 0),
+            "total_commits": rd.total_commits if rd else 0,
             "clone_count": rd.clone_count if rd else 0,
             "audio_snippet": rd.audio_snippet if rd else None,
             "snippet_metadata": {
@@ -575,8 +817,256 @@ async def get_enriched_repos(
                 "channels": rd.snippet_channels,
             } if rd and rd.audio_snippet else None,
             "genres": [g.genre_name for g in rd.genres] if rd else [],
+            "thumbnail_url": rd.thumbnail_url if rd else None,
+            "thumbnail_type": rd.thumbnail_type if rd else None,
             "is_starred": full_name in starred_ids,
             "role": "owner" if repo.get("id") in owned_ids else "collaborator",
         })
 
     return {"success": True, "repos": enriched}
+
+
+# ── README ───────────────────────────────────────────────────────────────────
+
+@router.get("/repos/{owner}/{repo}/readme")
+@limiter.limit("60/minute")
+async def get_readme(
+    request: Request,
+    owner: str,
+    repo: str,
+    db: Session = Depends(get_db),
+):
+    """Get the markdown README content for a repository."""
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    return {
+        "success": True,
+        "readme_content": repo_data.readme_content or "",
+    }
+
+
+@router.put("/repos/{owner}/{repo}/readme")
+@limiter.limit("20/minute")
+async def update_readme(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Update the markdown README content. Only the repo owner or collaborators can edit."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user_id = user_res["user"]["id"]
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    # Authorization: owner or admin collaborator
+    is_owner = str(repo_data.owner_id) == str(user_id)
+    is_collab = False
+    if not is_owner:
+        user_email = user_res["user"]["email"]
+        collab = (
+            db.query(CollaboratorInvitation)
+            .filter(
+                CollaboratorInvitation.repo_name == repo,
+                CollaboratorInvitation.invitee_email == user_email,
+                CollaboratorInvitation.status == "accepted",
+                CollaboratorInvitation.permission == "admin",
+            )
+            .first()
+        )
+        is_collab = collab is not None
+
+    if not is_owner and not is_collab:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this repo's README")
+
+    body = await request.json()
+    content = body.get("readme_content", "")
+    if len(content) > 50000:
+        raise HTTPException(status_code=400, detail="README content too large (max 50,000 chars)")
+
+    repo_data.readme_content = content
+    db.commit()
+
+    logger.info("update_readme", repo_id=repo_id, user_id=user_id, length=len(content))
+
+    return {"success": True, "readme_content": repo_data.readme_content}
+
+
+# ── Thumbnail ────────────────────────────────────────────────────────────────
+
+MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024  # 5 MB
+
+@router.put("/repos/{owner}/{repo}/thumbnail")
+@user_limiter.limit("20/minute")
+async def update_thumbnail(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Set or update the repository thumbnail. Accepts JSON with either
+    a YouTube URL or a base64-encoded image."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in")
+
+    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
+
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    body = await request.json()
+    thumb_type = body.get("type")  # "youtube" or "image"
+    thumb_url = body.get("url")    # YouTube URL or Supabase image URL
+
+    if thumb_type not in ("youtube", "image"):
+        raise HTTPException(status_code=400, detail="type must be 'youtube' or 'image'")
+
+    if thumb_type == "youtube":
+        # Validate it looks like a YouTube URL
+        if not thumb_url or not isinstance(thumb_url, str):
+            raise HTTPException(status_code=400, detail="url is required for youtube thumbnail")
+        import re
+        yt_pattern = re.compile(
+            r'^https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)[\w\-]{11}'
+        )
+        if not yt_pattern.match(thumb_url):
+            raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+        repo_data.thumbnail_url = thumb_url
+        repo_data.thumbnail_type = "youtube"
+
+    elif thumb_type == "image":
+        if not thumb_url or not isinstance(thumb_url, str):
+            raise HTTPException(status_code=400, detail="url is required for image thumbnail")
+        # URL should be from Supabase storage
+        repo_data.thumbnail_url = thumb_url
+        repo_data.thumbnail_type = "image"
+
+    db.commit()
+    logger.info("thumbnail_updated", repo_id=repo_id, type=thumb_type)
+
+    return {
+        "success": True,
+        "thumbnail_url": repo_data.thumbnail_url,
+        "thumbnail_type": repo_data.thumbnail_type,
+    }
+
+
+@router.post("/repos/{owner}/{repo}/thumbnail/upload")
+@user_limiter.limit("10/minute")
+async def upload_thumbnail_image(
+    request: Request,
+    owner: str,
+    repo: str,
+    file: UploadFile = File(...),
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Upload an image file as the repository thumbnail."""
+    from services.snippet_service import snippet_service
+
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in")
+
+    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
+
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    # Validate content type
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid image type '{file.content_type}'. Allowed: JPEG, PNG, WebP, GIF"
+        )
+
+    content = await file.read()
+    if len(content) > MAX_THUMBNAIL_SIZE:
+        raise HTTPException(status_code=400, detail="Thumbnail must be under 5 MB")
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    # Upload to Supabase Storage in a dedicated thumbnails bucket
+    from pathlib import Path
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    storage_path = f"{owner}/{repo}/thumbnail{ext}"
+
+    from services.snippet_service import snippet_service
+    supabase = snippet_service.supabase
+    bucket = "thumbnails"
+
+    supabase.storage.from_(bucket).upload(
+        path=storage_path,
+        file=content,
+        file_options={
+            "content-type": file.content_type,
+            "upsert": "true",
+        },
+    )
+
+    public_url = supabase.storage.from_(bucket).get_public_url(storage_path)
+
+    repo_data.thumbnail_url = public_url
+    repo_data.thumbnail_type = "image"
+    db.commit()
+
+    logger.info("thumbnail_image_uploaded", repo_id=repo_id, url=public_url)
+
+    return {
+        "success": True,
+        "thumbnail_url": public_url,
+        "thumbnail_type": "image",
+    }
+
+
+@router.delete("/repos/{owner}/{repo}/thumbnail")
+@user_limiter.limit("20/minute")
+async def delete_thumbnail(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Remove the repository thumbnail."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in")
+
+    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
+    _verify_owner(user_id, owner_id, db)
+
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    repo_data.thumbnail_url = None
+    repo_data.thumbnail_type = None
+    db.commit()
+
+    logger.info("thumbnail_deleted", repo_id=repo_id)
+    return {"success": True, "message": "Thumbnail removed"}
