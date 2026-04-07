@@ -6,7 +6,10 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 import json as _json
+import re as _re
 from starlette.requests import ClientDisconnect
+
+_UUID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.I)
 
 from database import get_db
 from dependencies import limiter, verify_token, resolve_owner_id
@@ -146,7 +149,7 @@ async def get_repo_activity(
         for p in rows:
             pusher_avatars[p.username] = p.avatar_url
             pusher_display[p.username] = p.username
-        unresolved = pusher_names - set(pusher_avatars.keys())
+        unresolved = [u for u in pusher_names - set(pusher_avatars.keys()) if _UUID_RE.match(u)]
         if unresolved:
             rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
             for p in rows:
@@ -253,7 +256,7 @@ async def get_repo_events(
         rows = db.query(Profile).filter(Profile.username.in_(owner_ids)).all()
         for p in rows:
             owner_display[p.username] = p.username
-        unresolved = owner_ids - set(owner_display.keys())
+        unresolved = [u for u in owner_ids - set(owner_display.keys()) if _UUID_RE.match(u)]
         if unresolved:
             rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
             for p in rows:
@@ -318,7 +321,7 @@ async def get_repo_events(
         for p in rows:
             actor_avatars[p.username] = p.avatar_url
             actor_display[p.username] = p.username
-        unresolved = actor_names - set(actor_avatars.keys())
+        unresolved = [u for u in actor_names - set(actor_avatars.keys()) if _UUID_RE.match(u)]
         if unresolved:
             rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
             for p in rows:

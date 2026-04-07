@@ -130,10 +130,7 @@ export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
             </button>
           </div>
 
-          <p className="mt-3 text-xs text-muted/70">
-            Don&apos;t have the desktop app?{" "}
-            <span className="text-glass-blue cursor-default">Coming soon.</span>
-          </p>
+
         </div>
       </div>
     </div>

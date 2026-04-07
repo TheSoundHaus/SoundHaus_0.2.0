@@ -77,9 +77,11 @@ async def get_commit_list(
         profiles2 = db.query(Profile).filter(Profile.username.in_(author_names)).all()
         profile_by_name = {p.username: p for p in profiles2 if p.username}
         # For any author_name not resolved via username, try as Profile.id (UUID)
-        unresolved_names = [n for n in author_names if n not in profile_by_name]
-        if unresolved_names:
-            profiles3 = db.query(Profile).filter(Profile.id.in_(unresolved_names)).all()
+        import re
+        _uuid_re = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+        unresolved_uuids = [n for n in author_names if n not in profile_by_name and _uuid_re.match(n)]
+        if unresolved_uuids:
+            profiles3 = db.query(Profile).filter(Profile.id.in_(unresolved_uuids)).all()
             profile_by_id = {p.id: p for p in profiles3}
 
     # Serialize
