@@ -13,12 +13,9 @@ const HomePage = () => {
         handleAbletonImport,
         handleOpenSoundHausProject,
         handleSelectFromDialog,
-        handleOpenFromFilepath,
         isOpenDialogVisible,
         setIsOpenDialogVisible,
     } = useProjectActions()
-    // handleOpenFromFilepath is passed through to OpenProjectDialog's footer — not used directly on the grid
-
     // Open dialog if triggered from menu, then clear state to prevent re-opening on back
     useEffect(() => {
         if ((location.state as { openProjectDialog?: boolean })?.openProjectDialog) {
@@ -101,7 +98,6 @@ const HomePage = () => {
                 isOpen={isOpenDialogVisible}
                 onClose={() => setIsOpenDialogVisible(false)}
                 onSelectProject={handleSelectFromDialog}
-                onOpenFromFilepath={handleOpenFromFilepath}
             />
         </div>
     )

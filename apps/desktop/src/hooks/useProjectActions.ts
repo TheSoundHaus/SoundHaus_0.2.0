@@ -30,21 +30,10 @@ export function useProjectActions() {
     }
 
     /**
-     * Open a SoundHaus project directly (assumed to be already git-enabled)
+     * Finish opening after path is known valid (OpenProjectDialog validates git before calling).
      */
-    const openSoundHausProject = async (projectPath: string): Promise<boolean> => {
+    const completeOpenSoundHausProject = async (projectPath: string): Promise<boolean> => {
         try {
-            const git = await hasGitFile(projectPath);
-            if (!git) {
-                showToast({
-                    type: 'error',
-                    title: 'Not a SoundHaus project',
-                    detail:
-                        "This folder doesn't look like a SoundHaus project yet. Choose a folder that was created or downloaded with SoundHaus.",
-                });
-                return false;
-            }
-
             const projectName = getProjectName(projectPath);
             await window.electron?.setLastProjectPath(projectPath);
             await trackRecentProject(projectPath, projectName);
@@ -58,6 +47,23 @@ export function useProjectActions() {
             });
             return false;
         }
+    }
+
+    /**
+     * Open from flows that do not pre-validate (e.g. chooseFolder-only); shows toast if not a project.
+     */
+    const openSoundHausProject = async (projectPath: string): Promise<boolean> => {
+        const git = await hasGitFile(projectPath);
+        if (!git) {
+            showToast({
+                type: 'error',
+                title: 'Not a SoundHaus project',
+                detail:
+                    "This folder doesn't look like a SoundHaus project yet. Choose a folder that was created or downloaded with SoundHaus.",
+            });
+            return false;
+        }
+        return completeOpenSoundHausProject(projectPath);
     }
 
     const handleProjectClone = async () => {
@@ -136,13 +142,13 @@ export function useProjectActions() {
     }
 
     const handleSelectFromDialog = async (projectPath: string): Promise<boolean> => {
-        return await openSoundHausProject(projectPath);
+        return completeOpenSoundHausProject(projectPath);
     }
 
     const handleOpenFromFilepath = async (): Promise<boolean> => {
         const folder = await chooseFolder();
         if (folder) {
-            return await openSoundHausProject(folder);
+            return openSoundHausProject(folder);
         }
         return false;
     }
