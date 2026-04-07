@@ -10,6 +10,7 @@ import CloneUrlDialog from './pages/CloneUrlDialog'
 import AboutDialog from './pages/AboutDialog'
 import SearchPalette from './components/SearchPalette'
 import ErrorBoundary from './components/ErrorBoundary'
+import Navbar from './components/Navbar'
 import { useMenuActions } from './hooks/useMenuActions'
 
 function MenuActionListener() {
@@ -32,6 +33,7 @@ function App() {
       <ErrorBoundary>
         <MenuActionListener />
         <SearchPalette isOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
+        <Navbar />
         <div className="flex-1 min-h-0 min-w-0 flex flex-col">
           <Routes>
             <Route path="/" element={<LoginPage />} />
