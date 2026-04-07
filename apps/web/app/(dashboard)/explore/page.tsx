@@ -350,14 +350,14 @@ export default function ExplorePage() {
 
                                     {/* Content */}
                                     <div className="p-5 space-y-3">
-                                        <h3 className="text-lg font-semibold text-zinc-100 group-hover:text-glass-blue-400 transition-colors duration-300">
+                                        <h3 className="text-lg font-semibold text-zinc-100 transition-colors duration-300">
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-sm text-zinc-400">
                                             <Link
                                                 href={`/profile/${repo.owner_username || repo.owner}`}
                                                 onClick={(e) => e.stopPropagation()}
-                                                className="font-medium text-zinc-300 hover:text-[#A7C7E7] transition-colors"
+                                                className="font-medium text-zinc-400 hover:text-[#A7C7E7] transition-colors"
                                             >
                                                 {ownerShown}
                                             </Link>
@@ -423,7 +423,7 @@ export default function ExplorePage() {
                                         {index + 1}.
                                     </span>
                                     <div className="flex-1 min-w-0">
-                                        <h3 className="text-sm font-medium text-zinc-300 group-hover:text-glass-blue-400 transition-colors truncate">
+                                        <h3 className="text-sm font-medium text-zinc-300 transition-colors truncate">
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-xs text-zinc-500 mt-0.5">

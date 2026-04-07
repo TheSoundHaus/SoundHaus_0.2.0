@@ -1050,126 +1050,90 @@ export default function LandingPage() {
                     <div className="space-y-24 md:space-y-32">
 
                         {/* Card 1 — text LEFT, visual RIGHT */}
-                        <FadeInSection delay={100} variant="left">
-                            <div className="flex flex-col md:flex-row gap-12 md:gap-20 items-center">
-                                {/* Text */}
-                                <div className="flex-1">
-                                    <div className="w-12 h-12 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-6">
-                                        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
-                                            <path d="M3 18V12a9 9 0 0118 0v6" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
-                                            <rect x="1" y="14" width="4" height="7" rx="1.5" fill="rgba(167,199,231,1)" />
-                                            <rect x="19" y="14" width="4" height="7" rx="1.5" fill="rgba(167,199,231,1)" />
-                                            <path d="M8 12h1l1-2 1.5 4 1.5-4 1 2h1" stroke="rgba(167,199,231,0.6)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">Real people, real music</h3>
-                                    <p className="text-base text-zinc-400 leading-relaxed font-light">
-                                        We believe the best music comes from real people. From producers and engineers
-                                        to artists working together, sharing ideas, and pushing each other creatively.
-                                        Our platform is built to amplify human talent, not replace it.
-                                    </p>
+                        <div className="flex flex-col md:flex-row gap-12 md:gap-20 items-center">
+                            <FadeInSection delay={0} variant="left" className="flex-1">
+                                <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">Real people, real music</h3>
+                                <p className="text-base text-zinc-400 leading-relaxed font-light">
+                                    We believe the best music comes from real people. From producers and engineers
+                                    to artists working together, sharing ideas, and pushing each other creatively.
+                                    Our platform is built to amplify human talent, not replace it.
+                                </p>
+                            </FadeInSection>
+                            <FadeInSection delay={150} variant="right" className="flex-1 flex justify-center items-center">
+                                <div className="w-56 h-56 opacity-25">
+                                    <svg viewBox="0 0 240 240" fill="none">
+                                        {[40, 80, 120, 160, 200].map((x, i) => (
+                                            <g key={i}>
+                                                <line x1={x} y1="30" x2={x} y2="210" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
+                                                <rect x={x - 6} rx="2" width="12" height="16" fill="rgba(167,199,231,1)">
+                                                    <animate attributeName="y" dur={`${2.5 + i * 0.4}s`} repeatCount="indefinite" values={`${80 + i * 12};${130 - i * 8};${100};${80 + i * 12}`} />
+                                                </rect>
+                                            </g>
+                                        ))}
+                                    </svg>
                                 </div>
-                                {/* Visual — mixing console faders */}
-                                <div className="flex-1 flex justify-center items-center">
-                                    <div className="w-56 h-56 opacity-25">
-                                        <svg viewBox="0 0 240 240" fill="none">
-                                            {[40, 80, 120, 160, 200].map((x, i) => (
-                                                <g key={i}>
-                                                    <line x1={x} y1="30" x2={x} y2="210" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
-                                                    <rect x={x - 6} rx="2" width="12" height="16" fill="rgba(167,199,231,1)">
-                                                        <animate attributeName="y" dur={`${2.5 + i * 0.4}s`} repeatCount="indefinite" values={`${80 + i * 12};${130 - i * 8};${100};${80 + i * 12}`} />
-                                                    </rect>
-                                                </g>
-                                            ))}
-                                        </svg>
-                                    </div>
-                                </div>
-                            </div>
-                        </FadeInSection>
+                            </FadeInSection>
+                        </div>
 
                         {/* Card 2 — text RIGHT, visual LEFT */}
-                        <FadeInSection delay={200} variant="right">
-                            <div className="flex flex-col md:flex-row-reverse gap-12 md:gap-20 items-center">
-                                {/* Text */}
-                                <div className="flex-1">
-                                    <div className="w-12 h-12 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-6">
-                                        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
-                                            <circle cx="10" cy="10" r="6" stroke="rgba(167,199,231,1)" strokeWidth="1.5" />
-                                            <line x1="14.5" y1="14.5" x2="20" y2="20" stroke="rgba(167,199,231,1)" strokeWidth="1.5" strokeLinecap="round" />
-                                            <path d="M6 10h1l1-2.5 1.5 5 1.5-5 1 2.5h1" stroke="rgba(167,199,231,0.8)" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">Transparent by design</h3>
-                                    <p className="text-base text-zinc-400 leading-relaxed font-light">
-                                        Every feature in SoundHaus is built to make collaboration between real musicians easier and
-                                        more transparent. Whether you are using version control, visual diffs, or stem
-                                        separation, we give you the tools to iterate on your own ideas, hear exactly
-                                        what your collaborator changed, and build something genuinely yours.
-                                    </p>
+                        <div className="flex flex-col md:flex-row-reverse gap-12 md:gap-20 items-center">
+                            <FadeInSection delay={0} variant="right" className="flex-1">
+                                <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">Transparent by design</h3>
+                                <p className="text-base text-zinc-400 leading-relaxed font-light">
+                                    Every feature in SoundHaus is built to make collaboration between real musicians easier and
+                                    more transparent. Whether you are using version control, visual diffs, or stem
+                                    separation, we give you the tools to iterate on your own ideas, hear exactly
+                                    what your collaborator changed, and build something genuinely yours.
+                                </p>
+                            </FadeInSection>
+                            <FadeInSection delay={150} variant="left" className="flex-1 flex justify-center items-center">
+                                <div className="w-56 h-56 opacity-25">
+                                    <svg viewBox="0 0 200 200" fill="none">
+                                        {Array.from({ length: 12 }, (_, i) => {
+                                            const x = 20 + i * 14;
+                                            const h = 20 + Math.sin(i * 0.8) * 40 + 30;
+                                            return (
+                                                <rect key={i} x={x} rx="1.5" width="8" fill="rgba(167,199,231,1)">
+                                                    <animate attributeName="height" dur={`${1.4 + (i % 5) * 0.3}s`} repeatCount="indefinite" values={`${h * 0.3};${h};${h * 0.5};${h * 0.8};${h * 0.3}`} begin={`${i * 0.1}s`} />
+                                                    <animate attributeName="y" dur={`${1.4 + (i % 5) * 0.3}s`} repeatCount="indefinite" values={`${100 - h * 0.15};${100 - h * 0.5};${100 - h * 0.25};${100 - h * 0.4};${100 - h * 0.15}`} begin={`${i * 0.1}s`} />
+                                                </rect>
+                                            );
+                                        })}
+                                    </svg>
                                 </div>
-                                {/* Visual — spectrum analyzer bars */}
-                                <div className="flex-1 flex justify-center items-center">
-                                    <div className="w-56 h-56 opacity-25">
-                                        <svg viewBox="0 0 200 200" fill="none">
-                                            {Array.from({ length: 12 }, (_, i) => {
-                                                const x = 20 + i * 14;
-                                                const h = 20 + Math.sin(i * 0.8) * 40 + 30;
-                                                return (
-                                                    <rect key={i} x={x} rx="1.5" width="8" fill="rgba(167,199,231,1)">
-                                                        <animate attributeName="height" dur={`${1.4 + (i % 5) * 0.3}s`} repeatCount="indefinite" values={`${h * 0.3};${h};${h * 0.5};${h * 0.8};${h * 0.3}`} begin={`${i * 0.1}s`} />
-                                                        <animate attributeName="y" dur={`${1.4 + (i % 5) * 0.3}s`} repeatCount="indefinite" values={`${100 - h * 0.15};${100 - h * 0.5};${100 - h * 0.25};${100 - h * 0.4};${100 - h * 0.15}`} begin={`${i * 0.1}s`} />
-                                                    </rect>
-                                                );
-                                            })}
-                                        </svg>
-                                    </div>
-                                </div>
-                            </div>
-                        </FadeInSection>
+                            </FadeInSection>
+                        </div>
 
                         {/* Card 3 — text LEFT, visual RIGHT */}
-                        <FadeInSection delay={300} variant="left">
-                            <div className="flex flex-col md:flex-row gap-12 md:gap-20 items-center">
-                                {/* Text */}
-                                <div className="flex-1">
-                                    <div className="w-12 h-12 rounded-xl bg-glass-blue-400/10 flex items-center justify-center mb-6">
-                                        <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6">
-                                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10" stroke="rgba(167,199,231,0.3)" strokeWidth="1" strokeLinecap="round" />
-                                            <path d="M12 5c-3.87 0-7 3.13-7 7s3.13 7 7 7" stroke="rgba(167,199,231,0.5)" strokeWidth="1" strokeLinecap="round" />
-                                            <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4" stroke="rgba(167,199,231,0.7)" strokeWidth="1.2" strokeLinecap="round" />
-                                            <circle cx="12" cy="12" r="1.5" fill="rgba(167,199,231,1)" />
-                                            <path d="M14 12h4M12 14v4" stroke="rgba(167,199,231,0.6)" strokeWidth="1" strokeLinecap="round" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">Unmistakably human</h3>
-                                    <p className="text-base text-zinc-400 leading-relaxed font-light">
-                                        SoundHaus is where authenticity matters. When credit is tracked in the commit
-                                        history instead of being lost in a chain of anonymous exports, a drummer in Berlin and
-                                        a vocalist in LA can trade stems across time zones without losing context.
-                                        The future of music is collaborative, and it should be unmistakably human.
-                                    </p>
+                        <div className="flex flex-col md:flex-row gap-12 md:gap-20 items-center">
+                            <FadeInSection delay={0} variant="left" className="flex-1">
+                                <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">Unmistakably human</h3>
+                                <p className="text-base text-zinc-400 leading-relaxed font-light">
+                                    SoundHaus is where authenticity matters. When credit is tracked in the commit
+                                    history instead of being lost in a chain of anonymous exports, a drummer in Berlin and
+                                    a vocalist in LA can trade stems across time zones without losing context.
+                                    The future of music is collaborative, and it should be unmistakably human.
+                                </p>
+                            </FadeInSection>
+                            <FadeInSection delay={150} variant="right" className="flex-1 flex justify-center items-center">
+                                <div className="w-56 h-56 opacity-25">
+                                    <svg viewBox="0 0 200 200" fill="none">
+                                        {[30, 50, 70, 90, 110, 130, 170].map((r, i) => (
+                                            <path
+                                                key={i}
+                                                d={`M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100`}
+                                                stroke="rgba(167,199,231,1)"
+                                                strokeWidth={1.2 - i * 0.1}
+                                                strokeLinecap="round"
+                                                fill="none"
+                                            >
+                                                <animate attributeName="d" dur={`${3 + i * 0.5}s`} repeatCount="indefinite" values={`M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100;M${100 - r / 2} 100 Q100 ${100 + r / 2.5} ${100 + r / 2} 100;M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100`} />
+                                            </path>
+                                        ))}
+                                    </svg>
                                 </div>
-                                {/* Visual — soundwave fingerprint */}
-                                <div className="flex-1 flex justify-center items-center">
-                                    <div className="w-56 h-56 opacity-25">
-                                        <svg viewBox="0 0 200 200" fill="none">
-                                            {[30, 50, 70, 90, 110, 130, 170].map((r, i) => (
-                                                <path
-                                                    key={i}
-                                                    d={`M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100`}
-                                                    stroke="rgba(167,199,231,1)"
-                                                    strokeWidth={1.2 - i * 0.1}
-                                                    strokeLinecap="round"
-                                                    fill="none"
-                                                >
-                                                    <animate attributeName="d" dur={`${3 + i * 0.5}s`} repeatCount="indefinite" values={`M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100;M${100 - r / 2} 100 Q100 ${100 + r / 2.5} ${100 + r / 2} 100;M${100 - r / 2} 100 Q100 ${100 - r / 2.5} ${100 + r / 2} 100`} />
-                                                </path>
-                                            ))}
-                                        </svg>
-                                    </div>
-                                </div>
-                            </div>
-                        </FadeInSection>
+                            </FadeInSection>
+                        </div>
 
                     </div>
                 </div>
