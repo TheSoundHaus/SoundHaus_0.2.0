@@ -8,10 +8,18 @@ import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import WaveformSpinner from '../components/WaveformSpinner'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
-import type { GitError } from '../hooks/useProjectGitActions'
 import type { CommitEntry, NoteDiff } from '../types'
 import electronAPI from '../services/electronAPI';
 import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
+import { useToast } from '../components/ToastProvider'
+import {
+    notifyPullSuccess,
+    notifyPullError,
+    notifyCommitSuccess,
+    notifyCommitError,
+    notifyPushSuccess,
+    notifyPushError,
+} from '../utils/projectNotifications'
 
 const ProjectPage = () => {
     console.log('[SoundHaus] ProjectPage: rendering')
@@ -34,6 +42,7 @@ const ProjectPage = () => {
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
     const { runPull, runCommit, runPush } = useProjectGitActions()
+    const { showToast } = useToast()
 
     const commitDetailRef = useRef<HTMLDivElement>(null)
 
@@ -114,17 +123,10 @@ const ProjectPage = () => {
         if (!selectedProject) return
         try {
             const result = await runPull(selectedProject)
-            alert(`Download complete!\n${result}`)
+            notifyPullSuccess(showToast, result)
             await handleRefreshChanges()
         } catch (error) {
-            const gitError = error as GitError
-            if (gitError?.type === 'conflict') {
-                alert(`Unable to download changes.\n\nYour work has conflicts with recent changes from your collaborators. Please contact your team to resolve this.`)
-            } else if (gitError?.type === 'network') {
-                alert(`Unable to connect.\n\nPlease check your internet connection and try again.`)
-            } else {
-                alert(`Download failed:\n${gitError?.message ?? error}`)
-            }
+            notifyPullError(showToast, error)
         }
     }
 
@@ -132,10 +134,10 @@ const ProjectPage = () => {
         if (!selectedProject) return
         try {
             const result = await runCommit(selectedProject)
-            alert(`Commit complete:\n${result}`)
+            notifyCommitSuccess(showToast, result)
             setAlsStruct((prev: any) => prev ? { ...prev, diffStatus: 'in-sync', summary: '' } : prev)
         } catch (error) {
-            alert(`Commit failed:\n${error}`)
+            notifyCommitError(showToast, error)
         }
     }
 
@@ -143,10 +145,10 @@ const ProjectPage = () => {
         if (!selectedProject) return
         try {
             const result = await runPush(selectedProject)
-            alert(`Push complete:\n${result}`)
+            notifyPushSuccess(showToast, result)
             await handleRefreshChanges()
         } catch (error) {
-            alert(`Push failed:\n${error}`)
+            notifyPushError(showToast, error)
         }
     }
 
@@ -156,10 +158,18 @@ const ProjectPage = () => {
         try {
             const result = await (window as any).electron.openAlsFile(selectedProject)
             if (!result.ok) {
-                alert(`Failed to open project in Ableton:\n${result.error}`)
+                showToast({
+                    type: 'error',
+                    title: "Couldn't open in Ableton",
+                    detail: result.error,
+                })
             }
         } catch (error) {
-            alert(`Error opening file:\n${error}`)
+            showToast({
+                type: 'error',
+                title: "Couldn't open file",
+                detail: error instanceof Error ? error.message : String(error),
+            })
         } finally {
             setOpeningAbleton(false)
         }

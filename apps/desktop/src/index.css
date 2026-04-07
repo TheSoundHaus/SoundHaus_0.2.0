@@ -66,6 +66,9 @@
   --shadow-brand-glow: 0 0 30px rgba(167, 199, 231, 0.12);
   --shadow-inner-glow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 
+  /* ── Z-index (modals, toasts) — see STYLEGUIDE.md ── */
+  --z-toast: 110;
+
   /* ── Animations ── */
   --animate-fade-in: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   --animate-scale-in: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;

@@ -1,24 +1,39 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { FolderOpen, X, Clock, FolderSearch, Trash2 } from 'lucide-react'
 import type { RecentProject } from '../types/index'
+import electronAPI from '../services/electronAPI'
+import { useToast } from './ToastProvider'
+import InvalidProjectNotice from './InvalidProjectNotice'
+import type { InvalidProjectNoticeVariant } from './InvalidProjectNotice'
 
 interface OpenProjectDialogProps {
   isOpen: boolean
   onClose: () => void
+  /** Called only after the folder is confirmed to contain a SoundHaus (git) project. */
   onSelectProject: (projectPath: string) => Promise<boolean>
-  onOpenFromFilepath: () => Promise<boolean>
+  /**
+   * When provided, "Open from Filepath" will offer to bootstrap a folder that contains
+   * an .als file but no git repo. The callback receives the folder path and should run
+   * project setup + initRepo.
+   */
+  onSetupAbletonFolderAsSoundHaus?: (folderPath: string) => Promise<boolean>
 }
 
 const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   isOpen,
   onClose,
   onSelectProject,
-  onOpenFromFilepath,
+  onSetupAbletonFolderAsSoundHaus,
 }) => {
+  const { showToast } = useToast()
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const [invalidNotice, setInvalidNotice] = useState<{
+    variant: InvalidProjectNoticeVariant
+    path: string
+  } | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
@@ -36,19 +51,21 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
     loadProjects()
     setSelectedPath(null)
+    setInvalidNotice(null)
     dialogRef.current?.focus()
   }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (invalidNotice) return
       if (e.key === 'Escape' && !loading) {
         onClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, loading, onClose])
+  }, [isOpen, loading, onClose, invalidNotice])
 
   const handleSelectProject = (projectPath: string) => {
     setSelectedPath(projectPath)
@@ -63,8 +80,26 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
         setSelectedPath(null)
       }
     } catch (error) {
-      console.error('Failed to remove project:', error)
+      console.error('Failed to remove recent project:', error)
     }
+  }
+
+  const dismissInvalidNotice = () => {
+    setInvalidNotice(null)
+  }
+
+  const handleRemoveInvalidRecent = async () => {
+    if (!invalidNotice || invalidNotice.variant !== 'recent') return
+    try {
+      await window.electron?.removeRecentProject(invalidNotice.path)
+      setRecentProjects(prev => prev.filter(p => p.path !== invalidNotice.path))
+      if (selectedPath === invalidNotice.path) {
+        setSelectedPath(null)
+      }
+    } catch (error) {
+      console.error('Failed to remove recent project:', error)
+    }
+    setInvalidNotice(null)
   }
 
   const handleOK = async () => {
@@ -72,12 +107,21 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
     setLoading(true)
     try {
+      const hasGit = await electronAPI.hasGitFile(selectedPath)
+      if (!hasGit) {
+        setInvalidNotice({ variant: 'recent', path: selectedPath })
+        return
+      }
       const success = await onSelectProject(selectedPath)
       if (success) {
         onClose()
       }
     } catch (error) {
-      alert(`Failed to open project:\n${error instanceof Error ? error.message : String(error)}`)
+      showToast({
+        type: 'error',
+        title: "Couldn't open project",
+        detail: error instanceof Error ? error.message : String(error),
+      })
     } finally {
       setLoading(false)
     }
@@ -86,12 +130,47 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   const handleOpenFromFilepath = async () => {
     setLoading(true)
     try {
-      const success = await onOpenFromFilepath()
+      const folder = await electronAPI.chooseFolder()
+      if (!folder) return
+
+      const hasGit = await electronAPI.hasGitFile(folder)
+      if (!hasGit) {
+        const alsPath = onSetupAbletonFolderAsSoundHaus
+          ? await electronAPI.findAls(folder)
+          : null
+        setInvalidNotice({
+          variant: alsPath ? 'filepath-ableton' : 'filepath',
+          path: folder,
+        })
+        return
+      }
+
+      const success = await onSelectProject(folder)
       if (success) {
         onClose()
       }
     } catch {
       console.warn('Filepath picker cancelled or failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSetupAsSoundHaus = async () => {
+    if (!invalidNotice || invalidNotice.variant !== 'filepath-ableton') return
+    if (!onSetupAbletonFolderAsSoundHaus) return
+    setLoading(true)
+    try {
+      const success = await onSetupAbletonFolderAsSoundHaus(invalidNotice.path)
+      if (success) {
+        setInvalidNotice(null)
+        onClose()
+      } else {
+        setInvalidNotice(null)
+      }
+    } catch (error) {
+      console.warn('Setup failed:', error)
+      setInvalidNotice(null)
     } finally {
       setLoading(false)
     }
@@ -103,7 +182,7 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center"
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.55)' }}
-      onClick={onClose}
+      onClick={() => !invalidNotice && onClose()}
     >
       <div
         ref={dialogRef}
@@ -230,6 +309,19 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
           </button>
         </div>
       </div>
+
+      <InvalidProjectNotice
+        open={invalidNotice !== null}
+        variant={invalidNotice?.variant ?? 'filepath'}
+        projectPath={invalidNotice?.path ?? ''}
+        onDismiss={dismissInvalidNotice}
+        onRemoveFromRecents={
+          invalidNotice?.variant === 'recent' ? handleRemoveInvalidRecent : undefined
+        }
+        onSetupAsSoundHaus={
+          invalidNotice?.variant === 'filepath-ableton' ? handleSetupAsSoundHaus : undefined
+        }
+      />
     </div>
   )
 }

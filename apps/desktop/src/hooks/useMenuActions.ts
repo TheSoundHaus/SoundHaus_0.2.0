@@ -1,9 +1,19 @@
 import { useCallback, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useToast } from '../components/ToastProvider'
+import {
+    notifyPullSuccess,
+    notifyPullError,
+    notifyCommitSuccess,
+    notifyCommitError,
+    notifyPushSuccess,
+    notifyPushError,
+} from '../utils/projectNotifications'
 import { useProjectActions } from './useProjectActions'
 import { useProjectGitActions } from './useProjectGitActions'
 
 export function useMenuActions() {
+    const { showToast } = useToast()
     const { handleAbletonImport } = useProjectActions()
     const { runPull, runCommit, runPush } = useProjectGitActions()
     const navigate = useNavigate()
@@ -47,34 +57,34 @@ export function useMenuActions() {
                 if (payload?.projectPath && typeof payload.projectPath === 'string') {
                     runPull(payload.projectPath)
                         .then(result => {
-                            alert(`Pull complete:\n${result}`)
+                            notifyPullSuccess(showToast, result)
                             requestProjectRefresh(payload.projectPath)
                         })
-                        .catch(error => alert(`Pull failed:\n${error}`));
+                        .catch(error => notifyPullError(showToast, error));
                 }
                 break;
             case 'project-commit':
                 if (payload?.projectPath && typeof payload.projectPath === 'string') {
                     runCommit(payload.projectPath)
                         .then(result => {
-                            alert(`Commit complete:\n${result}`)
+                            notifyCommitSuccess(showToast, result)
                             requestProjectRefresh(payload.projectPath)
                         })
-                        .catch(error => alert(`Commit failed:\n${error}`));
+                        .catch(error => notifyCommitError(showToast, error));
                 }
                 break;
             case 'project-push':
                 if (payload?.projectPath && typeof payload.projectPath === 'string') {
                     runPush(payload.projectPath)
                         .then(result => {
-                            alert(`Push complete:\n${result}`)
+                            notifyPushSuccess(showToast, result)
                             requestProjectRefresh(payload.projectPath)
                         })
-                        .catch(error => alert(`Push failed:\n${error}`));
+                        .catch(error => notifyPushError(showToast, error));
                 }
                 break;
         }
-    }, [handleAbletonImport, navigate, runPull, runCommit, runPush]);
+    }, [handleAbletonImport, navigate, runPull, runCommit, runPush, showToast]);
 
     // Report current route to main process so it can enable/disable menu items.
     // Include location.key so same-path navigations with new state still re-sync.
