@@ -1,5 +1,67 @@
 import { exec } from 'dugite';
+import * as fs from 'fs';
+import * as path from 'path';
 import { rebase } from './git-rebase';
+
+/** Marker line so we only append our block once and can recognize managed content. */
+const SOUNDHAUS_GITIGNORE_MARKER = '# SoundHaus (managed block — do not remove this line)';
+
+const SOUNDHAUS_GITIGNORE_BLOCK = `${SOUNDHAUS_GITIGNORE_MARKER}
+# macOS folder icons (e.g. Icon\\r), Ableton Backup folders
+**/*Icon*
+Backup/
+`;
+
+/**
+ * Writes or appends SoundHaus default ignore rules. Matches new init and legacy repos on first commit.
+ */
+function ensureSoundHausGitignore(repoPath: string): void {
+  const gitignorePath = path.join(repoPath, '.gitignore');
+  let existing = '';
+  if (fs.existsSync(gitignorePath)) {
+    existing = fs.readFileSync(gitignorePath, 'utf8');
+  }
+  if (existing.includes(SOUNDHAUS_GITIGNORE_MARKER)) {
+    return;
+  }
+  const prefix = existing.length && !existing.endsWith('\n') ? '\n' : '';
+  const block = (existing ? prefix : '') + SOUNDHAUS_GITIGNORE_BLOCK + '\n';
+  fs.writeFileSync(gitignorePath, existing + block, 'utf8');
+}
+
+/**
+ * True if a tracked path should be dropped from the index per SoundHaus defaults (mirrors .gitignore rules).
+ */
+function shouldUntrackSoundHausPath(relPath: string): boolean {
+  const norm = relPath.replace(/\\/g, '/');
+  const segments = norm.split('/');
+  if (segments.some((s) => s === 'Backup')) {
+    return true;
+  }
+  if (segments.some((s) => s.includes('Icon'))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Stops tracking paths that are now ignored (legacy repos that committed Icon files or Backup trees).
+ */
+async function untrackLegacyIgnoredPaths(repoPath: string): Promise<void> {
+  const ls = await exec(['ls-files', '-z'], repoPath);
+  if (ls.exitCode !== 0) {
+    return;
+  }
+  const tracked = ls.stdout.split('\0').filter(Boolean);
+  const toRemove = tracked.filter(shouldUntrackSoundHausPath);
+  if (toRemove.length === 0) {
+    return;
+  }
+  const rm = await exec(['rm', '--cached', '-f', '--', ...toRemove], repoPath);
+  if (rm.exitCode !== 0) {
+    console.warn('[project] git rm --cached for legacy ignored paths:', rm.stderr || rm.stdout);
+  }
+}
 
 async function pull(repoPath: string) {
   console.log(`[Project] Pull requested for: ${repoPath}`);
@@ -14,6 +76,9 @@ async function pull(repoPath: string) {
 
 async function commit(repoPath: string, message?: string) {
   const msg = message || 'Update project';
+
+  ensureSoundHausGitignore(repoPath);
+  await untrackLegacyIgnoredPaths(repoPath);
 
   const addResult = await exec(['add', '.'], repoPath);
   if (addResult.exitCode !== 0) {
@@ -36,4 +101,4 @@ async function push(repoPath: string) {
   return result.stdout;
 }
 
-export { pull, commit, push };
+export { pull, commit, push, ensureSoundHausGitignore };
