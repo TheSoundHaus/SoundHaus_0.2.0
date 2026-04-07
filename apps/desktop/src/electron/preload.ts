@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	getChanges: (alsPath: string): Promise<any> => ipcRenderer.invoke('get-changes', alsPath),
 	getCommitHistory: (repoPath: string): Promise<any[]> => ipcRenderer.invoke('get-commit-history', repoPath),
 	getCommitDiff: (repoPath: string, commitHash: string, alsPath: string): Promise<any> => ipcRenderer.invoke('get-commit-diff', repoPath, commitHash, alsPath),
+	getPendingInvitations: (): Promise<any> => ipcRenderer.invoke('get-pending-invitations'),
+	acceptInvitation: (invitationId: string): Promise<any> => ipcRenderer.invoke('accept-invitation', invitationId),
+	declineInvitation: (invitationId: string): Promise<any> => ipcRenderer.invoke('decline-invitation', invitationId),
+	checkIsCollaboration: (repoPath: string): Promise<any> => ipcRenderer.invoke('check-is-collaboration', repoPath),
 });
 
 contextBridge.exposeInMainWorld('gitService', {

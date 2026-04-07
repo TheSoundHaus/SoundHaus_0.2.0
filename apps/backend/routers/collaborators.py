@@ -44,7 +44,10 @@ async def invite_collaborator(
 
         user_id = user_res["user"]["id"]
         email = user_res["user"]["email"]
-        owner_username = user_id
+
+        # Resolve human-readable username from Profile table
+        profile = db.query(Profile).filter(Profile.id == user_id).first()
+        owner_username = profile.username if profile else user_id
 
         # Verify repo exists
         repo_service = RepoService()
@@ -149,11 +152,21 @@ async def get_pending_invitations(
             .all()
         )
 
+        # Collect unique owner identifiers and resolve to human-readable usernames
+        owner_ids = {inv.owner_username for inv in invitations}
+        profiles = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
+        # Also check by username in case some are already stored as username
+        profiles += db.query(Profile).filter(Profile.username.in_(owner_ids)).all()
+        id_to_username = {}
+        for p in profiles:
+            id_to_username[p.id] = p.username
+            id_to_username[p.username] = p.username
+
         invitation_list = [
             {
                 "id": inv.id,
                 "repo_name": inv.repo_name,
-                "owner_username": inv.owner_username,
+                "owner_username": id_to_username.get(inv.owner_username, inv.owner_username),
                 "owner_email": inv.owner_email,
                 "permission": inv.permission,
                 "created_at": inv.created_at.isoformat(),

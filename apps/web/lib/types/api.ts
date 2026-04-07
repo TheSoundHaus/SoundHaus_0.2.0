@@ -145,7 +145,7 @@ export interface EnrichedRepo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface Invitation {
-  id: number;
+  id: string;
   repo_name: string;
   owner_username: string;
   owner_email: string;

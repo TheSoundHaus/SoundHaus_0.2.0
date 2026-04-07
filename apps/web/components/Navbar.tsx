@@ -80,12 +80,12 @@ const Navbar = () => {
     };
 
     // Invitation action handlers
-    const handleAccept = async (id: number) => {
+    const handleAccept = async (id: string) => {
         await acceptInvitation(id);
         await fetchNotifications();
     };
 
-    const handleDecline = async (id: number) => {
+    const handleDecline = async (id: string) => {
         await declineInvitation(id);
         await fetchNotifications();
     };

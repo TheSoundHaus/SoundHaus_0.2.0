@@ -388,13 +388,15 @@ export function DiffTimeline({
                             const isReturn = track.trackType === "return" || track.trackType === "group";
 
                             // All tracks: same collapsed height. Expanded height varies by type.
+                            const hasDeviceInfo = !!(track.deviceChanges?.length || track.parameterChanges?.length);
+                            const deviceRowExtra = (isExpanded && hasDeviceInfo && !isReturn) ? 72 : 0;
                             const trackHeight = empty
                                 ? COLLAPSED_HEIGHT
                                 : isReturn
                                     ? (isExpanded ? 120 : COLLAPSED_HEIGHT)
                                     : track.trackType === "midi"
-                                        ? (isExpanded ? expandedHeightMidi : COLLAPSED_HEIGHT)
-                                        : (isExpanded ? EXPANDED_HEIGHT_AUDIO : COLLAPSED_HEIGHT);
+                                        ? (isExpanded ? expandedHeightMidi + deviceRowExtra : COLLAPSED_HEIGHT)
+                                        : (isExpanded ? EXPANDED_HEIGHT_AUDIO + deviceRowExtra : COLLAPSED_HEIGHT);
 
                             // Collect ghost notes from modified clips (the "before" state)
                             const ghostNotes = track.midiClips
@@ -444,26 +446,44 @@ export function DiffTimeline({
                                                 height={trackHeight}
                                             />
                                         ) : track.trackType === "midi" ? (
-                                            <PianoRollTrack
-                                                midiClips={track.midiClips ?? []}
-                                                totalBeats={effectiveTotalBeats}
-                                                changeType={track.changeType}
-                                                height={trackHeight}
-                                                pixelsPerBeat={pixelsPerBeat}
-                                                ghostNotes={ghostNotes}
-                                                isCollapsed={!isExpanded}
-                                                globalPitchMin={globalPitch.pitchMin}
-                                                globalPitchMax={globalPitch.pitchMax}
-                                            />
+                                            <>
+                                                <PianoRollTrack
+                                                    midiClips={track.midiClips ?? []}
+                                                    totalBeats={effectiveTotalBeats}
+                                                    changeType={track.changeType}
+                                                    height={trackHeight}
+                                                    pixelsPerBeat={pixelsPerBeat}
+                                                    ghostNotes={ghostNotes}
+                                                    isCollapsed={!isExpanded}
+                                                    globalPitchMin={globalPitch.pitchMin}
+                                                    globalPitchMax={globalPitch.pitchMax}
+                                                />
+                                                {isExpanded && (track.deviceChanges?.length || track.parameterChanges?.length) ? (
+                                                    <DeviceChainRow
+                                                        track={track}
+                                                        isCollapsed={false}
+                                                        height={72}
+                                                    />
+                                                ) : null}
+                                            </>
                                         ) : (
-                                            <AudioTrackRow
-                                                track={track}
-                                                totalBeats={effectiveTotalBeats}
-                                                pixelsPerBeat={pixelsPerBeat}
-                                                repoOwner={repoOwner}
-                                                repoName={repoName}
-                                                commitSha={commitSha}
-                                            />
+                                            <>
+                                                <AudioTrackRow
+                                                    track={track}
+                                                    totalBeats={effectiveTotalBeats}
+                                                    pixelsPerBeat={pixelsPerBeat}
+                                                    repoOwner={repoOwner}
+                                                    repoName={repoName}
+                                                    commitSha={commitSha}
+                                                />
+                                                {isExpanded && (track.deviceChanges?.length || track.parameterChanges?.length) ? (
+                                                    <DeviceChainRow
+                                                        track={track}
+                                                        isCollapsed={false}
+                                                        height={72}
+                                                    />
+                                                ) : null}
+                                            </>
                                         )}
                                     </div>
                                 </div>

@@ -9,7 +9,7 @@ import {
 } from "@/lib/api/invitations";
 
 export async function acceptInvitationAction(
-    invitationId: number,
+    invitationId: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
     try {
         const result = await acceptInvitation(invitationId);
@@ -21,7 +21,7 @@ export async function acceptInvitationAction(
 }
 
 export async function declineInvitationAction(
-    invitationId: number,
+    invitationId: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
     try {
         const result = await declineInvitation(invitationId);

@@ -1364,6 +1364,91 @@ app.whenReady().then(() => {
   });
 });
 
+// ── Invitation IPC Handlers ──────────────────────────────────────────────────
+
+ipcMain.handle('get-pending-invitations', async () => {
+  try {
+    const pat = await getSoundHausCredentials();
+    if (!pat) return { ok: false, reason: 'Not logged in' };
+    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/pending`, {
+      headers: { 'Authorization': `token ${pat}` },
+    });
+    if (!res.ok) return { ok: false, reason: `Server error: ${res.status}` };
+    const data = await res.json();
+    return { ok: true, invitations: data.invitations ?? [] };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message ?? 'Failed to fetch invitations' };
+  }
+});
+
+ipcMain.handle('accept-invitation', async (_event: IpcMainInvokeEvent, invitationId: string) => {
+  try {
+    const pat = await getSoundHausCredentials();
+    if (!pat) return { ok: false, reason: 'Not logged in' };
+    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/${invitationId}/accept`, {
+      method: 'POST',
+      headers: { 'Authorization': `token ${pat}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return { ok: false, reason: body.detail ?? body.message ?? `Server error: ${res.status}` };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message ?? 'Failed to accept invitation' };
+  }
+});
+
+ipcMain.handle('decline-invitation', async (_event: IpcMainInvokeEvent, invitationId: string) => {
+  try {
+    const pat = await getSoundHausCredentials();
+    if (!pat) return { ok: false, reason: 'Not logged in' };
+    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/${invitationId}/decline`, {
+      method: 'POST',
+      headers: { 'Authorization': `token ${pat}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return { ok: false, reason: body.detail ?? body.message ?? `Server error: ${res.status}` };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message ?? 'Failed to decline invitation' };
+  }
+});
+
+ipcMain.handle('check-is-collaboration', async (_event: IpcMainInvokeEvent, repoPath: string) => {
+  try {
+    if (!repoPath) return { ok: false, reason: 'No project path' };
+
+    // Get the git remote URL and extract the owner UUID
+    const remoteResult = await gitExec(['remote', 'get-url', 'origin'], repoPath);
+    if (remoteResult.exitCode !== 0) return { ok: false, reason: 'No remote configured' };
+    const remoteUrl = remoteResult.stdout.trim();
+    const remoteMatch = remoteUrl.match(/\/([^/]+)\/([^/.]+?)(?:\.git)?$/);
+    if (!remoteMatch) return { ok: false, reason: 'Could not parse remote URL' };
+    const remoteOwner = remoteMatch[1];
+
+    // Get the current user's Gitea username (= Supabase UUID) via the Gitea API
+    const giteaToken = await getGiteaCredentials();
+    const allowedRemote = await getAllowedCloneRemote();
+    if (!giteaToken || !allowedRemote) return { ok: false, reason: 'Not logged in' };
+
+    const giteaBase = allowedRemote.replace(/\/$/, '');
+    const userRes = await fetch(`${giteaBase}/api/v1/user`, {
+      headers: { 'Authorization': `token ${giteaToken}` },
+    });
+    if (!userRes.ok) return { ok: false, reason: 'Could not verify user identity' };
+    const userData = await userRes.json() as Record<string, any>;
+    const currentUsername = userData.login ?? userData.username ?? '';
+
+    const isCollaboration = currentUsername !== '' && remoteOwner !== currentUsername;
+    return { ok: true, isCollaboration, ownerName: isCollaboration ? remoteOwner : undefined };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message ?? 'Failed to check collaboration status' };
+  }
+});
+
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.

@@ -5,7 +5,7 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: {
-      unpack: '**/node_modules/dugite/git/**',
+      unpack: '{**/node_modules/dugite/git/**,**/*.node}',
     },
     name: 'SoundHaus',
     executableName: 'SoundHaus',

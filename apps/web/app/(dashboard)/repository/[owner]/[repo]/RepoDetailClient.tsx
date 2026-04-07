@@ -1224,7 +1224,8 @@ export default function RepoDetailClient({
             </div>
           )}
 
-          {/* Invite Collaborators Section */}
+          {/* Invite Collaborators Section — owner only */}
+          {user?.username === owner && (
           <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <UserPlus size={18} /> Invite Collaborators
@@ -1232,15 +1233,7 @@ export default function RepoDetailClient({
 
             {/* Single search bar with inline send button */}
             <div className="relative">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const value = searchQuery.trim();
-                  if (value) handleInvite(value);
-                }}
-                className="flex gap-3"
-              >
-                <div className="relative flex-1">
+              <div className="relative">
                   <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
                     <Search size={16} className="text-zinc-400 shrink-0" />
                     <input
@@ -1288,15 +1281,7 @@ export default function RepoDetailClient({
                       )}
                     </div>
                   )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={isPending || !searchQuery.trim()}
-                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 shrink-0"
-                >
-                  <Send size={14} /> Send Invite
-                </button>
-              </form>
+              </div>
 
               {/* Role selector */}
               <div className="mt-3 flex items-center gap-3">
@@ -1328,8 +1313,10 @@ export default function RepoDetailClient({
               </div>
             </div>
           </div>
+          )}
 
-          {/* Pending Invitations */}
+          {/* Pending Invitations — owner only */}
+          {user?.username === owner && (
           <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <Clock size={18} /> Pending Invitations
@@ -1372,6 +1359,7 @@ export default function RepoDetailClient({
               </div>
             )}
           </div>
+          )}
 
           {/* Active Collaborators */}
           <div className="glass-card rounded-lg p-6">
