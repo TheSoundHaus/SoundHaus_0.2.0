@@ -154,31 +154,33 @@ class PATService:
             User info dict if valid, None if invalid
         """
         try:
-            # Query all non-revoked tokens from database
-            tokens = db.query(PersonalAccessToken).filter(
+            # Use the token prefix (first 16 chars) for a direct DB lookup instead of
+            # scanning all rows. Each bcrypt.checkpw() at 12 rounds costs ~250ms, so
+            # scanning all tokens is O(n*250ms) — unacceptable as the PAT table grows.
+            token_prefix = token[:16]
+            pat = db.query(PersonalAccessToken).filter(
+                PersonalAccessToken.token_prefix == token_prefix,
                 PersonalAccessToken.is_revoked == False
-            ).all()
+            ).first()
 
-            # Loop through each token and check if it matches
-            for pat in tokens:
-                if PATService.verify_token(token, pat.token_hash):
-                    # Check if token is expired
-                    if pat.expires_at is not None and datetime.now(timezone.utc) > pat.expires_at:
-                        logger.info("pat_expired", token_prefix=pat.token_prefix)
-                        return None
-                    
-                    # Update last_used and usage_count
-                    pat.last_used = datetime.now(timezone.utc)
-                    pat.usage_count += 1
-                    db.commit()
-                    
-                    return {
-                        "user_id": pat.user_id,
-                        "pat_id": pat.id,
-                        "token_name": pat.token_name,
-                        "scopes": pat.scopes
-                    }
-            
+            if pat and PATService.verify_token(token, pat.token_hash):
+                # Check if token is expired
+                if pat.expires_at is not None and datetime.now(timezone.utc) > pat.expires_at:
+                    logger.info("pat_expired", token_prefix=pat.token_prefix)
+                    return None
+
+                # Update last_used and usage_count
+                pat.last_used = datetime.now(timezone.utc)
+                pat.usage_count += 1
+                db.commit()
+
+                return {
+                    "user_id": pat.user_id,
+                    "pat_id": pat.id,
+                    "token_name": pat.token_name,
+                    "scopes": pat.scopes
+                }
+
             # No match found
             return None
             
