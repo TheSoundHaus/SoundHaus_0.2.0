@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, shell, ipcMain, Menu, screen } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { updateElectronApp } from 'update-electron-app';
 import { desktopEnv } from './env';
@@ -398,9 +398,19 @@ async function diffSnapshotsFromAlsBlobs(
 }
 
 function createWindow() {
+    const display = screen.getPrimaryDisplay();
+    const { width: waW, height: waH } = display.workAreaSize;
+    const { x: waX, y: waY } = display.workArea;
+    const winW = Math.max(960, Math.round(waW * 0.92));
+    const winH = Math.max(640, Math.round(waH * 0.92));
+    const winX = waX + Math.round((waW - winW) / 2);
+    const winY = waY + Math.round((waH - winH) / 2);
+
     mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: winW,
+    height: winH,
+    x: winX,
+    y: winY,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       spellcheck: false,

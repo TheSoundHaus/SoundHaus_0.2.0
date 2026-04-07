@@ -29,14 +29,16 @@ function App() {
     <Router>
       <MenuActionListener />
       <SearchPalette isOpen={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
-      <Routes>
-        <Route path="/" element={<LoginPage />} />
-        <Route path="/home" element={<HomePage />} />
-        <Route path="/project" element={<ProjectPage />} />
-        <Route path="/project-setup" element={<ProjectInitDialog />} />
-        <Route path="/clone-url" element={<CloneUrlDialog />} />
-        <Route path="/about" element={<AboutDialog />} />
-      </Routes>
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+        <Routes>
+          <Route path="/" element={<LoginPage />} />
+          <Route path="/home" element={<HomePage />} />
+          <Route path="/project" element={<ProjectPage />} />
+          <Route path="/project-setup" element={<ProjectInitDialog />} />
+          <Route path="/clone-url" element={<CloneUrlDialog />} />
+          <Route path="/about" element={<AboutDialog />} />
+        </Routes>
+      </div>
     </Router>
   )
 }

@@ -17,6 +17,14 @@ const MIN_ROLL_WIDTH = 900;
 const PIXELS_PER_BEAT = 72;
 const ROLL_HEIGHT = 240;
 
+/* Design-system note colors */
+const COLOR_ADDED    = '#22C55E'; /* --color-diff-added */
+const COLOR_REMOVED  = '#EF4444'; /* --color-diff-removed */
+const COLOR_MODIFIED = '#A7C7E7'; /* --color-diff-modified (icy blue) */
+const COLOR_RENAMED  = '#F59E0B'; /* --color-diff-renamed (amber) */
+const GRID_LINE      = 'rgba(255, 255, 255, 0.06)';
+const SVG_BG         = '#141414'; /* --color-bg-primary */
+
 const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
     const [hoveredPairKey, setHoveredPairKey] = useState<string | null>(null);
     const [selectedPairKey, setSelectedPairKey] = useState<string | null>(null);
@@ -41,7 +49,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
     }, [tracks]);
 
     if (!hasAnyNotes) {
-        return <p style={{ color: '#888' }}>No MIDI note changes in this commit.</p>;
+        return <p className="text-sm text-text-tertiary">No MIDI note changes in this commit.</p>;
     }
 
     const formatPitchName = (pitch: number) => {
@@ -93,11 +101,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
             setSelectedTooltip(
                 nextSelected === null
                     ? null
-                    : {
-                          text: label,
-                          x: event.clientX,
-                          y: event.clientY,
-                      }
+                    : { text: label, x: event.clientX, y: event.clientY }
             );
         },
     });
@@ -135,35 +139,26 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
     };
 
     return (
-        <div style={{ display: 'grid', gap: 12, position: 'relative' }}>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div className="flex flex-col gap-3 relative w-full min-w-0 max-w-full">
+            {/* Expand / Collapse controls */}
+            <div className="flex gap-2 justify-end">
                 <button
                     type="button"
                     onClick={() => setAllTracksExpanded(true)}
-                    style={{
-                        border: '1px solid #d0d7e2',
-                        background: '#fff',
-                        color: '#334',
-                        borderRadius: 6,
-                        padding: '4px 10px',
-                        fontSize: 12,
-                        cursor: 'pointer',
-                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium
+                               bg-bg-elevated border border-border-default text-text-secondary
+                               hover:text-text-primary hover:border-accent/30
+                               transition-all duration-200 cursor-pointer"
                 >
                     Open all
                 </button>
                 <button
                     type="button"
                     onClick={() => setAllTracksExpanded(false)}
-                    style={{
-                        border: '1px solid #d0d7e2',
-                        background: '#fff',
-                        color: '#334',
-                        borderRadius: 6,
-                        padding: '4px 10px',
-                        fontSize: 12,
-                        cursor: 'pointer',
-                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium
+                               bg-bg-elevated border border-border-default text-text-secondary
+                               hover:text-text-primary hover:border-accent/30
+                               transition-all duration-200 cursor-pointer"
                 >
                     Collapse all
                 </button>
@@ -242,7 +237,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                             style={{
                                 cursor: options?.cursor ?? 'default',
                                 transition: 'opacity 120ms ease, stroke 120ms ease, filter 120ms ease',
-                                filter: strokeWidth > 0 ? 'drop-shadow(0 0 4px rgba(31, 41, 55, 0.22))' : 'none',
+                                filter: strokeWidth > 0 ? 'drop-shadow(0 0 4px rgba(167, 199, 231, 0.3))' : 'none',
                             }}
                             onMouseEnter={options?.onMouseEnter}
                             onMouseMove={options?.onMouseMove}
@@ -255,186 +250,188 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                 };
 
                 return (
-                    <div key={`${track.trackId}-${trackIndex}`} style={{ border: '1px solid #e6e6e6', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                    <div
+                        key={`${track.trackId}-${trackIndex}`}
+                        className="rounded-xl border border-border-default overflow-hidden w-full min-w-0 max-w-full"
+                    >
                         <button
                             type="button"
                             onClick={() => toggleTrackExpanded(track.trackId)}
                             aria-expanded={isExpanded}
-                            style={{
-                                width: '100%',
-                                border: 'none',
-                                background: '#fafafa',
-                                borderBottom: isExpanded ? '1px solid #eee' : 'none',
-                                padding: '8px 12px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                gap: 12,
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                            }}
+                            className="w-full flex items-center justify-between px-3 py-2.5
+                                       bg-bg-elevated border-b border-border-subtle
+                                       hover:bg-bg-tertiary/60 transition-colors duration-200
+                                       cursor-pointer text-left"
                         >
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ color: '#556', fontSize: 12 }}>{isExpanded ? '▾' : '▸'}</span>
-                                <strong style={{ fontSize: 13 }}>{track.trackName || 'Unnamed Track'}</strong>
+                            <span className="flex items-center gap-2">
+                                <span className="text-text-tertiary text-xs">{isExpanded ? '▾' : '▸'}</span>
+                                <strong className="text-sm font-medium text-text-primary">{track.trackName || 'Unnamed Track'}</strong>
                             </span>
-                            <span style={{ fontSize: 11, color: '#667' }}>
-                                +{track.added.length} / -{track.removed.length} / ~{track.adjusted.length}
+                            <span className="text-xs text-text-tertiary font-mono">
+                                <span className="text-diff-added">+{track.added.length}</span>
+                                {' / '}
+                                <span className="text-diff-removed">-{track.removed.length}</span>
+                                {' / '}
+                                <span className="text-diff-modified">~{track.adjusted.length}</span>
                             </span>
                         </button>
 
-                        {isExpanded ? (
-                        <div style={{ overflowX: 'auto', overflowY: 'hidden' }}>
-                            <svg width={rollWidth} height={ROLL_HEIGHT} style={{ display: 'block', background: '#fff' }}>
-                                {Array.from({ length: Math.min(24, pitchRange) }).map((_, i) => {
-                                    const pitch = minPitch + i;
-                                    const y = yForPitch(pitch);
-                                    return (
-                                        <line
-                                            key={`grid-${track.trackId}-${pitch}`}
-                                            x1={0}
-                                            y1={y}
-                                            x2={rollWidth}
-                                            y2={y}
-                                            stroke="#f3f3f3"
-                                            strokeWidth={1}
-                                        />
-                                    );
-                                })}
+                        {isExpanded && (
+                            <div
+                                className="overflow-x-auto overflow-y-hidden w-full min-w-0 touch-pan-x"
+                                style={{ background: SVG_BG }}
+                            >
+                                <svg width={rollWidth} height={ROLL_HEIGHT} style={{ display: 'block', background: SVG_BG }}>
+                                    {Array.from({ length: Math.min(24, pitchRange) }).map((_, i) => {
+                                        const pitch = minPitch + i;
+                                        const y = yForPitch(pitch);
+                                        return (
+                                            <line
+                                                key={`grid-${track.trackId}-${pitch}`}
+                                                x1={0} y1={y} x2={rollWidth} y2={y}
+                                                stroke={GRID_LINE}
+                                                strokeWidth={1}
+                                            />
+                                        );
+                                    })}
 
-                                {adjustedPairs.map((pair) => {
-                                    const samePitch = pair.from.pitch === pair.to.pitch;
-                                    const label = getPairLabel(pair.from, pair.to);
-                                    const handlers = buildPairHandlers(pair.pairKey, label);
-                                    const active = activePairKey === pair.pairKey;
+                                    {adjustedPairs.map((pair) => {
+                                        const samePitch = pair.from.pitch === pair.to.pitch;
+                                        const label = getPairLabel(pair.from, pair.to);
+                                        const handlers = buildPairHandlers(pair.pairKey, label);
+                                        const active = activePairKey === pair.pairKey;
 
-                                    const fromX = xForBeat(pair.from.start_beat);
-                                    const fromWidth = Math.max(2, (pair.from.duration_beats / timeRange) * (rollWidth - 24));
-                                    const toX = xForBeat(pair.to.start_beat);
-                                    const toWidth = Math.max(2, (pair.to.duration_beats / timeRange) * (rollWidth - 24));
-                                    const oldEndX = fromX + fromWidth;
-                                    const newEndX = toX + toWidth;
-                                    const deltaStart = Math.min(oldEndX, newEndX);
-                                    const deltaWidth = Math.abs(newEndX - oldEndX);
-                                    const extension = pair.to.duration_beats > pair.from.duration_beats + EPSILON;
-                                    const shortening = pair.from.duration_beats > pair.to.duration_beats + EPSILON;
+                                        const fromX = xForBeat(pair.from.start_beat);
+                                        const fromWidth = Math.max(2, (pair.from.duration_beats / timeRange) * (rollWidth - 24));
+                                        const toX = xForBeat(pair.to.start_beat);
+                                        const toWidth = Math.max(2, (pair.to.duration_beats / timeRange) * (rollWidth - 24));
+                                        const oldEndX = fromX + fromWidth;
+                                        const newEndX = toX + toWidth;
+                                        const deltaStart = Math.min(oldEndX, newEndX);
+                                        const deltaWidth = Math.abs(newEndX - oldEndX);
+                                        const extension = pair.to.duration_beats > pair.from.duration_beats + EPSILON;
+                                        const shortening = pair.from.duration_beats > pair.to.duration_beats + EPSILON;
 
-                                    return (
-                                        <g key={pair.pairKey}>
-                                            {samePitch ? (
-                                                <>
-                                                    {renderRect(pair.from, 'none', `${pair.pairKey}-from-outline`, {
-                                                        opacity: 1,
-                                                        stroke: '#f0ad4e',
-                                                        strokeWidth: active ? 2.5 : 1.5,
-                                                        dash: '5 3',
-                                                        cursor: 'pointer',
-                                                        title: label,
-                                                        ...handlers,
-                                                    })}
-                                                    {renderRect(pair.to, '#337ab7', `${pair.pairKey}-to-solid`, {
-                                                        opacity: active ? 1 : 0.92,
-                                                        stroke: active ? '#1f2937' : 'transparent',
-                                                        strokeWidth: active ? 2 : 0,
-                                                        cursor: 'pointer',
-                                                        title: label,
-                                                        ...handlers,
-                                                    })}
-                                                    {extension && deltaWidth > 0 ? (
-                                                        <rect
-                                                            x={oldEndX}
-                                                            y={yForPitch(pair.to.pitch) - noteHeight}
-                                                            width={deltaWidth}
-                                                            height={noteHeight}
-                                                            fill="#5b8def"
-                                                            opacity={0.95}
-                                                            rx={2}
-                                                        />
-                                                    ) : null}
-                                                    {shortening && deltaWidth > 0 ? (
-                                                        <rect
-                                                            x={deltaStart}
-                                                            y={yForPitch(pair.from.pitch) - noteHeight}
-                                                            width={deltaWidth}
-                                                            height={noteHeight}
-                                                            fill="#f0ad4e"
-                                                            opacity={0.45}
-                                                            rx={2}
-                                                        />
-                                                    ) : null}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    {renderRect(pair.from, '#f0ad4e', `${pair.pairKey}-from`, {
-                                                        opacity: active ? 0.95 : 0.72,
-                                                        stroke: active ? '#1f2937' : 'transparent',
-                                                        strokeWidth: active ? 2 : 0,
-                                                        cursor: 'pointer',
-                                                        title: label,
-                                                        ...handlers,
-                                                    })}
-                                                    {renderRect(pair.to, '#337ab7', `${pair.pairKey}-to`, {
-                                                        opacity: active ? 1 : 0.92,
-                                                        stroke: active ? '#1f2937' : 'transparent',
-                                                        strokeWidth: active ? 2 : 0,
-                                                        cursor: 'pointer',
-                                                        title: label,
-                                                        ...handlers,
-                                                    })}
-                                                </>
-                                            )}
-                                        </g>
-                                    );
-                                })}
+                                        return (
+                                            <g key={pair.pairKey}>
+                                                {samePitch ? (
+                                                    <>
+                                                        {renderRect(pair.from, 'none', `${pair.pairKey}-from-outline`, {
+                                                            opacity: 1,
+                                                            stroke: COLOR_RENAMED,
+                                                            strokeWidth: active ? 2.5 : 1.5,
+                                                            dash: '5 3',
+                                                            cursor: 'pointer',
+                                                            title: label,
+                                                            ...handlers,
+                                                        })}
+                                                        {renderRect(pair.to, COLOR_MODIFIED, `${pair.pairKey}-to-solid`, {
+                                                            opacity: active ? 1 : 0.85,
+                                                            stroke: active ? 'rgba(255,255,255,0.3)' : 'transparent',
+                                                            strokeWidth: active ? 2 : 0,
+                                                            cursor: 'pointer',
+                                                            title: label,
+                                                            ...handlers,
+                                                        })}
+                                                        {extension && deltaWidth > 0 ? (
+                                                            <rect
+                                                                x={oldEndX}
+                                                                y={yForPitch(pair.to.pitch) - noteHeight}
+                                                                width={deltaWidth}
+                                                                height={noteHeight}
+                                                                fill={COLOR_MODIFIED}
+                                                                opacity={0.6}
+                                                                rx={2}
+                                                            />
+                                                        ) : null}
+                                                        {shortening && deltaWidth > 0 ? (
+                                                            <rect
+                                                                x={deltaStart}
+                                                                y={yForPitch(pair.from.pitch) - noteHeight}
+                                                                width={deltaWidth}
+                                                                height={noteHeight}
+                                                                fill={COLOR_RENAMED}
+                                                                opacity={0.45}
+                                                                rx={2}
+                                                            />
+                                                        ) : null}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        {renderRect(pair.from, COLOR_RENAMED, `${pair.pairKey}-from`, {
+                                                            opacity: active ? 0.95 : 0.72,
+                                                            stroke: active ? 'rgba(255,255,255,0.3)' : 'transparent',
+                                                            strokeWidth: active ? 2 : 0,
+                                                            cursor: 'pointer',
+                                                            title: label,
+                                                            ...handlers,
+                                                        })}
+                                                        {renderRect(pair.to, COLOR_MODIFIED, `${pair.pairKey}-to`, {
+                                                            opacity: active ? 1 : 0.85,
+                                                            stroke: active ? 'rgba(255,255,255,0.3)' : 'transparent',
+                                                            strokeWidth: active ? 2 : 0,
+                                                            cursor: 'pointer',
+                                                            title: label,
+                                                            ...handlers,
+                                                        })}
+                                                    </>
+                                                )}
+                                            </g>
+                                        );
+                                    })}
 
-                                {track.removed.map((note, i) => {
-                                    const noteKey = `${track.trackId}:removed:${i}`;
-                                    const label = getNoteActionLabel('removed', note);
-                                    return renderRect(note, '#d9534f', noteKey, {
-                                        noteKey,
-                                        opacity: 0.85,
-                                        stroke: hoveredNoteKey === noteKey ? '#8f2f2a' : 'transparent',
-                                        strokeWidth: hoveredNoteKey === noteKey ? 2 : 0,
-                                        cursor: 'pointer',
-                                        title: label,
-                                        ...buildSingleNoteHandlers(noteKey, label),
-                                    });
-                                })}
+                                    {track.removed.map((note, i) => {
+                                        const noteKey = `${track.trackId}:removed:${i}`;
+                                        const label = getNoteActionLabel('removed', note);
+                                        return renderRect(note, COLOR_REMOVED, noteKey, {
+                                            noteKey,
+                                            opacity: 0.85,
+                                            stroke: hoveredNoteKey === noteKey ? 'rgba(239,68,68,0.8)' : 'transparent',
+                                            strokeWidth: hoveredNoteKey === noteKey ? 2 : 0,
+                                            cursor: 'pointer',
+                                            title: label,
+                                            ...buildSingleNoteHandlers(noteKey, label),
+                                        });
+                                    })}
 
-                                {track.added.map((note, i) => {
-                                    const noteKey = `${track.trackId}:added:${i}`;
-                                    const label = getNoteActionLabel('added', note);
-                                    return renderRect(note, '#5cb85c', noteKey, {
-                                        noteKey,
-                                        opacity: 0.9,
-                                        stroke: hoveredNoteKey === noteKey ? '#2f6f33' : 'transparent',
-                                        strokeWidth: hoveredNoteKey === noteKey ? 2 : 0,
-                                        cursor: 'pointer',
-                                        title: label,
-                                        ...buildSingleNoteHandlers(noteKey, label),
-                                    });
-                                })}
-                            </svg>
-                        </div>
-                        ) : null}
+                                    {track.added.map((note, i) => {
+                                        const noteKey = `${track.trackId}:added:${i}`;
+                                        const label = getNoteActionLabel('added', note);
+                                        return renderRect(note, COLOR_ADDED, noteKey, {
+                                            noteKey,
+                                            opacity: 0.9,
+                                            stroke: hoveredNoteKey === noteKey ? 'rgba(34,197,94,0.8)' : 'transparent',
+                                            strokeWidth: hoveredNoteKey === noteKey ? 2 : 0,
+                                            cursor: 'pointer',
+                                            title: label,
+                                            ...buildSingleNoteHandlers(noteKey, label),
+                                        });
+                                    })}
+                                </svg>
+                            </div>
+                        )}
                     </div>
                 );
             })}
 
+            {/* Tooltip */}
             {tooltip ? (
                 <div
                     style={{
                         position: 'fixed',
                         left: Math.min(tooltip.x + 14, window.innerWidth - 240),
                         top: Math.min(tooltip.y + 14, window.innerHeight - 56),
-                        background: 'rgba(17, 24, 39, 0.96)',
-                        color: '#fff',
+                        background: 'rgba(28, 26, 26, 0.96)',
+                        backdropFilter: 'blur(12px)',
+                        WebkitBackdropFilter: 'blur(12px)',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        color: '#F0F0F0',
                         borderRadius: 8,
                         padding: '6px 10px',
                         fontSize: 12,
                         lineHeight: 1.2,
                         pointerEvents: 'none',
-                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
+                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
                         zIndex: 20,
                         maxWidth: 240,
                         whiteSpace: 'nowrap',
