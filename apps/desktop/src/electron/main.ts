@@ -242,6 +242,52 @@ function extractNoteDiffFromChanges(changes: any[], trackOrder: string[] = []): 
   return { tracks };
 }
 
+/** Dirs we never search for .als (metadata / tooling / macOS junk). */
+const ALS_DISCOVERY_SKIP_DIRS = new Set(['.git', '.soundhaus', 'node_modules', '__MACOSX']);
+
+/**
+ * Find a Live Set under the repo root. Ableton often saves as ProjectName/ProjectName.als
+ * (not at repo root); only scanning the root breaks after clone on another OS.
+ * Prefers the shallowest path, then lexicographic order; skips Ableton Backup/ trees.
+ */
+async function findAlsFileInRepo(repoRoot: string): Promise<string | null> {
+  const candidates: string[] = [];
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > 16) return;
+    let entries;
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (ALS_DISCOVERY_SKIP_DIRS.has(ent.name)) continue;
+        if (ent.name.toLowerCase() === 'backup') continue;
+        await walk(full, depth + 1);
+      } else if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+        candidates.push(full);
+      }
+    }
+  }
+
+  await walk(repoRoot, 0);
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  candidates.sort((a, b) => {
+    const da = a.split(path.sep).length;
+    const db = b.split(path.sep).length;
+    if (da !== db) return da - db;
+    return a.localeCompare(b, undefined, { sensitivity: 'base' });
+  });
+  return candidates[0];
+}
+
 /**
  * Find the first .als file in a directory, parse it, and write/overwrite
  * .soundhaus/{sessionName}/snapshot.json.  Returns the alsPath on success
@@ -249,11 +295,8 @@ function extractNoteDiffFromChanges(changes: any[], trackOrder: string[] = []): 
  */
 async function refreshSnapshot(repoPath: string): Promise<{ alsPath: string | null; error?: string }> {
   try {
-    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
-    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
-    if (!alsFile) return { alsPath: null };
-
-    const alsPath = path.join(repoPath, alsFile.name);
+    const alsPath = await findAlsFileInRepo(repoPath);
+    if (!alsPath) return { alsPath: null };
     const sessionName = path.basename(alsPath, '.als');
     const snapshotDir = path.join(repoPath, '.soundhaus', sessionName);
     await fs.promises.mkdir(snapshotDir, { recursive: true });
@@ -453,21 +496,14 @@ ipcMain.handle('check-git', async (_event: IpcMainInvokeEvent, folderPath: strin
 // structuralCompareAls() from project.ts is no longer called.
 
 ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
-  if(!folderPath) {
+  if (!folderPath) {
     return null;
   }
   try {
-    const entries = await fs.promises.readdir(folderPath, { withFileTypes:  true });
-    for(const ent of entries) {
-      if(ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
-        return path.join(folderPath, ent.name);
-      }
-    }
+    return await findAlsFileInRepo(folderPath);
+  } catch {
+    return null;
   }
-  catch(e) {
-    // Ignore errors
-  }
-  return null;
 });
 
 ipcMain.handle('open-als-file', async (_event: IpcMainInvokeEvent, folderPath: string) => {
@@ -475,15 +511,12 @@ ipcMain.handle('open-als-file', async (_event: IpcMainInvokeEvent, folderPath: s
     return { ok: false, error: 'No project path provided' };
   }
   try {
-    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
-    for (const ent of entries) {
-      if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
-        const alsPath = path.join(folderPath, ent.name);
-        await shell.openPath(alsPath);
-        return { ok: true };
-      }
+    const alsPath = await findAlsFileInRepo(folderPath);
+    if (!alsPath) {
+      return { ok: false, error: 'No .als file found in this project' };
     }
-    return { ok: false, error: 'No .als file found in this project' };
+    await shell.openPath(alsPath);
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Failed to open file' };
   }
@@ -543,11 +576,10 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
     // auto-discovering the first .als file in the project folder. In a future ticket,
     // the user will select a specific ALS file directly; all naming decisions
     // (e.g. .soundhaus/{als_session_name}/) will be based on that explicit selection.
-    const entries = await fs.promises.readdir(repoPath, { withFileTypes: true });
-    const alsFile = entries.find(e => e.isFile() && e.name.toLowerCase().endsWith('.als'));
+    const foundAls = await findAlsFileInRepo(repoPath);
 
-    if (alsFile) {
-      alsPath = path.join(repoPath, alsFile.name);
+    if (foundAls) {
+      alsPath = foundAls;
 
       // Check if HEAD exists — no commit message generation on first commit
       try {
@@ -585,7 +617,7 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
       } catch (e) {
         // No HEAD yet, or no snapshot in HEAD (first commit / legacy repo)
         console.warn('[commit-changes] Falling back to initial snapshot message:', e);
-        commitMessage = `Initial snapshot: ${alsFile.name.replace(/\.als$/i, '')}`;
+        commitMessage = `Initial snapshot: ${path.basename(alsPath, '.als')}`;
       }
 
       // Write snapshot before committing so git add . stages it alongside the .als file.
