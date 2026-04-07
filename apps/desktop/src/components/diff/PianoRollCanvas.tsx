@@ -27,6 +27,10 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
 
     const tracks = noteDiff?.tracks ?? [];
     const hasAnyNotes = tracks.some((track) => track.added.length + track.removed.length + track.adjusted.length > 0);
+    const totalAdded = tracks.reduce((sum, t) => sum + t.added.length, 0);
+    const totalRemoved = tracks.reduce((sum, t) => sum + t.removed.length, 0);
+    const totalAdjusted = tracks.reduce((sum, t) => sum + t.adjusted.length, 0);
+    const changedTrackCount = tracks.filter(t => t.added.length + t.removed.length + t.adjusted.length > 0).length;
     const activePairKey = hoveredPairKey ?? selectedPairKey;
     const tooltip = hoveredTooltip ?? selectedTooltip;
 
@@ -171,6 +175,67 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                 </button>
             </div>
 
+            {/* ─── Overview: high-level summary of all changed tracks ─── */}
+            <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'rgba(160,160,160,0.6)', marginBottom: 4 }}>
+                <span>{changedTrackCount} track{changedTrackCount !== 1 ? 's' : ''} changed</span>
+                {totalAdded > 0 && <span style={{ color: '#22c55e' }}>+{totalAdded} added</span>}
+                {totalRemoved > 0 && <span style={{ color: '#ef4444' }}>-{totalRemoved} removed</span>}
+                {totalAdjusted > 0 && <span style={{ color: '#3b82f6' }}>~{totalAdjusted} adjusted</span>}
+            </div>
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                gap: 8,
+            }}>
+                {tracks.filter(t => t.added.length + t.removed.length + t.adjusted.length > 0).map((track) => {
+                    const total = track.added.length + track.removed.length + track.adjusted.length;
+                    const addedPct = (track.added.length / total) * 100;
+                    const removedPct = (track.removed.length / total) * 100;
+                    const adjustedPct = (track.adjusted.length / total) * 100;
+                    return (
+                        <div
+                            key={`overview-${track.trackId}`}
+                            onClick={() => {
+                                setExpandedTracks(prev => ({ ...prev, [track.trackId]: true }));
+                                setTimeout(() => {
+                                    document.getElementById(`desktop-track-${track.trackId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }, 50);
+                            }}
+                            style={{
+                                padding: '8px 10px',
+                                background: 'rgba(255,255,255,0.03)',
+                                border: '1px solid rgba(255,255,255,0.06)',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                                transition: 'border-color 200ms ease, background 200ms ease',
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(167,199,231,0.25)';
+                                e.currentTarget.style.background = 'rgba(167,199,231,0.06)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
+                                e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                            }}
+                        >
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#E8E8E8', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {track.trackName || 'Unnamed Track'}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, fontSize: 10, marginBottom: 6 }}>
+                                {track.added.length > 0 && <span style={{ color: '#22c55e' }}>+{track.added.length}</span>}
+                                {track.removed.length > 0 && <span style={{ color: '#ef4444' }}>-{track.removed.length}</span>}
+                                {track.adjusted.length > 0 && <span style={{ color: '#3b82f6' }}>~{track.adjusted.length}</span>}
+                            </div>
+                            <div style={{ display: 'flex', height: 3, borderRadius: 2, overflow: 'hidden', background: 'rgba(255,255,255,0.05)' }}>
+                                {addedPct > 0 && <div style={{ width: `${addedPct}%`, background: '#22c55e' }} />}
+                                {removedPct > 0 && <div style={{ width: `${removedPct}%`, background: '#ef4444' }} />}
+                                {adjustedPct > 0 && <div style={{ width: `${adjustedPct}%`, background: '#3b82f6' }} />}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
             {tracks.map((track, trackIndex) => {
                 const allTrackNotes: SnapshotNote[] = [
                     ...track.added,
@@ -258,7 +323,7 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
                 };
 
                 return (
-                    <div key={`${track.trackId}-${trackIndex}`} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden', background: 'rgba(20,20,20,0.55)', backdropFilter: 'blur(16px)' }}>
+                    <div key={`${track.trackId}-${trackIndex}`} id={`desktop-track-${track.trackId}`} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, overflow: 'hidden', background: 'rgba(20,20,20,0.55)', backdropFilter: 'blur(16px)' }}>
                         <button
                             type="button"
                             onClick={() => toggleTrackExpanded(track.trackId)}

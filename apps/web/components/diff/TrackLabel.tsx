@@ -92,6 +92,12 @@ export function TrackLabel({ track, isHighlighted = false, isExpanded = false, o
 
     const ExpandIcon = isExpanded ? ChevronDown : ChevronRight;
 
+    // Naming fallback — use instrument when track has a generic Ableton default name
+    const isDefaultName = !track.trackName || /^\d+[-\s]/.test(track.trackName);
+    const displayName = isDefaultName && track.instrument
+        ? track.instrument
+        : track.trackName || "Unnamed Track";
+
     return (
         <div
             className={`
@@ -123,13 +129,23 @@ export function TrackLabel({ track, isHighlighted = false, isExpanded = false, o
                         </span>
                     )}
                     <span className="text-sm font-medium text-zinc-200 truncate">
-                        {track.trackName}
+                        {displayName}
                     </span>
                 </div>
 
-                {/* Track type badge for return/group tracks */}
-                {(track.trackType === "return" || track.trackType === "group") && (
-                    <div className="flex items-center gap-1.5 mt-0.5 pl-5">
+                {/* Track type badge */}
+                <div className="flex items-center gap-1.5 mt-0.5 pl-5">
+                    {track.trackType === "midi" && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0 rounded bg-blue-900/30 text-blue-400 border border-blue-700/30">
+                            MIDI
+                        </span>
+                    )}
+                    {track.trackType === "audio" && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0 rounded bg-emerald-900/30 text-emerald-400 border border-emerald-700/30">
+                            Audio
+                        </span>
+                    )}
+                    {(track.trackType === "return" || track.trackType === "group") && (
                         <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0 rounded ${
                             track.trackType === "return"
                                 ? "bg-purple-900/40 text-purple-400 border border-purple-700/40"
@@ -137,11 +153,15 @@ export function TrackLabel({ track, isHighlighted = false, isExpanded = false, o
                         }`}>
                             {track.trackType === "return" ? "Return" : "Group"}
                         </span>
-                    </div>
-                )}
+                    )}
+                    {/* Show original name when instrument fallback is active */}
+                    {isDefaultName && track.instrument && track.trackName && (
+                        <span className="text-[10px] text-zinc-500 truncate">{track.trackName}</span>
+                    )}
+                </div>
 
-                {/* Instrument (no type icon) */}
-                {track.instrument && (
+                {/* Instrument — only when NOT used as display name */}
+                {!isDefaultName && track.instrument && (
                     <div className="flex items-center gap-1.5 mt-0.5 pl-5">
                         <span className="text-xs text-zinc-400 truncate">{track.instrument}</span>
                     </div>

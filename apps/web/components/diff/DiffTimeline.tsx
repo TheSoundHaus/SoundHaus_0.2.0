@@ -338,7 +338,7 @@ export function DiffTimeline({
 
     // ── Main render ──
     return (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+        <div className="overflow-hidden">
             {/* Commit Header */}
             {(commitSha || commitMsg || displayTempo) && (
                 <div className="border-b border-zinc-800 px-4 py-3 flex items-center gap-4">
@@ -408,7 +408,7 @@ export function DiffTimeline({
                                 ? ABLETON_COLORS[track.colorIndex]
                                 : null;
                             // Faint tinted background: 5% opacity of track color
-                            const rowBg = trackColor ? `${trackColor}0D` : undefined;
+                            const rowBg = trackColor ? `${trackColor}14` : undefined;
 
                             return (
                                 <div

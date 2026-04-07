@@ -876,7 +876,7 @@ export default function RepoDetailClient({
                   (c.files_removed?.length ?? 0);
 
                 return (
-                  <div key={c.sha} className="glass-card rounded-lg overflow-hidden">
+                  <div key={c.sha} className="glass-card rounded-lg overflow-hidden transition-all duration-200 hover:border-white/[0.10]">
                     {/* Commit row */}
                     <div
                       className="flex items-start gap-4 px-4 py-3 hover:bg-zinc-800/30 transition-colors cursor-pointer"
@@ -960,7 +960,7 @@ export default function RepoDetailClient({
 
                     {/* Expanded: file changes + diff view */}
                     {isExpanded && (
-                      <div className="border-t border-zinc-800 bg-zinc-900/30 px-4 py-4 space-y-4">
+                      <div className="border-t border-zinc-800/50 bg-zinc-900/20 px-2 py-3 space-y-3">
                         {/* File change lists */}
                         {(c.files_added?.length > 0 ||
                           c.files_modified?.length > 0 ||
