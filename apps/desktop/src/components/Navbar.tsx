@@ -32,8 +32,9 @@ const Navbar = () => {
         }
     }, [location.pathname, location.state])
 
-    // Hide on login page
-    if (location.pathname === '/') return null
+    // Hide on login and modal dialog windows (same shell as main app)
+    const DIALOG_ROUTES = new Set(['/', '/project-setup', '/clone-url', '/about'])
+    if (DIALOG_ROUTES.has(location.pathname)) return null
 
     const isHome = location.pathname === '/home'
 
