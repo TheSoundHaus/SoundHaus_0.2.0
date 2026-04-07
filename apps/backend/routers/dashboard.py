@@ -52,7 +52,7 @@ async def get_activity_heatmap(
     rows = (
         db.query(
             func.date(PushEvent.pushed_at).label("day"),
-            func.count(PushEvent.id).label("count"),
+            func.sum(PushEvent.commit_count).label("count"),
         )
         .join(RepoData, RepoData.gitea_id == PushEvent.repo_id)
         .filter(

@@ -14,6 +14,7 @@ from config import settings
 from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent, WebhookConfig
 from models.repo_models import RepoData
 from models.commit_models import CommitDetail
+from services.repo_service import RepoService
 
 logger = get_logger(__name__)
 
@@ -236,10 +237,14 @@ class WebhookService:
                 )
                 db.add(cd)
 
-            # Update RepoData activity
+            # Update RepoData activity — fetch real total from Gitea so the
+            # count is accurate even for repos that pre-date the webhook.
             now = datetime.now(timezone.utc)
             repo_data.last_push_at = now
-            repo_data.total_commits = (repo_data.total_commits or 0) + len(commits)
+            owner_id, _, repo_slug = repo_full_name.partition("/")
+            svc = RepoService()
+            real_count = svc.get_commit_count(owner_id, repo_slug)
+            repo_data.total_commits = real_count if real_count > 0 else (repo_data.total_commits or 0) + len(commits)
             repo_data.last_activity_at = now
 
             # Flag repo as having new commits for the web UI

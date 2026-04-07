@@ -388,6 +388,7 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
                         genres={repo.genres}
                         stats={{
                             stars: repo.stars_count,
+                            commits: repo.total_commits ?? 0,
                         }}
                         onStar={async () => {
                           const parts = repo.full_name.split("/");
