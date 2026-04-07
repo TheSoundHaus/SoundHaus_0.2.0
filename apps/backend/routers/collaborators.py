@@ -12,7 +12,7 @@ import uuid
 import secrets
 
 from database import get_db
-from dependencies import limiter, user_limiter, verify_token, get_auth
+from dependencies import limiter, user_limiter, verify_token, get_auth, resolve_owner_id
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
@@ -113,8 +113,9 @@ async def list_collaborators(
     if not user_res.get("success"):
         return JSONResponse({"success": False}, status_code=401)
 
+    owner_id = resolve_owner_id(owner, db)
     repo_service = RepoService()
-    result = repo_service.list_collaborators(owner, repo_name, db)
+    result = repo_service.list_collaborators(owner_id, repo_name, db)
 
     if not result.get("success"):
         return JSONResponse({"success": False, "message": result.get("message")}, status_code=400)
@@ -447,7 +448,7 @@ async def search_users(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        # Search in our profiles table first (has real usernames)
+        # Search in our profiles table first (has real usernames, emails)
         q_lower = q.lower()
         profiles = (
             db.query(Profile)
@@ -461,10 +462,17 @@ async def search_users(
 
         users = []
         for p in profiles:
+            # Hide auto-generated SoundHaus emails (contain UUID-style segments)
+            email = p.email or ""
+            import re as _re
+            is_generated = bool(_re.search(r'[0-9a-f]{8,}', email.split('@')[0]))
+            shown_email = "" if is_generated else email
+
             users.append({
-                "username": p.username,
-                "email": p.email,
+                "username": p.username or "",
+                "email": shown_email,
                 "avatar_url": p.avatar_url or "",
+                "invite_email": p.email or "",  # always include real email for invite action
             })
 
         # Fallback to Gitea search if no profile results

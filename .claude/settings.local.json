@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/tmp/endpoint_summary.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(python:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

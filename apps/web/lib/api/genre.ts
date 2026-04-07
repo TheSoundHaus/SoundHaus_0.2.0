@@ -1,66 +1,28 @@
-/**
- * Genre API Layer
- * Makes authenticated HTTP requests to FastAPI backend for genre operations
- */
+"use server"
 
-import { authenticatedFetch } from "@/lib/utils/auth";
-import type { ApiResponse, Genre } from "@/lib/types/api";
+import type { Genre, ApiResponse } from "../types/api";
+import { authFetch } from "./client";
 
-/**
- * Get all available genres
- * Backend endpoint: GET /genres
- */
+
 export async function getAllGenres(): Promise<ApiResponse<Genre[]>> {
-  try {
-    const response = await authenticatedFetch('/genres');
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return {
-        success: false,
-        error: errorData.detail || errorData.message || `Failed to fetch genres: ${response.statusText}`,
-      };
-    }
-
-    const data = await response.json();
-    return { success: true, data: data.genres || [] };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Network error",
-    };
-  }
+    const result = await authFetch<{genres: Genre[]}>("/genres");
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data?.genres ?? [] };
 }
 
-/**
- * Set genre associations for a repository
- * Replaces all existing genre assignments with the provided genre_ids
- * Backend endpoint: POST /repos/{owner}/{repo}/genres
- */
-export async function setRepoGenre(
-  owner: string,
-  repo: string,
-  genreIds: string[]
-): Promise<ApiResponse<void>> {
-  try {
-    const response = await authenticatedFetch(`/repos/${owner}/${repo}/genres`, {
-      method: 'POST',
-      body: JSON.stringify({ genre_ids: genreIds }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return {
-        success: false,
-        error: errorData.detail || errorData.message || 'Failed to set repository genres',
-      };
-    }
-
-    return { success: true, data: undefined };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Network error",
-    };
-  }
+export async function setRepoGenre(owner: string, repoName: string, genre_ids: string[]): Promise<ApiResponse<{success: boolean, message: string}>>
+{
+    const url = `/repos/${owner}/${repoName}/genres`
+    const result = await authFetch<{success: boolean, message: string}>(
+        `${url}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ genre_ids })
+        }
+    )
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data }; 
 }

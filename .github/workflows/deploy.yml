@@ -1,0 +1,162 @@
+# ================================================================
+# Deploy — Triggered on push to integration
+# ================================================================
+# Pipeline:
+#   1. Build & verify (same checks as PR)
+#   2. Deploy to STAGING automatically
+#   3. Deploy to PRODUCTION with manual approval
+#
+# Required GitHub Secrets:
+#   DO_SSH_KEY       — Private SSH key for droplet access
+#   DO_HOST          — Droplet IP address
+#   DO_USERNAME      — SSH username (usually "root")
+#
+# NOTE: First-time setup:
+#   1. Go to GitHub repo → Settings → Secrets and variables → Actions
+#   2. Add each secret listed above
+#   3. Create an environment called "production" with required reviewers
+#      (Settings → Environments → New environment → Add reviewer)
+# ================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [integration]
+
+jobs:
+  # ── Step 1: Build & Verify ────────────────────────────────────
+  build:
+    name: Build & Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build web app
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Lint backend
+        working-directory: apps/backend
+        run: |
+          pip install ruff
+          ruff check .
+
+  # ── Step 2: Deploy to Staging (automatic) ─────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        # Installs the SSH private key so we can connect to the droplet
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DO_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.DO_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to staging
+        # Syncs code to the staging directory and rebuilds containers
+        run: |
+          # Sync backend code
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='apps/desktop' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='.env*' \
+            ./ ${{ secrets.DO_USERNAME }}@${{ secrets.DO_HOST }}:/opt/soundhaus-staging/
+
+          # SSH in and rebuild
+          ssh ${{ secrets.DO_USERNAME }}@${{ secrets.DO_HOST }} << 'ENDSSH'
+            cd /opt/soundhaus-staging
+            
+            # Copy staging env file
+            cp /opt/soundhaus-staging/.env.staging .env
+            
+            # Rebuild and restart containers
+            docker compose build --no-cache
+            docker compose up -d
+            
+            # Wait for health check
+            echo "Waiting for services to start..."
+            sleep 10
+            curl -f http://localhost:8001/health || echo "WARNING: Health check failed"
+          ENDSSH
+
+      - name: Verify staging
+        run: |
+          # Give services time to fully start
+          sleep 5
+          curl -f http://${{ secrets.DO_HOST }}:8001/health || exit 1
+          echo "Staging deploy successful!"
+
+  # ── Step 3: Deploy to Production (manual approval) ────────────
+  deploy-production:
+    name: Deploy to Production
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    # This environment requires manual approval in GitHub settings
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DO_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.DO_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to production
+        # Same as staging but targets the production directory
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='apps/desktop' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='.env*' \
+            ./ ${{ secrets.DO_USERNAME }}@${{ secrets.DO_HOST }}:/opt/soundhaus/
+
+          ssh ${{ secrets.DO_USERNAME }}@${{ secrets.DO_HOST }} << 'ENDSSH'
+            cd /opt/soundhaus
+            
+            # Copy production env file
+            cp /opt/soundhaus/.env.production .env
+            
+            # Rebuild and restart containers
+            docker compose build --no-cache
+            docker compose up -d
+            
+            # Wait for health check
+            echo "Waiting for services to start..."
+            sleep 15
+            curl -f http://localhost:8000/health || echo "WARNING: Health check failed"
+          ENDSSH
+
+      - name: Verify production
+        run: |
+          sleep 5
+          curl -f http://${{ secrets.DO_HOST }}:8000/health || exit 1
+          echo "Production deploy successful!"

@@ -17,7 +17,7 @@ import { useEffect, useRef } from 'react';
 export function useInfiniteScroll(
     callback: () => void,
     hasMore: boolean
-): React.RefObject<HTMLDivElement> {
+): React.RefObject<HTMLDivElement | null> {
     const sentinelRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -31,7 +31,7 @@ export function useInfiniteScroll(
         const observer = new IntersectionObserver(
             (entries) => {
                 // Call callback when sentinel enters viewport
-                if (entries[0].isIntersecting) {
+                if (entries[0]?.isIntersecting) {
                     callback();
                 }
             },

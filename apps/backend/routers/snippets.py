@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from config import settings
-from dependencies import limiter, verify_token, get_auth, MAX_AUDIO_SNIPPET_SIZE, format_bytes
+from dependencies import limiter, verify_token, get_auth, MAX_AUDIO_SNIPPET_SIZE, format_bytes, resolve_owner_id
 from logging_config import get_logger
 from models.repo_models import RepoData
 
@@ -37,10 +37,11 @@ async def upload_audio_snippet(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
+    owner_id = resolve_owner_id(owner, db)
+    if str(user_id) != str(owner_id):
         raise HTTPException(status_code=403, detail="Not your repo")
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         repo_data = RepoData(gitea_id=repo_id, owner_id=str(user_id), clone_count=0)
@@ -125,6 +126,7 @@ async def get_repo_snippet(
     db: Session = Depends(get_db),
 ):
     """Redirect to the Supabase CDN URL for the audio snippet (public)."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
 
@@ -144,6 +146,7 @@ async def get_repo_snippet_metadata(
     db: Session = Depends(get_db),
 ):
     """Get metadata for a repo's audio snippet (public)."""
+    owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
 
@@ -183,16 +186,17 @@ async def delete_repo_snippet(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
+    owner_id = resolve_owner_id(owner, db)
+    if str(user_id) != str(owner_id):
         raise HTTPException(status_code=403, detail="Not your repo")
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
 
     if not repo_data or not repo_data.audio_snippet:
         raise HTTPException(status_code=404, detail="No audio snippet to delete")
 
-    deleted = await snippet_service.delete_snippet(owner, repo)
+    deleted = await snippet_service.delete_snippet(owner_id, repo)
     if not deleted:
         logger.warning(
             "snippet_delete_storage_miss",

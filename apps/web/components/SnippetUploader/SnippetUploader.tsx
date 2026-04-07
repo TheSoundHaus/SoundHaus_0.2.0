@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState, useTransition } from "react";
 import { Upload, X, Music, Loader2, Trash2, CheckCircle } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
+import SnippetTrimmer from "./SnippetTrimmer";
 import { uploadSnippetAction, deleteSnippetAction } from "@/actions/snippets";
 import type { SnippetMetadata } from "@/lib/types/api";
 
@@ -69,6 +70,9 @@ export default function SnippetUploader({
     const [snippetUrl, setSnippetUrl] = useState(existingUrl);
     const [snippetMeta, setSnippetMeta] = useState(existingMetadata);
 
+    // Trimmer state — shown when a dropped file is longer than MAX_DURATION_SECONDS
+    const [trimmerFile, setTrimmerFile] = useState<File | null>(null);
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     function formatBytes(bytes: number): string {
@@ -119,11 +123,12 @@ export default function SnippetUploader({
             return "File is empty.";
         }
 
-        // Duration check
+        // Duration check — warn but allow through, backend auto-trims to 30s
         try {
             const duration = await getAudioDuration(file);
             if (duration > MAX_DURATION_SECONDS) {
-                return `Audio is ${Math.round(duration)}s long — max allowed is ${MAX_DURATION_SECONDS}s for AI stem separation. Please trim or upload a shorter clip.`;
+                // Don't block — the backend will auto-trim to the first 30s
+                console.info(`Audio is ${Math.round(duration)}s — backend will auto-trim to ${MAX_DURATION_SECONDS}s`);
             }
         } catch {
             // Some audio formats (e.g. certain .ogg containers) don't expose
@@ -144,14 +149,36 @@ export default function SnippetUploader({
             setSuccessMsg(null);
 
             startTransition(async () => {
-                // Client-side validation
+                // Client-side validation (excluding duration — handled by trimmer)
                 const validationError = await validateFile(file);
                 if (validationError) {
                     setError(validationError);
                     return;
                 }
 
-                // Build FormData for the server action
+                // Check duration — if > max, show trimmer instead of uploading
+                try {
+                    const duration = await getAudioDuration(file);
+                    if (duration > MAX_DURATION_SECONDS) {
+                        setTrimmerFile(file);
+                        return;
+                    }
+                } catch {
+                    // Can't read duration — just upload and let backend handle it
+                }
+
+                uploadFile(file);
+            });
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [owner, repo, onUpdate],
+    );
+
+    /** Actually upload a file (called directly or after trimming) */
+    const uploadFile = useCallback(
+        (file: File) => {
+            setTrimmerFile(null);
+            startTransition(async () => {
                 const fd = new FormData();
                 fd.append("file", file);
 
@@ -168,7 +195,6 @@ export default function SnippetUploader({
                 onUpdate?.(result.url ?? null);
             });
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [owner, repo, onUpdate],
     );
 
@@ -279,6 +305,16 @@ export default function SnippetUploader({
 
             {/* Middle content slot (e.g. StemPlayer) */}
             {middleContent}
+
+            {/* Trim picker — shown when user drops a file longer than max */}
+            {trimmerFile && (
+                <SnippetTrimmer
+                    file={trimmerFile}
+                    maxDuration={MAX_DURATION_SECONDS}
+                    onConfirm={(trimmedFile) => uploadFile(trimmedFile)}
+                    onCancel={() => setTrimmerFile(null)}
+                />
+            )}
 
             {/* Drop zone */}
             <div

@@ -1,0 +1,111 @@
+@import url('https://fonts.googleapis.com/css2?family=Georgia&display=swap');
+body {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 11pt;
+  line-height: 1.55;
+  color: #1a1a1a;
+  max-width: 750px;
+  margin: 0 auto;
+  padding: 0.8in;
+}
+h1 {
+  font-size: 1.9em;
+  color: #00254d;
+  border-bottom: 2.5px solid #00254d;
+  padding-bottom: 0.25em;
+  page-break-before: always;
+  margin-top: 1.5em;
+}
+h1.title { page-break-before: avoid; }
+h2 {
+  font-size: 1.35em;
+  color: #003366;
+  margin-top: 1.6em;
+  border-bottom: 1px solid #ccd6e0;
+  padding-bottom: 0.15em;
+}
+h3 {
+  font-size: 1.1em;
+  color: #1a4a7a;
+  margin-top: 1.2em;
+}
+h4 {
+  font-size: 1em;
+  color: #1a4a7a;
+  font-style: italic;
+}
+p { margin: 0.6em 0; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 9.5pt;
+}
+th {
+  background-color: #00254d;
+  color: #ffffff;
+  padding: 7px 11px;
+  text-align: left;
+}
+td {
+  padding: 5px 11px;
+  border-bottom: 1px solid #dde4ed;
+  vertical-align: top;
+}
+tr:nth-child(even) td { background-color: #f2f6fb; }
+code {
+  background: #f0f0f0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 9pt;
+}
+pre {
+  background: #f4f4f4;
+  padding: 0.9em 1em;
+  border-radius: 4px;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 8.5pt;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-left: 4px solid #003366;
+}
+blockquote {
+  border-left: 4px solid #003366;
+  margin: 0.7em 0 0.7em 0.5em;
+  padding: 0.2em 0.8em;
+  color: #444;
+  font-style: italic;
+  background: #f9fbfd;
+}
+ul, ol { padding-left: 1.5em; margin: 0.4em 0; }
+li { margin: 0.3em 0; }
+strong { color: #00254d; }
+hr { border: none; border-top: 1px solid #ccd6e0; margin: 1.5em 0; }
+#TOC {
+  page-break-after: always;
+  background: #f2f6fb;
+  border: 1px solid #ccd6e0;
+  border-radius: 6px;
+  padding: 1em 1.5em;
+  font-size: 10pt;
+}
+#TOC ul { list-style: none; padding-left: 1em; }
+#TOC > ul { padding-left: 0; }
+#TOC a { color: #003366; text-decoration: none; }
+#TOC a:hover { text-decoration: underline; }
+@page {
+  margin: 1in;
+  size: letter;
+  @top-right {
+    content: "SoundHaus — Senior Design Group L13";
+    font-size: 8.5pt;
+    color: #888;
+    font-family: Georgia, serif;
+  }
+  @bottom-center {
+    content: counter(page);
+    font-size: 9pt;
+    color: #666;
+  }
+}

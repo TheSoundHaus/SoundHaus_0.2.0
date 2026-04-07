@@ -127,6 +127,12 @@ async function commit(repoPath: string, message?: string) {
 
   const commitResult = await exec(['commit', '-m', msg], repoPath);
   if (commitResult.exitCode !== 0) {
+    // "nothing to commit" is a normal condition, not an error
+    const combined = `${commitResult.stdout}\n${commitResult.stderr}`.toLowerCase();
+    if (combined.includes('nothing to commit')) {
+      console.log('[commit] Nothing to commit — working tree clean');
+      return 'nothing to commit';
+    }
     throw new Error(commitResult.stderr || 'git commit failed');
   }
 
@@ -134,7 +140,13 @@ async function commit(repoPath: string, message?: string) {
 }
 
 async function push(repoPath: string) {
-  const result = await exec(['push', 'origin', 'HEAD'], repoPath);
+  // Ensure there is at least one commit before pushing (new empty repo)
+  const headCheck = await exec(['rev-parse', '--verify', 'HEAD'], repoPath);
+  if (headCheck.exitCode !== 0) {
+    await exec(['add', '.'], repoPath);
+    await exec(['commit', '--allow-empty', '-m', 'Initial snapshot'], repoPath);
+  }
+  const result = await exec(['push', '-u', 'origin', 'HEAD'], repoPath);
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || 'git push failed');
   }

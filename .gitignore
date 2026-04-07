@@ -25,6 +25,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!apps/web/lib/
 lib64/
 parts/
 sdist/
@@ -116,6 +117,11 @@ dist/types
 # Comment in the public line in if your project uses Gatsby and not Next.js
 # https://nextjs.org/blog/next-9-1#public-directory-support
 # public
+
+# ========================================
+# Rust / native build artifacts (Desktop semantic-diff)
+# ========================================
+apps/desktop/native/semantic-diff/target/
 
 # vuepress build output
 .vuepress/dist
@@ -215,10 +221,10 @@ env.md
 # Gitea Data Directory
 # ========================================
 # All Gitea runtime data should be external
-gitea/data/
-gitea/git/
-gitea/gitea/
-gitea/ssh/
+/gitea/data/
+/gitea/git/
+/gitea/gitea/
+/gitea/ssh/
 
 # ========================================
 # IDE & Editors
@@ -264,9 +270,9 @@ venv/
 .fusebox/
 .serverless/
 .tern-port
-gitea/
-gitea/ssh/*.key
-gitea/ssh/*.pub
+/gitea/
+/gitea/ssh/*.key
+/gitea/ssh/*.pub
 
 claude.local.md
 
@@ -298,3 +304,6 @@ pyrightconfig.json
 
 # Personal notes
 learning.md
+
+# Local debug / planning notes (not committed)
+debug_plans/
