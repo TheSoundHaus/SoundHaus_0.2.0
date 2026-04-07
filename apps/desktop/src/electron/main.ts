@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, shell, ipcMain, Menu, screen } from "electron";
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron';
 import { updateElectronApp } from 'update-electron-app';
 import { desktopEnv } from './env';
@@ -13,8 +13,6 @@ import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
 import { recentProjectsManager } from './recentProjectsManager';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
@@ -312,12 +310,8 @@ function isLikelyLegacySnapshotWithoutMidi(snapshotRaw: string): boolean {
 }
 
 async function gitObjectExists(repoPath: string, objectSpec: string): Promise<boolean> {
-  try {
-    await execFileP(gitBin, ['-C', repoPath, 'cat-file', '-e', objectSpec], { encoding: 'utf8' });
-    return true;
-  } catch {
-    return false;
-  }
+  const result = await gitExec(['cat-file', '-e', objectSpec], repoPath);
+  return result.exitCode === 0;
 }
 
 async function resolveAlsPathInRevision(
@@ -334,11 +328,17 @@ async function resolveAlsPathInRevision(
     if (exists) return preferredRel;
   }
 
-  const { stdout } = await execFileP(
-    gitBin,
-    ['-C', repoPath, 'ls-tree', '-r', '--name-only', revision],
-    { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 },
+  const listResult = await gitExec(
+    ['ls-tree', '-r', '--name-only', revision],
+    repoPath,
+    { maxBuffer: 20 * 1024 * 1024 },
   );
+
+  if (listResult.exitCode !== 0) {
+    throw new Error(listResult.stderr || `git ls-tree failed for ${revision}`);
+  }
+
+  const stdout = listResult.stdout;
 
   const alsFiles = stdout
     .split('\n')
@@ -358,12 +358,22 @@ async function resolveAlsPathInRevision(
 }
 
 async function getGitBlobBuffer(repoPath: string, revision: string, relPath: string): Promise<Buffer> {
-  const { stdout } = await execFileP(
-    gitBin,
-    ['-C', repoPath, 'show', `${revision}:${relPath}`],
+  const showResult = await gitExec(
+    ['show', `${revision}:${relPath}`],
+    repoPath,
     { encoding: 'buffer', maxBuffer: 100 * 1024 * 1024 },
-  ) as { stdout: Buffer; stderr: Buffer };
-  return stdout;
+  );
+
+  if (showResult.exitCode !== 0) {
+    const stderr = Buffer.isBuffer(showResult.stderr)
+      ? showResult.stderr.toString('utf8')
+      : showResult.stderr;
+    throw new Error(stderr || `git show failed for ${revision}:${relPath}`);
+  }
+
+  return Buffer.isBuffer(showResult.stdout)
+    ? showResult.stdout
+    : Buffer.from(showResult.stdout as string, 'utf8');
 }
 
 async function diffCurrentAlsAgainstRevision(
@@ -403,9 +413,19 @@ async function diffSnapshotsFromAlsBlobs(
 }
 
 function createWindow() {
+    const display = screen.getPrimaryDisplay();
+    const { width: waW, height: waH } = display.workAreaSize;
+    const { x: waX, y: waY } = display.workArea;
+    const winW = Math.max(960, Math.round(waW * 0.92));
+    const winH = Math.max(640, Math.round(waH * 0.92));
+    const winX = waX + Math.round((waW - winW) / 2);
+    const winY = waY + Math.round((waH - winH) / 2);
+
     mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: winW,
+    height: winH,
+    x: winX,
+    y: winY,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
     },
@@ -462,6 +482,25 @@ ipcMain.handle('find-als', async (_event: IpcMainInvokeEvent, folderPath) => {
     // Ignore errors
   }
   return null;
+});
+
+ipcMain.handle('open-als-file', async (_event: IpcMainInvokeEvent, folderPath: string) => {
+  if (!folderPath) {
+    return { ok: false, error: 'No project path provided' };
+  }
+  try {
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+    for (const ent of entries) {
+      if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
+        const alsPath = path.join(folderPath, ent.name);
+        await shell.openPath(alsPath);
+        return { ok: true };
+      }
+    }
+    return { ok: false, error: 'No .als file found in this project' };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Failed to open file' };
+  }
 });
 
 ipcMain.handle('get-als-content', async (_event: IpcMainInvokeEvent, alsPath) => {
@@ -847,16 +886,22 @@ ipcMain.handle('get-changes', async(_event: IpcMainInvokeEvent, alsPath: string)
 
 ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath: string): Promise<CommitMeta[]> => {
   try {
-    const { stdout } = await execFileP(
-      gitBin,
-      ['-C', repoPath, 'log', '--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s', '-n', '50'],
-      { encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 }
+    const logResult = await gitExec(
+      ['log', '--pretty=format:%H\x1f%h\x1f%an\x1f%aI\x1f%s', '-n', '50'],
+      repoPath,
+      { maxBuffer: 5 * 1024 * 1024 }
     );
+
+    if (logResult.exitCode !== 0) {
+      return [];
+    }
+
+    const stdout = logResult.stdout;
 
     return stdout
       .split('\n')
       .filter(Boolean)
-      .map((line) => {
+      .map((line: string) => {
         const [hash, shortHash, author, timestamp, subject] = line.split('\x1f');
         return {
           hash,
@@ -866,7 +911,7 @@ ipcMain.handle('get-commit-history', async (_event: IpcMainInvokeEvent, repoPath
           subject,
         };
       })
-      .filter((item) => item.hash && item.subject);
+      .filter((item: CommitMeta) => item.hash && item.subject);
   } catch {
     return [];
   }
@@ -877,27 +922,33 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
     const sessionName = path.basename(alsPath, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
 
-    const { stdout: currentSnapshot } = await execFileP(
-      gitBin,
-      ['-C', repoPath, 'show', `${commitHash}:${snapshotRelPath}`],
-      { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
+    const currentSnapshotResult = await gitExec(
+      ['show', `${commitHash}:${snapshotRelPath}`],
+      repoPath,
+      { maxBuffer: 20 * 1024 * 1024 }
     );
+    if (currentSnapshotResult.exitCode !== 0) {
+      throw new Error(currentSnapshotResult.stderr || `Unable to read snapshot for commit ${commitHash}`);
+    }
+    const currentSnapshot = currentSnapshotResult.stdout;
 
     let parentSnapshot = '{}';
     let parentHash: string | null = null;
     try {
-      const { stdout: parentCommit } = await execFileP(
-        gitBin,
-        ['-C', repoPath, 'rev-parse', `${commitHash}^`],
-        { encoding: 'utf8' }
+      const parentCommitResult = await gitExec(['rev-parse', `${commitHash}^`], repoPath);
+      if (parentCommitResult.exitCode !== 0) {
+        throw new Error(parentCommitResult.stderr || 'No parent commit');
+      }
+      parentHash = parentCommitResult.stdout.trim();
+      const parentSnapshotResult = await gitExec(
+        ['show', `${parentHash}:${snapshotRelPath}`],
+        repoPath,
+        { maxBuffer: 20 * 1024 * 1024 }
       );
-      parentHash = parentCommit.trim();
-      const { stdout: parentRaw } = await execFileP(
-        gitBin,
-        ['-C', repoPath, 'show', `${parentHash}:${snapshotRelPath}`],
-        { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
-      );
-      parentSnapshot = parentRaw;
+      if (parentSnapshotResult.exitCode !== 0) {
+        throw new Error(parentSnapshotResult.stderr || 'Parent snapshot missing');
+      }
+      parentSnapshot = parentSnapshotResult.stdout;
     } catch {
       parentSnapshot = '{"schema_version":1,"tracks":[]}';
     }
@@ -1147,7 +1198,7 @@ app.whenReady().then(() => {
         {
           id: 'browse-public',
           label: 'Browse Public Projects',
-          click: () => shell.openExternal('http://www.rickleinecker.com/')
+          click: () => shell.openExternal('https://www.thesound.haus/')
         },
         { type: 'separator' },
         { label: 'Options' },
@@ -1228,7 +1279,7 @@ app.whenReady().then(() => {
         { 
           id: 'view-on-soundhaus',
           label: 'View On SoundHaus',
-          click: () => shell.openExternal('http://www.rickleinecker.com/')
+          click: () => shell.openExternal('https://www.thesound.haus/')
         },
         { label: 'Project Settings' }
       ]
@@ -1267,7 +1318,7 @@ app.whenReady().then(() => {
         return { projectPath: lastSelectedProjectPath };
       }
       if (['browse-public', 'view-on-soundhaus'].includes(action)) {
-        return { url: 'http://www.rickleinecker.com/' };
+        return { url: 'https://www.thesound.haus/' };
       }
       return undefined;
     }).filter(e => e.action !== 'help-search'); // Exclude search itself (circular)

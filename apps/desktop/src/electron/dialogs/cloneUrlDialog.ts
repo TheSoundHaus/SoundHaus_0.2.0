@@ -13,8 +13,8 @@ const isPreview = process.env.PREVIEW !== undefined;
 export function createCloneUrlDialog(parentWindow: BrowserWindow): Promise<CloneUrlData | null> {
   return new Promise((resolve) => {
     const dialog = new BrowserWindow({
-      width: 500,
-      height: 350,
+      width: 540,
+      height: 420,
       parent: parentWindow,
       modal: true,
       show: false,

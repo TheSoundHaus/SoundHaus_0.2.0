@@ -16,7 +16,6 @@ const ProjectInitDialog = () => {
             isPublic
         }
 
-        // Send data back to main process
         window.electron?.submitProjectSetup(data)
     }
 
@@ -25,7 +24,7 @@ const ProjectInitDialog = () => {
     }
 
     return (
-        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-5">
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-9">
             <div className="w-full max-w-md animate-scale-in">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
@@ -46,7 +45,7 @@ const ProjectInitDialog = () => {
                 </div>
 
                 {/* Form Card */}
-                <div className="glass-panel rounded-2xl p-5">
+                <div className="glass-panel rounded-2xl p-9">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Project Name */}
                         <div>
@@ -135,8 +134,7 @@ const ProjectInitDialog = () => {
                                 type="submit"
                                 disabled={!projectName.trim()}
                                 className="flex-1 px-4 py-2.5 rounded-xl
-                                           btn-brand
-                                           text-sm
+                                           btn-brand text-sm
                                            disabled:opacity-40 disabled:cursor-not-allowed
                                            active:scale-[0.97] transition-all duration-200 cursor-pointer"
                             >

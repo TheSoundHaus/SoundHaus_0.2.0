@@ -88,7 +88,6 @@ const CloneUrlDialog = () => {
             path: clonePath.trim()
         }
 
-        // Send data back to main process
         window.electron?.submitCloneUrl(data)
     }
 
@@ -97,7 +96,7 @@ const CloneUrlDialog = () => {
     }
 
     return (
-        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-5">
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-8">
             <div className="w-full max-w-md animate-scale-in">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
@@ -118,12 +117,12 @@ const CloneUrlDialog = () => {
                 </div>
 
                 {/* Form Card */}
-                <div className="glass-panel rounded-2xl p-5">
+                <div className="glass-panel rounded-2xl p-7">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Repository URL */}
                         <div>
                             <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
-                                Repository URL <span className="text-accent">*</span>
+                                Clone Link <span className="text-accent">*</span>
                             </label>
                             <input
                                 type="text"
@@ -192,8 +191,7 @@ const CloneUrlDialog = () => {
                                 type="submit"
                                 disabled={!canSubmit}
                                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl
-                                           btn-brand
-                                           text-sm
+                                           btn-brand text-sm
                                            disabled:opacity-40 disabled:cursor-not-allowed
                                            active:scale-[0.97] transition-all duration-200 cursor-pointer"
                             >

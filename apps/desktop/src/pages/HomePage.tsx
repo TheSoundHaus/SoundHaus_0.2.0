@@ -5,19 +5,19 @@ import { useProjectActions } from '../hooks/useProjectActions'
 import OpenProjectDialog from '../components/OpenProjectDialog'
 
 const HomePage = () => {
-    console.log('[SoundHaus] HomePage: rendering')
     const location = useLocation()
     const navigate = useNavigate()
-    const { 
-        handleProjectClone, 
-        handleServerExplore, 
-        handleAbletonImport, 
+    const {
+        handleProjectClone,
+        handleServerExplore,
+        handleAbletonImport,
         handleOpenSoundHausProject,
         handleSelectFromDialog,
         handleOpenFromFilepath,
         isOpenDialogVisible,
         setIsOpenDialogVisible,
     } = useProjectActions()
+    // handleOpenFromFilepath is passed through to OpenProjectDialog's footer — not used directly on the grid
 
     // Open dialog if triggered from menu, then clear state to prevent re-opening on back
     useEffect(() => {
@@ -25,7 +25,7 @@ const HomePage = () => {
             setIsOpenDialogVisible(true)
             navigate(location.pathname, { replace: true, state: {} })
         }
-    }, [location.state, navigate])
+    }, [location.state, navigate, setIsOpenDialogVisible])
 
     const actions = [
         {
@@ -48,49 +48,43 @@ const HomePage = () => {
         },
         {
             icon: FolderOpen,
-            label: 'Open Existing',
-            description: 'Open a SoundHaus-tracked project folder',
+            label: 'Open Project',
+            description: 'Open a recent project or browse for one on your machine',
             onClick: handleOpenSoundHausProject,
         },
     ]
 
     return (
-        <div className="flex flex-col items-center justify-center w-full h-screen bg-bg-primary p-8 relative overflow-hidden">
-            {/* Dual ambient radial glows */}
-            <div className="absolute top-1/4 left-1/3 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px]
-                            bg-accent/[0.05] rounded-full blur-[150px] pointer-events-none" />
-            <div className="absolute bottom-1/3 right-1/4 w-[400px] h-[400px]
-                            bg-accent/[0.03] rounded-full blur-[120px] pointer-events-none" />
-            <div className="w-full max-w-lg animate-fade-in relative z-10">
+        <div className="flex flex-col items-center w-full h-screen bg-bg-primary p-8 overflow-y-auto">
+            <div className="w-full max-w-lg my-auto animate-fade-in">
                 {/* Header */}
                 <div className="flex flex-col items-center mb-10">
-                    <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-accent/10 mb-5
-                                    shadow-[0_0_40px_rgba(167,199,231,0.1),0_0_80px_rgba(167,199,231,0.04)]">
-                        <Waves className="w-7 h-7 text-accent" />
+                    <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-accent/10 mb-4
+                                    shadow-[0_0_24px_rgba(167,199,231,0.08)]">
+                        <Waves className="w-6 h-6 text-accent" />
                     </div>
-                    <h1 className="text-2xl font-bold text-text-primary mb-1.5 tracking-tight">Let&apos;s get started</h1>
+                    <h1 className="text-2xl font-bold text-text-primary mb-1">Let&apos;s get started</h1>
                     <p className="text-sm text-text-secondary">Add a SoundHaus project to begin</p>
                 </div>
 
-                {/* Action cards */}
-                <div className="grid grid-cols-2 gap-3.5">
-                    {actions.map((action, index) => (
+                {/* Action cards — 2×2 grid */}
+                <div className="grid grid-cols-2 gap-3">
+                    {actions.map((action) => (
                         <button
                             key={action.label}
                             onClick={action.onClick}
-                            className="group flex flex-col items-start gap-3.5 p-5 rounded-2xl
-                                       glass-panel glass-hover-lift glass-accent-glow
-                                       text-left cursor-pointer"
-                            style={{ animationDelay: `${index * 80}ms` }}
+                            className="group flex flex-col items-start gap-3 p-5 rounded-xl
+                                       bg-bg-elevated border border-border-subtle
+                                       hover:border-accent/30 hover:bg-bg-tertiary/60
+                                       hover:shadow-[0_0_20px_rgba(167,199,231,0.06)]
+                                       transition-all duration-300 text-left cursor-pointer"
                         >
-                            <div className="flex items-center justify-center w-10 h-10 rounded-xl
-                                            bg-accent/8 group-hover:bg-accent/15
-                                            shadow-[0_0_0_1px_rgba(167,199,231,0.06)]
-                                            transition-all duration-300">
-                                <action.icon className="w-5 h-5 text-accent" />
+                            <div className="flex items-center justify-center w-9 h-9 rounded-lg
+                                            bg-accent/8 group-hover:bg-accent/15 transition-colors duration-300">
+                                <action.icon className="w-4.5 h-4.5 text-accent" />
                             </div>
                             <div>
-                                <div className="text-sm font-semibold text-text-primary mb-1
+                                <div className="text-sm font-semibold text-text-primary mb-0.5
                                                 group-hover:text-accent transition-colors duration-300">
                                     {action.label}
                                 </div>
@@ -113,4 +107,4 @@ const HomePage = () => {
     )
 }
 
-export default HomePage;
+export default HomePage
