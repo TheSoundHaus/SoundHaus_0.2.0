@@ -493,7 +493,6 @@ async def get_public_profile(
         "is_public": is_public,
         "profile": {
             "username": pub_username,
-            "display_name": pub_username,
             "avatar_url": profile["avatar_url"],
             "bio": profile["bio"] if is_public else None,
             "created_at": profile["created_at"],

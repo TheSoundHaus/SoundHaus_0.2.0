@@ -67,7 +67,6 @@ class ProfileService:
             id=user_id,
             email=email,
             username=username,
-            display_name=username,
         )
         db.add(profile)
         db.commit()
@@ -97,7 +96,6 @@ class ProfileService:
             if existing:
                 return {"success": False, "message": f"Username '{new_username}' is already taken"}
             profile.username = new_username
-            profile.display_name = new_username  # keep in sync
         if "bio" in updates and updates["bio"] is not None:
             profile.bio = updates["bio"].strip()[:500]
         if "is_public" in updates and updates["is_public"] is not None:
@@ -224,7 +222,6 @@ class ProfileService:
             "id": profile.id,
             "email": profile.email,
             "username": profile.username,
-            "display_name": profile.username,  # unified: always same as username
             "avatar_url": profile.avatar_url,
             "bio": profile.bio,
             "is_public": profile.is_public if profile.is_public is not None else False,

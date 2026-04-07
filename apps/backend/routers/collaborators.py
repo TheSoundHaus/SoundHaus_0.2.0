@@ -470,7 +470,6 @@ async def search_users(
             users.append({
                 "username": p.username or "",
                 "email": shown_email,
-                "display_name": p.username or "",
                 "avatar_url": p.avatar_url or "",
                 "invite_email": p.email or "",  # always include real email for invite action
             })

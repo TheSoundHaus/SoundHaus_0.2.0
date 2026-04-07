@@ -51,11 +51,11 @@ def _resolve_gitea_username(user_id: str, db: Session) -> str:
 
 
 def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[str, str]:
-    """SoundHaus username (for /profile links) and human-facing display name."""
+    """SoundHaus username (for /profile links)."""
     if profile is None:
-        return {"owner_username": gitea_owner, "owner_display_name": gitea_owner}
+        return {"owner_username": gitea_owner}
     username = profile.username or gitea_owner
-    return {"owner_username": username, "owner_display_name": username}
+    return {"owner_username": username}
 
 
 def _verify_owner(user_id: str, url_owner: str, db: Session) -> None:
@@ -411,7 +411,6 @@ async def get_public_repos(
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
                 "owner_username": fields["owner_username"],
-                "owner_display_name": fields["owner_display_name"],
                 "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
@@ -453,7 +452,6 @@ async def get_user_public_repos(
     owner_id = str(profile.id) if profile else username
     labels = _owner_profile_fields(profile, owner_id)
     owner_username = labels["owner_username"]
-    owner_display_name = labels["owner_display_name"]
 
     repos = db.query(RepoData).filter(
         RepoData.owner_id == owner_id,
@@ -471,7 +469,6 @@ async def get_user_public_repos(
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
                 "owner_username": owner_username,
-                "owner_display_name": owner_display_name,
                 "repo_name": repo_name,
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
@@ -603,7 +600,6 @@ async def get_repo_stats(
         "success": True,
         "gitea_id": repo_data.gitea_id,
         "owner_username": olab["owner_username"],
-        "owner_display_name": olab["owner_display_name"],
         "description": description,
         "private": is_private,
         "clone_url": f"{settings.gitea_public_url}/{owner}/{repo}.git",
@@ -805,7 +801,6 @@ async def get_enriched_repos(
             "private": repo.get("private", True),
             "owner_id": owner_login,
             "owner_username": olab["owner_username"],
-            "owner_display_name": olab["owner_display_name"],
             "created_at": repo.get("created_at", ""),
             "updated_at": repo.get("updated_at", ""),
             "stars_count": repo.get("stars_count", 0),

@@ -18,7 +18,6 @@ class Profile(Base):
     id = Column(String, primary_key=True)  # Supabase user UUID — set explicitly, not auto-generated
     email = Column(String, nullable=True)
     username = Column(String, nullable=False, unique=True, index=True)
-    display_name = Column(String, nullable=True)
     avatar_url = Column(String(500), nullable=True)
     bio = Column(Text, nullable=True)
     is_public = Column(Boolean, nullable=False, server_default="false")

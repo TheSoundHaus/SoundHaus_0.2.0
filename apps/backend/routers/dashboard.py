@@ -103,7 +103,6 @@ async def get_snippet_feed(
 
         # Look up profile for username / avatar
         profile = db.query(Profile).filter(Profile.id == r.owner_id).first()
-        owner_display = profile.username if profile else owner_slug
         owner_username = profile.username if profile else owner_slug
         avatar_url = profile.avatar_url if profile else None
 
@@ -112,7 +111,6 @@ async def get_snippet_feed(
                 "repo_id": r.gitea_id,
                 "repo_name": repo_name,
                 "owner_id": r.owner_id,
-                "owner_display_name": owner_display,
                 "owner_username": owner_username,
                 "owner_avatar_url": avatar_url,
                 "audio_snippet": r.audio_snippet,
@@ -148,7 +146,7 @@ async def get_collaborations(
 
     Response shape:
         { "collaborations": [{ "repo_id", "repo_name", "owner_username",
-                                "owner_display_name", "unread_count",
+                                "unread_count",
                                 "last_seen_at", "last_push_at" }] }
     """
     user_res = await auth_service.get_user(token)
@@ -208,7 +206,6 @@ async def get_collaborations(
         # Owner profile
         owner_profile = db.query(Profile).filter(Profile.id == repo.owner_id).first()
         owner_username = owner_profile.username if owner_profile else inv.owner_username
-        owner_display = owner_profile.username if owner_profile else inv.owner_username
 
         parts = inv.repo_name.split("/", 1)
         repo_name = parts[1] if len(parts) == 2 else inv.repo_name
@@ -218,7 +215,6 @@ async def get_collaborations(
                 "repo_id": inv.repo_name,
                 "repo_name": repo_name,
                 "owner_username": owner_username,
-                "owner_display_name": owner_display,
                 "unread_count": unread_count,
                 "last_seen_at": last_seen.isoformat() if last_seen else None,
                 "last_push_at": repo.last_push_at.isoformat() if repo.last_push_at else None,

@@ -9,7 +9,6 @@ export interface UserProfile {
     id: string;
     email: string;
     username: string;
-    display_name: string;  // always same as username
     avatar_url: string | null;
     bio: string | null;
     is_public: boolean;
@@ -24,7 +23,6 @@ export interface UserProfile {
 
 export interface PublicProfile {
     username: string;
-    display_name: string | null;  // always same as username
     avatar_url: string | null;
     bio: string | null;
     created_at: string | null;

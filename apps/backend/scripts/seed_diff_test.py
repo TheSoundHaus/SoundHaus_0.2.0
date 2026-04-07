@@ -41,7 +41,6 @@ from models.webhook_models import PushEvent
 TEST_USERNAME = "testuser"
 TEST_EMAIL = "testuser@soundhaus.dev"
 TEST_PASSWORD = "TestPass123!"
-TEST_DISPLAY_NAME = "bingusblaster"
 TEST_REPO = "test-diff-project"
 
 # Fake SHAs (deterministic so reruns are idempotent via upsert)
@@ -897,10 +896,6 @@ def seed():
                     print(f"   📝 Updating username to '{TEST_USERNAME}'...")
                     profile.username = TEST_USERNAME
                     db.commit()
-                if profile.display_name != TEST_DISPLAY_NAME:
-                    print(f"   📝 Updating display_name to '{TEST_DISPLAY_NAME}'...")
-                    profile.display_name = TEST_DISPLAY_NAME
-                    db.commit()
             else:
                 # Create the profile
                 print(f"📝 Creating profile for {TEST_USERNAME}...")
@@ -908,7 +903,6 @@ def seed():
                     id=user_id,
                     email=TEST_EMAIL,
                     username=TEST_USERNAME,
-                    display_name=TEST_DISPLAY_NAME,
                 )
                 db.add(profile)
                 db.commit()
