@@ -1,8 +1,9 @@
-import { getPublicProfile, getUserPublicRepos } from "@/lib/api/profile";
+import { getPublicProfile, getUserPublicRepos, getPublicUserStats } from "@/lib/api/profile";
 import type { PublicRepo } from "@/lib/types/api";
 import UserAvatar from "@/components/UserAvatar";
 import Link from "next/link";
-import { Calendar, User, Music, Star, Globe, Instagram, Youtube, Twitter } from "lucide-react";
+import { Calendar, User, Music, Star, Globe, Instagram, Youtube, Twitter, GitFork, BarChart3, Disc3 } from "lucide-react";
+import ProfileSnippetPlayer from "./ProfileSnippetPlayer";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -33,8 +34,27 @@ export default async function PublicProfilePage({
   }
 
   const profile = result.data;
-  const reposResult = await getUserPublicRepos(username);
+  const [reposResult, statsResult] = await Promise.all([
+    getUserPublicRepos(username),
+    getPublicUserStats(username),
+  ]);
   const repos: PublicRepo[] = reposResult.success ? (reposResult.data ?? []) : [];
+  const stats = statsResult.success ? statsResult.data : null;
+
+  // Aggregate genre chips from all repos
+  const genreMap = new Map<string, number>();
+  for (const repo of repos) {
+    for (const g of repo.genres) {
+      genreMap.set(g, (genreMap.get(g) || 0) + 1);
+    }
+  }
+  const topGenres = [...genreMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([name]) => name);
+
+  // Repos with audio snippets for "Featured Audio" section
+  const snippetRepos = repos.filter((r) => r.audio_snippet);
 
   // Format account creation date
   function formatDate(iso: string | null): string {
@@ -51,7 +71,7 @@ export default async function PublicProfilePage({
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
+    <main className="mx-auto max-w-4xl px-6 py-12">
       {/* Profile Header */}
       <div className="mb-8 glass-card rounded-xl p-8">
         <div className="flex items-start gap-6">
@@ -125,7 +145,80 @@ export default async function PublicProfilePage({
             </div>
           </div>
         </div>
+
+        {/* Stats pills */}
+        {stats && (
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
+              <span className="text-xl font-bold text-zinc-100">{stats.total_repos}</span>
+              <span className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1"><Music size={11} /> Projects</span>
+            </div>
+            <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
+              <span className="text-xl font-bold text-zinc-100">{stats.total_commits}</span>
+              <span className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1"><BarChart3 size={11} /> Commits</span>
+            </div>
+            <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
+              <span className="text-xl font-bold text-zinc-100">{stats.total_clones_received}</span>
+              <span className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1"><GitFork size={11} /> Clones</span>
+            </div>
+            <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
+              <span className="text-xl font-bold text-zinc-100">{stats.collaborations}</span>
+              <span className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1"><Disc3 size={11} /> Collabs</span>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Genre chips */}
+      {topGenres.length > 0 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {topGenres.map((g) => (
+            <span
+              key={g}
+              className="text-xs text-[#A7C7E7] bg-zinc-800/60 rounded-full px-3 py-1 border border-zinc-700/50"
+            >
+              {g}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Featured Audio */}
+      {snippetRepos.length > 0 && (
+        <div className="mb-8 glass-card rounded-xl p-6">
+          <h2 className="mb-4 text-lg font-semibold flex items-center gap-2">
+            <Music size={18} className="text-[#A7C7E7]" />
+            Featured Audio
+          </h2>
+          <div className="space-y-3">
+            {snippetRepos.slice(0, 5).map((repo) => (
+              <div
+                key={repo.gitea_id}
+                className="flex items-center gap-4 rounded-lg border border-white/[0.06] bg-white/[0.03] p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/explore/${repo.owner}/${repo.repo_name}`}
+                    className="text-sm font-medium text-zinc-200 hover:text-[#A7C7E7] transition-colors"
+                  >
+                    {repo.repo_name}
+                  </Link>
+                  {repo.genres.length > 0 && (
+                    <div className="mt-1 flex gap-1">
+                      {repo.genres.slice(0, 3).map((g) => (
+                        <span key={g} className="text-[10px] text-zinc-500">{g}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="w-48 sm:w-64 shrink-0">
+                  <ProfileSnippetPlayer src={repo.audio_snippet!} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Public Repos */}
       <div className="glass-card rounded-xl p-8">

@@ -57,6 +57,9 @@ class RepoData(Base):
     # thumbnail_type: "image" or "youtube"
     thumbnail_url = Column(String(500), nullable=True)
     thumbnail_type = Column(String(20), nullable=True)  # "image" or "youtube"
+
+    # Whether this repo appears in public searches / explore feed
+    is_public = Column(Boolean, default=True, nullable=False)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too

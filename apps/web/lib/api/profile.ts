@@ -134,6 +134,38 @@ export async function getUserStats(): Promise<ApiResponse<UserStats>> {
 
 // ─── GET /api/repos/user/{username} ─────────────────────────────────────────
 
+export interface PublicUserStats {
+    total_repos: number;
+    total_commits: number;
+    total_clones_received: number;
+    collaborations: number;
+}
+
+export async function getPublicUserStats(username: string): Promise<ApiResponse<PublicUserStats>> {
+    const baseUrl = process.env.API_URL || "http://localhost:8000";
+    try {
+        const res = await fetch(`${baseUrl}/api/repos/user/${encodeURIComponent(username)}/stats`, {
+            cache: "no-store",
+        });
+        if (!res.ok) {
+            let errorMessage = `HTTP ${res.status}`;
+            try {
+                const body = await res.json();
+                errorMessage = body.detail ?? errorMessage;
+            } catch {
+                errorMessage = res.statusText || errorMessage;
+            }
+            return { success: false, error: errorMessage };
+        }
+        const data = await res.json();
+        return { success: true, data: data.stats };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Network error" };
+    }
+}
+
+// ─── GET /api/repos/user/{username} (repos) ─────────────────────────────────
+
 export async function getUserPublicRepos(username: string): Promise<ApiResponse<PublicRepo[]>> {
     const baseUrl = process.env.API_URL || "http://localhost:8000";
     try {

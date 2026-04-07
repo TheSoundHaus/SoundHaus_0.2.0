@@ -370,7 +370,7 @@ async def get_public_repos(
     if genres is not None:
         genre_names = [g.strip() for g in genres.split(",")]
 
-    query = db.query(RepoData)
+    query = db.query(RepoData).filter(RepoData.is_public == True)
 
     if genre_names:
         base = (
@@ -456,8 +456,10 @@ async def get_user_public_repos(
     owner_username = labels["owner_username"]
     owner_display_name = labels["owner_display_name"]
 
-    prefix = f"{owner_id}/"
-    repos = db.query(RepoData).filter(RepoData.gitea_id.like(f"{prefix}%")).all()
+    repos = db.query(RepoData).filter(
+        RepoData.owner_id == owner_id,
+        RepoData.is_public == True,
+    ).all()
 
     svc = RepoService()
     result = []
@@ -499,6 +501,63 @@ async def get_user_public_repos(
             logger.warning("get_user_public_repos", gitea_id=repo.gitea_id, error=str(e))
 
     return {"success": True, "repos": result}
+
+
+@router.get("/repos/user/{username}/stats")
+@limiter.limit("60/minute")
+async def get_user_public_stats(
+    request: Request,
+    username: str,
+    db: Session = Depends(get_db),
+):
+    """Get aggregate public stats for a user (no auth required)."""
+    profile = db.query(Profile).filter(Profile.username == username).first()
+    if not profile:
+        profile = db.query(Profile).filter(Profile.id == username).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_id = str(profile.id)
+
+    pub_filter = [
+        RepoData.owner_id == user_id,
+        RepoData.is_public == True,
+    ]
+    total_repos = (
+        db.query(func.count(RepoData.gitea_id))
+        .filter(*pub_filter)
+        .scalar() or 0
+    )
+    total_commits = (
+        db.query(func.sum(RepoData.total_commits))
+        .filter(*pub_filter)
+        .scalar() or 0
+    )
+    total_clones = (
+        db.query(func.sum(RepoData.clone_count))
+        .filter(*pub_filter)
+        .scalar() or 0
+    )
+    collaborations = 0
+    if profile.email:
+        collaborations = (
+            db.query(func.count(CollaboratorInvitation.id))
+            .filter(
+                CollaboratorInvitation.invitee_email == profile.email,
+                CollaboratorInvitation.status == "accepted",
+            )
+            .scalar() or 0
+        )
+
+    return {
+        "success": True,
+        "stats": {
+            "total_repos": total_repos,
+            "total_commits": int(total_commits),
+            "total_clones_received": int(total_clones),
+            "collaborations": collaborations,
+        },
+    }
 
 
 @router.get("/repos/{owner}/{repo}/stats")
