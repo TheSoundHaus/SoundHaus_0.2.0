@@ -244,49 +244,29 @@ function extractNoteDiffFromChanges(changes: any[], trackOrder: string[] = []): 
   return { tracks };
 }
 
-/** Dirs we never search for .als (metadata / tooling / macOS junk). */
-const ALS_DISCOVERY_SKIP_DIRS = new Set(['.git', '.soundhaus', 'node_modules', '__MACOSX']);
-
 /**
- * Find a Live Set under the repo root. Ableton often saves as ProjectName/ProjectName.als
- * (not at repo root); only scanning the root breaks after clone on another OS.
- * Prefers the shallowest path, then lexicographic order; skips Ableton Backup/ trees.
+ * Find a Live Set: only `.als` files that are immediate children of `repoRoot`
+ * (no subfolders). If none, returns null — not treated as having a Live Set here.
  */
 async function findAlsFileInRepo(repoRoot: string): Promise<string | null> {
   const candidates: string[] = [];
 
-  async function walk(dir: string, depth: number): Promise<void> {
-    if (depth > 16) return;
-    let entries;
-    try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const ent of entries) {
-      const full = path.join(dir, ent.name);
-      if (ent.isDirectory()) {
-        if (ALS_DISCOVERY_SKIP_DIRS.has(ent.name)) continue;
-        if (ent.name.toLowerCase() === 'backup') continue;
-        await walk(full, depth + 1);
-      } else if (ent.isFile() && ent.name.toLowerCase().endsWith('.als')) {
-        candidates.push(full);
-      }
-    }
+  let rootEntries;
+  try {
+    rootEntries = await fs.promises.readdir(repoRoot, { withFileTypes: true });
+  } catch {
+    return null;
   }
 
-  await walk(repoRoot, 0);
+  for (const ent of rootEntries) {
+    if (!ent.isFile() || !ent.name.toLowerCase().endsWith('.als')) continue;
+    candidates.push(path.join(repoRoot, ent.name));
+  }
 
   if (candidates.length === 0) return null;
   if (candidates.length === 1) return candidates[0];
 
-  candidates.sort((a, b) => {
-    const da = a.split(path.sep).length;
-    const db = b.split(path.sep).length;
-    if (da !== db) return da - db;
-    return a.localeCompare(b, undefined, { sensitivity: 'base' });
-  });
+  candidates.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   return candidates[0];
 }
 
