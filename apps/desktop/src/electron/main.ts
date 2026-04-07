@@ -17,6 +17,8 @@ import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
 import { changesToProjectDiff } from './diffTransformer'
+import { promisify } from 'util';
+import { execFile } from 'child_process';
 
 const execFileP = promisify(execFile);
 

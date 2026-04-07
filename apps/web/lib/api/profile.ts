@@ -142,7 +142,7 @@ export interface PublicUserStats {
 export async function getPublicUserStats(username: string): Promise<ApiResponse<PublicUserStats>> {
     const baseUrl = process.env.API_URL || "http://localhost:8000";
     try {
-        const res = await fetch(`${baseUrl}/api/repos/user/${encodeURIComponent(username)}/stats`, {
+        const res = await fetch(`${baseUrl}/repos/user/${encodeURIComponent(username)}/stats`, {
             cache: "no-store",
         });
         if (!res.ok) {
@@ -167,7 +167,7 @@ export async function getPublicUserStats(username: string): Promise<ApiResponse<
 export async function getUserPublicRepos(username: string): Promise<ApiResponse<PublicRepo[]>> {
     const baseUrl = process.env.API_URL || "http://localhost:8000";
     try {
-        const res = await fetch(`${baseUrl}/api/repos/user/${encodeURIComponent(username)}`, {
+        const res = await fetch(`${baseUrl}/repos/user/${encodeURIComponent(username)}`, {
             cache: "no-store",
         });
         if (!res.ok) {

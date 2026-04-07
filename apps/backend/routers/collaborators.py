@@ -12,7 +12,7 @@ import uuid
 import secrets
 
 from database import get_db
-from dependencies import limiter, user_limiter, verify_token, get_auth
+from dependencies import limiter, user_limiter, verify_token, get_auth, resolve_owner_id
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
@@ -113,8 +113,9 @@ async def list_collaborators(
     if not user_res.get("success"):
         return JSONResponse({"success": False}, status_code=401)
 
+    owner_id = resolve_owner_id(owner, db)
     repo_service = RepoService()
-    result = repo_service.list_collaborators(owner, repo_name, db)
+    result = repo_service.list_collaborators(owner_id, repo_name, db)
 
     if not result.get("success"):
         return JSONResponse({"success": False, "message": result.get("message")}, status_code=400)
