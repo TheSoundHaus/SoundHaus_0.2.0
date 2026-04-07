@@ -2,7 +2,7 @@ name: Build Desktop App
 
 on:
   push:
-    branches: [SCRUM-37_Desktop-Visual-Note-Differ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
