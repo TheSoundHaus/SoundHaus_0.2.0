@@ -12,7 +12,7 @@
  *   - DiffSummaryPanel on the right (collapsible list of all changes)
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import type { ProjectDiff, TrackDiff } from "./types/diff";
 import { TimeRuler } from "./TimeRuler";
 import { TrackLabel } from "./TrackLabel";
@@ -43,11 +43,11 @@ const ABLETON_COLORS: string[] = [
 ];
 
 /** Track heights: collapsed shows a thin strip, expanded shows full detail. */
-const COLLAPSED_HEIGHT = 48;
-const EXPANDED_HEIGHT_AUDIO = 80;
+const COLLAPSED_HEIGHT = 72;
+const EXPANDED_HEIGHT_AUDIO = 120;
 
 /** Pixels per semitone when expanded — consistent across all MIDI tracks. */
-const PITCH_ROW_HEIGHT = 12;
+const PITCH_ROW_HEIGHT = 16;
 const PITCH_PADDING = 3;
 
 /**
@@ -236,11 +236,17 @@ export function DiffTimeline({
     error = null,
     repoOwner,
     repoName,
-    pixelsPerBeat = 20,
+    pixelsPerBeat = 32,
 }: DiffTimelineProps) {
     const [focusedTrackId, setFocusedTrackId] = useState<string | null>(null);
-    // Tracks start collapsed; users click the label to expand
+    // All tracks start expanded so diffs are immediately visible
     const [expandedTracks, setExpandedTracks] = useState<Set<string>>(new Set());
+
+    // Auto-expand all tracks whenever diffData changes
+    useEffect(() => {
+        if (!diffData?.tracks) return;
+        setExpandedTracks(new Set(diffData.tracks.map((t) => t.trackId)));
+    }, [diffData]);
 
     const handleFocusTrack = useCallback((trackId: string) => {
         setFocusedTrackId(trackId);
