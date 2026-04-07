@@ -338,6 +338,16 @@ async def update_profile(
         updates["bio"] = body.bio
     if body.is_public is not None:
         updates["is_public"] = body.is_public
+    if body.social_instagram is not None:
+        updates["social_instagram"] = body.social_instagram
+    if body.social_youtube is not None:
+        updates["social_youtube"] = body.social_youtube
+    if body.social_spotify is not None:
+        updates["social_spotify"] = body.social_spotify
+    if body.social_twitter is not None:
+        updates["social_twitter"] = body.social_twitter
+    if body.social_website is not None:
+        updates["social_website"] = body.social_website
 
     if not updates:
         raise HTTPException(status_code=400, detail="No updates provided")
@@ -488,5 +498,10 @@ async def get_public_profile(
             "avatar_url": profile["avatar_url"],
             "bio": profile["bio"],
             "created_at": profile["created_at"],
+            "social_instagram": profile.get("social_instagram"),
+            "social_youtube": profile.get("social_youtube"),
+            "social_spotify": profile.get("social_spotify"),
+            "social_twitter": profile.get("social_twitter"),
+            "social_website": profile.get("social_website"),
         },
     }

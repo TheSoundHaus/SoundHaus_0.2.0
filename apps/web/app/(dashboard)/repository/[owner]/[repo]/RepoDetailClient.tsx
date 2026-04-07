@@ -484,7 +484,8 @@ export default function RepoDetailClient({
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
-              <User size={14} /> {ownerDisplayName}
+              <User size={14} />{" "}
+              <Link href={`/profile/${stats?.owner_username || owner}`} className="hover:text-[#A7C7E7] transition-colors">{ownerDisplayName}</Link>
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
@@ -778,7 +779,9 @@ export default function RepoDetailClient({
                   <span className="flex items-center gap-1 text-zinc-400">
                     <User size={12} /> Owner
                   </span>
-                  <span className="text-xs text-zinc-300">{ownerDisplayName}</span>
+                  <span className="text-xs text-zinc-300">
+                    <Link href={`/profile/${stats?.owner_username || owner}`} className="hover:text-[#A7C7E7] transition-colors">{ownerDisplayName}</Link>
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1 text-zinc-400">

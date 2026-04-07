@@ -35,6 +35,8 @@ from routers import (
     audio,
     comments,
 )
+from routers import dashboard
+import models.seen_models  # noqa: F401 — ensure UserRepoSeen table is created
 
 # ── App creation ─────────────────────────────────────────────────────────────
 
@@ -128,3 +130,4 @@ app.include_router(webhooks.router)     # /api/webhooks/*
 app.include_router(commits.router)      # /repos/*/commits/*  ,  /repos/*/diff
 app.include_router(audio.router)        # /repos/*/audio/waveform
 app.include_router(comments.router)     # /repos/*/snippet/comments
+app.include_router(dashboard.router)    # /api/dashboard/*  ,  /api/feed/*

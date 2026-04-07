@@ -24,4 +24,10 @@ class Profile(Base):
     is_public = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Social links
+    social_instagram = Column(String(255), nullable=True)
+    social_youtube = Column(String(255), nullable=True)
+    social_spotify = Column(String(255), nullable=True)
+    social_twitter = Column(String(255), nullable=True)
+    social_website = Column(String(255), nullable=True)
     

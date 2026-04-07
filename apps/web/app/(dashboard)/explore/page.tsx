@@ -354,7 +354,13 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-sm text-zinc-400">
-                                            <span className="font-medium text-zinc-300">{ownerShown}</span>
+                                            <Link
+                                                href={`/profile/${repo.owner_username || repo.owner}`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="font-medium text-zinc-300 hover:text-[#A7C7E7] transition-colors"
+                                            >
+                                                {ownerShown}
+                                            </Link>
                                             {repo.updated_at && (
                                                 <>
                                                     <span className="mx-2 text-zinc-600">&middot;</span>
@@ -421,7 +427,13 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-xs text-zinc-500 mt-0.5">
-                                            {ownerLabel(repo.owner_display_name, repo.owner_username, repo.owner)}
+                                            <Link
+                                                href={`/profile/${repo.owner_username || repo.owner}`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="hover:text-zinc-300 transition-colors"
+                                            >
+                                                {ownerLabel(repo.owner_display_name, repo.owner_username, repo.owner)}
+                                            </Link>
                                         </p>
                                         <div className="flex items-center gap-1 mt-1">
                                             <svg className="w-3 h-3 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">

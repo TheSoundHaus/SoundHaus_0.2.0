@@ -21,7 +21,16 @@ export async function getProfileAction(): Promise<
 }
 
 export async function updateProfileAction(
-    updates: { display_name?: string; bio?: string; is_public?: boolean }
+    updates: {
+        display_name?: string;
+        bio?: string;
+        is_public?: boolean;
+        social_instagram?: string | null;
+        social_youtube?: string | null;
+        social_spotify?: string | null;
+        social_twitter?: string | null;
+        social_website?: string | null;
+    }
 ): Promise<{ success: true; profile: UserProfile } | { success: false; error: string }> {
     try {
         const result = await updateProfile(updates);

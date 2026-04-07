@@ -93,6 +93,16 @@ class ProfileService:
             profile.bio = updates["bio"].strip()[:500]
         if "is_public" in updates and updates["is_public"] is not None:
             profile.is_public = bool(updates["is_public"])
+        if "social_instagram" in updates:
+            profile.social_instagram = (updates["social_instagram"] or "")[:255] or None
+        if "social_youtube" in updates:
+            profile.social_youtube = (updates["social_youtube"] or "")[:255] or None
+        if "social_spotify" in updates:
+            profile.social_spotify = (updates["social_spotify"] or "")[:255] or None
+        if "social_twitter" in updates:
+            profile.social_twitter = (updates["social_twitter"] or "")[:255] or None
+        if "social_website" in updates:
+            profile.social_website = (updates["social_website"] or "")[:255] or None
 
         db.commit()
         db.refresh(profile)
@@ -211,6 +221,11 @@ class ProfileService:
             "is_public": profile.is_public if profile.is_public is not None else False,
             "created_at": profile.created_at.isoformat() if profile.created_at else None,
             "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+            "social_instagram": profile.social_instagram,
+            "social_youtube": profile.social_youtube,
+            "social_spotify": profile.social_spotify,
+            "social_twitter": profile.social_twitter,
+            "social_website": profile.social_website,
         }
 
 

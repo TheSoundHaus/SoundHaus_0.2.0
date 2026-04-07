@@ -10,7 +10,7 @@ import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "@/components/UserAvatar";
 import ImageCropper from "@/components/ImageCropper";
 import type { SentInvitation } from "@/lib/types/api";
-import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail } from "lucide-react";
+import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail, Instagram, Youtube, Twitter } from "lucide-react";
 
 export default function SettingsPage() {
   const { user, loading: userLoading, refreshUser } = useUser();
@@ -20,6 +20,11 @@ export default function SettingsPage() {
 
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
+  const [socialInstagram, setSocialInstagram] = useState("");
+  const [socialYoutube, setSocialYoutube] = useState("");
+  const [socialSpotify, setSocialSpotify] = useState("");
+  const [socialTwitter, setSocialTwitter] = useState("");
+  const [socialWebsite, setSocialWebsite] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -53,6 +58,11 @@ export default function SettingsPage() {
     if (user) {
       setDisplayName(user.display_name || "");
       setBio(user.bio || "");
+      setSocialInstagram(user.social_instagram || "");
+      setSocialYoutube(user.social_youtube || "");
+      setSocialSpotify(user.social_spotify || "");
+      setSocialTwitter(user.social_twitter || "");
+      setSocialWebsite(user.social_website || "");
     }
   }, [user]);
 
@@ -62,6 +72,11 @@ export default function SettingsPage() {
     const result = await updateProfileAction({
       display_name: displayName,
       bio: bio,
+      social_instagram: socialInstagram || null,
+      social_youtube: socialYoutube || null,
+      social_spotify: socialSpotify || null,
+      social_twitter: socialTwitter || null,
+      social_website: socialWebsite || null,
     });
     if (result.success) {
       setProfileMessage({ type: "success", text: "Profile updated!" });
@@ -437,6 +452,66 @@ export default function SettingsPage() {
                       <p className="mt-1 text-right text-xs text-zinc-500">
                         {bio.length}/500
                       </p>
+                    </div>
+
+                    {/* Social Links */}
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-zinc-100">Social Links</p>
+                      <div className="flex items-center gap-2">
+                        <Instagram size={16} className="shrink-0 text-zinc-400" />
+                        <input
+                          type="url"
+                          placeholder="https://instagram.com/yourhandle"
+                          value={socialInstagram}
+                          onChange={(e) => setSocialInstagram(e.target.value)}
+                          maxLength={255}
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Youtube size={16} className="shrink-0 text-zinc-400" />
+                        <input
+                          type="url"
+                          placeholder="https://youtube.com/@yourchannel"
+                          value={socialYoutube}
+                          onChange={(e) => setSocialYoutube(e.target.value)}
+                          maxLength={255}
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 shrink-0 text-zinc-400"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+                        <input
+                          type="url"
+                          placeholder="https://open.spotify.com/artist/..."
+                          value={socialSpotify}
+                          onChange={(e) => setSocialSpotify(e.target.value)}
+                          maxLength={255}
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Twitter size={16} className="shrink-0 text-zinc-400" />
+                        <input
+                          type="url"
+                          placeholder="https://x.com/yourhandle"
+                          value={socialTwitter}
+                          onChange={(e) => setSocialTwitter(e.target.value)}
+                          maxLength={255}
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Globe size={16} className="shrink-0 text-zinc-400" />
+                        <input
+                          type="url"
+                          placeholder="https://yourwebsite.com"
+                          value={socialWebsite}
+                          onChange={(e) => setSocialWebsite(e.target.value)}
+                          maxLength={255}
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-glass-blue-500 focus:ring-1 focus:ring-glass-blue-500 focus:outline-none transition-all"
+                        />
+                      </div>
                     </div>
 
                     {/* Profile Visibility Toggle */}

@@ -17,6 +17,9 @@ import { useUser } from "@/lib/context/UserContext";
 import { getDashboardData } from "@/lib/api/dashboard";
 import type { DashboardData, DashboardActivity } from "@/lib/api/dashboard";
 import WaveformSpinner from "@/components/WaveformSpinner";
+import ActivityHeatmap from "@/components/ActivityHeatmap";
+import SnippetFeed from "@/components/SnippetFeed";
+import CollaborationPanel from "@/components/CollaborationPanel";
 
 function timeAgo(iso: string): string {
     const now = Date.now();
@@ -149,6 +152,9 @@ export default function DashboardPage() {
                             ))}
                     </div>
 
+                    {/* Activity Heatmap */}
+                    <ActivityHeatmap />
+
                     {/* Pending Invitations Banner */}
                     {!loading && pendingInvitations > 0 && (
                         <Link
@@ -219,6 +225,9 @@ export default function DashboardPage() {
                             )}
                         </div>
                     </div>
+
+                    {/* Snippet Discovery Feed */}
+                    <SnippetFeed />
                 </div>
 
                 {/* Sidebar */}
@@ -242,6 +251,9 @@ export default function DashboardPage() {
                             ))}
                         </div>
                     </div>
+
+                    {/* Collaboration Panel */}
+                    <CollaborationPanel />
 
                     <div className="glass-card rounded-xl p-6 animate-fade-in-up delay-300">
                         <div className="mb-4 flex items-center justify-between">

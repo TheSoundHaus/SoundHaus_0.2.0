@@ -12,6 +12,11 @@ class ProfileUpdateRequest(BaseModel):
     display_name: Optional[str] = None
     bio: Optional[str] = None
     is_public: Optional[bool] = None
+    social_instagram: Optional[str] = None
+    social_youtube: Optional[str] = None
+    social_spotify: Optional[str] = None
+    social_twitter: Optional[str] = None
+    social_website: Optional[str] = None
 
 class SignInRequest(BaseModel):
     email: EmailStr

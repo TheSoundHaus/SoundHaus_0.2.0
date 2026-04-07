@@ -5,11 +5,12 @@
  * to power the main dashboard page with real user statistics.
  */
 
-import type { EnrichedRepo } from "../types/api";
+import type { EnrichedRepo, ApiResponse } from "../types/api";
 import type { CommitListResponse } from "./commits";
 import { getEnrichedRepos } from "./repos";
 import { getCommits } from "./commits";
 import { getPendingInvitations } from "./invitations";
+import { authFetch } from "./client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -167,4 +168,83 @@ export async function getDashboardData(): Promise<{
             error: e instanceof Error ? e.message : "Failed to load dashboard data",
         };
     }
+}
+
+// ── Heatmap ───────────────────────────────────────────────────────────────────
+
+export interface HeatmapDay {
+    date: string;   // "YYYY-MM-DD"
+    count: number;
+}
+
+export async function getActivityHeatmap(): Promise<ApiResponse<HeatmapDay[]>> {
+    const result = await authFetch<{ days: HeatmapDay[] }>("/api/dashboard/heatmap");
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data?.days ?? [] };
+}
+
+// ── Snippet Feed ──────────────────────────────────────────────────────────────
+
+export interface SnippetFeedItem {
+    repo_id: string;
+    repo_name: string;
+    owner_id: string;
+    owner_display_name: string;
+    owner_username: string;
+    owner_avatar_url: string | null;
+    audio_snippet: string;
+    snippet_duration: number | null;
+    thumbnail_url: string | null;
+    thumbnail_type: string | null;
+    last_activity_at: string | null;
+    genres: string[];
+}
+
+export interface SnippetFeedResponse {
+    snippets: SnippetFeedItem[];
+    total: number;
+    page: number;
+    pages: number;
+}
+
+export async function getSnippetFeed(page = 1): Promise<ApiResponse<SnippetFeedResponse>> {
+    const result = await authFetch<SnippetFeedResponse>(
+        `/api/feed/snippets?page=${page}&limit=12`
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}
+
+// ── Collaborations ────────────────────────────────────────────────────────────
+
+export interface CollaborationItem {
+    repo_id: string;
+    repo_name: string;
+    owner_username: string;
+    owner_display_name: string;
+    unread_count: number;
+    last_seen_at: string | null;
+    last_push_at: string | null;
+    thumbnail_url: string | null;
+    thumbnail_type: string | null;
+}
+
+export async function getCollaborations(): Promise<ApiResponse<CollaborationItem[]>> {
+    const result = await authFetch<{ collaborations: CollaborationItem[] }>(
+        "/api/dashboard/collaborations"
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data?.collaborations ?? [] };
+}
+
+export async function markCollaborationSeen(
+    owner: string,
+    repo: string
+): Promise<ApiResponse<void>> {
+    const result = await authFetch<void>(
+        `/api/dashboard/collaborations/${owner}/${repo}/seen`,
+        { method: "POST" }
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: undefined };
 }

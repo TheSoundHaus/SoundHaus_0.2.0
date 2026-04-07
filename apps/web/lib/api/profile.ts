@@ -15,6 +15,11 @@ export interface UserProfile {
     is_public: boolean;
     created_at: string | null;
     updated_at: string | null;
+    social_instagram: string | null;
+    social_youtube: string | null;
+    social_spotify: string | null;
+    social_twitter: string | null;
+    social_website: string | null;
 }
 
 export interface PublicProfile {
@@ -23,6 +28,11 @@ export interface PublicProfile {
     avatar_url: string | null;
     bio: string | null;
     created_at: string | null;
+    social_instagram: string | null;
+    social_youtube: string | null;
+    social_spotify: string | null;
+    social_twitter: string | null;
+    social_website: string | null;
 }
 
 // ─── GET /api/auth/profile ──────────────────────────────────────────────────
@@ -37,7 +47,16 @@ export async function getProfile(): Promise<ApiResponse<UserProfile>> {
 // ─── PUT /api/auth/profile ──────────────────────────────────────────────────
 
 export async function updateProfile(
-    updates: { display_name?: string; bio?: string; is_public?: boolean }
+    updates: {
+        display_name?: string;
+        bio?: string;
+        is_public?: boolean;
+        social_instagram?: string | null;
+        social_youtube?: string | null;
+        social_spotify?: string | null;
+        social_twitter?: string | null;
+        social_website?: string | null;
+    }
 ): Promise<ApiResponse<UserProfile>> {
     const result = await authFetch<{ profile: UserProfile }>("/api/auth/profile", {
         method: "PUT",
