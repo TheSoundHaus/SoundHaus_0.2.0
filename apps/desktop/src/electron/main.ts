@@ -412,9 +412,10 @@ async function restoreSnapshotFromHead(repoPath: string): Promise<void> {
     const sessionName = path.basename(alsFile.name, '.als');
     const snapshotRelPath = `.soundhaus/${sessionName}/snapshot.json`;
 
-    await execFileP(gitBin, ['-C', repoPath, 'checkout', 'HEAD', '--', snapshotRelPath], {
-      encoding: 'utf8',
-    });
+    const checkoutResult = await gitExec(['checkout', 'HEAD', '--', snapshotRelPath], repoPath);
+    if (checkoutResult.exitCode !== 0) {
+      throw new Error(checkoutResult.stderr || checkoutResult.stdout || 'git checkout failed');
+    }
     console.log('[restoreSnapshotFromHead] Restored', snapshotRelPath, 'from HEAD');
   } catch {
     // No HEAD or snapshot not tracked yet (first clone / legacy repo) — fall back
@@ -520,14 +521,14 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
 });
 
 ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  const pullResult = await pull(repoPath);
-
-  // Restore the committed snapshot so the working tree stays clean.
-  // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
-  // uncommitted snapshot.json that causes autostash conflicts on the next pull.
-  await restoreSnapshotFromHead(repoPath);
-
-  return pullResult;
+  try {
+    return await pull(repoPath);
+  } finally {
+    // Restore the committed snapshot so the working tree stays clean.
+    // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
+    // uncommitted snapshot.json that causes pull/rebase churn on the next pull.
+    await restoreSnapshotFromHead(repoPath);
+  }
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
