@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Waves, FolderOpen, Download, Globe, Music, FolderSearch } from 'lucide-react'
+import { Waves, FolderOpen, Download, Globe, Music } from 'lucide-react'
 import { useProjectActions } from '../hooks/useProjectActions'
 import OpenProjectDialog from '../components/OpenProjectDialog'
 
@@ -17,6 +17,7 @@ const HomePage = () => {
         isOpenDialogVisible,
         setIsOpenDialogVisible,
     } = useProjectActions()
+    // handleOpenFromFilepath is passed through to OpenProjectDialog's footer — not used directly on the grid
 
     // Open dialog if triggered from menu, then clear state to prevent re-opening on back
     useEffect(() => {
@@ -47,15 +48,9 @@ const HomePage = () => {
         },
         {
             icon: FolderOpen,
-            label: 'Open Existing',
-            description: 'Open a SoundHaus-tracked project folder',
+            label: 'Open Project',
+            description: 'Open a recent project or browse for one on your machine',
             onClick: handleOpenSoundHausProject,
-        },
-        {
-            icon: FolderSearch,
-            label: 'Open from Filepath',
-            description: 'Browse for a SoundHaus project on your machine',
-            onClick: () => handleOpenFromFilepath().catch(() => {}),
         },
     ]
 
@@ -72,7 +67,7 @@ const HomePage = () => {
                     <p className="text-sm text-text-secondary">Add a SoundHaus project to begin</p>
                 </div>
 
-                {/* Action cards — 2 columns, last card spans full if odd */}
+                {/* Action cards — 2×2 grid */}
                 <div className="grid grid-cols-2 gap-3">
                     {actions.map((action) => (
                         <button

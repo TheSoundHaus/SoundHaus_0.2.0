@@ -96,7 +96,7 @@ const CloneUrlDialog = () => {
     }
 
     return (
-        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-5">
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-8">
             <div className="w-full max-w-md animate-scale-in">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
@@ -117,7 +117,7 @@ const CloneUrlDialog = () => {
                 </div>
 
                 {/* Form Card */}
-                <div className="glass-panel rounded-2xl p-5">
+                <div className="glass-panel rounded-2xl p-7">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Repository URL */}
                         <div>

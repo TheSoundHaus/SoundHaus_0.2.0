@@ -24,7 +24,7 @@ const ProjectInitDialog = () => {
     }
 
     return (
-        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-5">
+        <div className="flex items-center justify-center w-full h-screen bg-bg-primary p-9">
             <div className="w-full max-w-md animate-scale-in">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
@@ -45,7 +45,7 @@ const ProjectInitDialog = () => {
                 </div>
 
                 {/* Form Card */}
-                <div className="glass-panel rounded-2xl p-5">
+                <div className="glass-panel rounded-2xl p-9">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {/* Project Name */}
                         <div>
