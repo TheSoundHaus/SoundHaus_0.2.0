@@ -19,7 +19,6 @@ export default function ThumbnailSettings({
   initialType,
 }: ThumbnailSettingsProps) {
   const [thumbUrl, setThumbUrl] = useState(initialType === "youtube" ? null : initialUrl);
-  const [thumbType, setThumbType] = useState<"image" | null>(initialType === "youtube" ? null : (initialType as "image" | null));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -43,7 +42,6 @@ export default function ThumbnailSettings({
       const data = await res.json();
       if (res.ok && data.thumbnail_url) {
         setThumbUrl(data.thumbnail_url);
-        setThumbType("image");
       } else {
         setError(data.detail || data.error || "Upload failed");
       }
@@ -60,7 +58,6 @@ export default function ThumbnailSettings({
     setSaving(false);
     if (res.success) {
       setThumbUrl(null);
-      setThumbType(null);
     } else {
       setError(res.error ?? "Failed to remove thumbnail");
     }
