@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { logout, requestPasswordResetAction } from "@/actions/auth";
+import { requestPasswordResetAction } from "@/actions/auth";
 import { getSentInvitations, getPendingInvitations } from "@/lib/api/invitations";
 import { getUserStats } from "@/lib/api/profile";
 import { cancelInvitationAction, acceptInvitationAction, declineInvitationAction } from "@/actions/invitations";
@@ -14,7 +14,7 @@ import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail
 
 export default function SettingsPage() {
   const { user, loading: userLoading, refreshUser } = useUser();
-  const [activeTab, setActiveTab] = useState<"profile" | "account" | "invitations" | "stats">(
+  const [activeTab, setActiveTab] = useState<"profile" | "invitations" | "stats">(
     "profile"
   );
 
@@ -367,16 +367,6 @@ export default function SettingsPage() {
                 Profile
               </button>
               <button
-                onClick={() => setActiveTab("account")}
-                className={`rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
-                  activeTab === "account"
-                    ? "bg-zinc-800 text-glass-blue-400"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
-                }`}
-              >
-                Account
-              </button>
-              <button
                 onClick={() => setActiveTab("invitations")}
                 className={`rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
                   activeTab === "invitations"
@@ -607,6 +597,49 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
+                    {/* Account Section */}
+                    <div className="space-y-4 rounded-md border border-zinc-800 p-4">
+                      <p className="text-sm font-medium text-zinc-100">Account</p>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-zinc-400">
+                          Email Address
+                        </label>
+                        <input
+                          type="email"
+                          value={user?.email || ""}
+                          disabled
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-500 cursor-not-allowed"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-zinc-400">
+                          Password
+                        </label>
+                        <p className="mb-3 text-xs text-zinc-500">
+                          Password changes are handled via email reset link.
+                        </p>
+                        {resetMessage && (
+                          <div
+                            className={`mb-3 rounded-md border px-4 py-3 text-sm ${
+                              resetMessage.type === "success"
+                                ? "border-green-800/50 bg-green-900/20 text-green-400"
+                                : "border-red-800/50 bg-red-900/20 text-red-400"
+                            }`}
+                          >
+                            {resetMessage.text}
+                          </div>
+                        )}
+                        <button
+                          onClick={handlePasswordReset}
+                          disabled={resetSending}
+                          className="flex items-center gap-2 rounded-md border border-zinc-700 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-wait"
+                        >
+                          <Mail size={14} />
+                          {resetSending ? "Sending..." : "Send Password Reset Email"}
+                        </button>
+                      </div>
+                    </div>
+
                     <button
                       onClick={handleProfileSave}
                       disabled={profileSaving}
@@ -616,59 +649,6 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 )}
-              </div>
-            )}
-
-            {activeTab === "account" && (
-              <div className="glass-card rounded-xl p-8">
-                <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Account Settings</h2>
-                <div className="space-y-6">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-zinc-100">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      value={user?.email || ""}
-                      disabled
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-500 cursor-not-allowed"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-zinc-100">
-                      Password
-                    </label>
-                    <p className="mb-3 text-sm text-zinc-400">
-                      For security, password changes are handled via email. Click below and we&apos;ll send a secure reset link to your inbox.
-                    </p>
-                    {resetMessage && (
-                      <div
-                        className={`mb-3 rounded-md border px-4 py-3 text-sm ${
-                          resetMessage.type === "success"
-                            ? "border-green-800/50 bg-green-900/20 text-green-400"
-                            : "border-red-800/50 bg-red-900/20 text-red-400"
-                        }`}
-                      >
-                        {resetMessage.text}
-                      </div>
-                    )}
-                    <button
-                      onClick={handlePasswordReset}
-                      disabled={resetSending}
-                      className="flex items-center gap-2 rounded-md border border-zinc-700 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-wait"
-                    >
-                      <Mail size={14} />
-                      {resetSending ? "Sending..." : "Send Password Reset Email"}
-                    </button>
-                  </div>
-                  <div className="flex gap-4 pt-2 border-t border-zinc-800">
-                    <button
-                      onClick={() => logout()}
-                      className="flex items-center gap-2 rounded-md bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700">
-                      Logout
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
 

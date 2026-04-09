@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Image, Youtube, Upload, Trash2, Eye } from "lucide-react";
-import { setThumbnailUrl, deleteThumbnail } from "@/lib/api/repos";
+import { Image, Upload, Trash2, Eye } from "lucide-react";
+import { deleteThumbnail } from "@/lib/api/repos";
 import ImageCropper from "@/components/ImageCropper";
 
 interface ThumbnailSettingsProps {
@@ -12,23 +12,14 @@ interface ThumbnailSettingsProps {
   initialType: "image" | "youtube" | null;
 }
 
-function extractYouTubeId(url: string): string | null {
-  const m = url.match(
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w\-]{11})/,
-  );
-  return m ? m[1] ?? null : null;
-}
-
 export default function ThumbnailSettings({
   owner,
   repo,
   initialUrl,
   initialType,
 }: ThumbnailSettingsProps) {
-  const [thumbUrl, setThumbUrl] = useState(initialUrl);
-  const [thumbType, setThumbType] = useState(initialType);
-  const [mode, setMode] = useState<"image" | "youtube">(initialType === "youtube" ? "youtube" : "image");
-  const [youtubeInput, setYoutubeInput] = useState(initialType === "youtube" ? (initialUrl ?? "") : "");
+  const [thumbUrl, setThumbUrl] = useState(initialType === "youtube" ? null : initialUrl);
+  const [thumbType, setThumbType] = useState<"image" | null>(initialType === "youtube" ? null : (initialType as "image" | null));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -62,20 +53,6 @@ export default function ThumbnailSettings({
     setSaving(false);
   }
 
-  async function handleYoutubeSave() {
-    if (!youtubeInput.trim()) return;
-    setSaving(true);
-    setError(null);
-    const res = await setThumbnailUrl(owner, repo, "youtube", youtubeInput.trim());
-    setSaving(false);
-    if (res.success && res.data) {
-      setThumbUrl(res.data.thumbnail_url);
-      setThumbType("youtube");
-    } else if (!res.success) {
-      setError(res.error ?? "Failed to set YouTube thumbnail");
-    }
-  }
-
   async function handleRemove() {
     setSaving(true);
     setError(null);
@@ -84,13 +61,10 @@ export default function ThumbnailSettings({
     if (res.success) {
       setThumbUrl(null);
       setThumbType(null);
-      setYoutubeInput("");
     } else {
       setError(res.error ?? "Failed to remove thumbnail");
     }
   }
-
-  const videoId = thumbType === "youtube" && thumbUrl ? extractYouTubeId(thumbUrl) : null;
 
   return (
     <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
@@ -120,28 +94,8 @@ export default function ThumbnailSettings({
         </div>
       )}
 
-      {/* Mode toggle */}
-      <div className="mb-4 flex rounded-md border border-zinc-700 overflow-hidden w-fit">
-        <button
-          onClick={() => setMode("image")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-            mode === "image" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-white"
-          }`}
-        >
-          <Upload size={12} /> Image
-        </button>
-        <button
-          onClick={() => setMode("youtube")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-            mode === "youtube" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-white"
-          }`}
-        >
-          <Youtube size={12} /> YouTube
-        </button>
-      </div>
-
       {/* Image upload */}
-      {mode === "image" && (
+      {
         <div>
           <input
             ref={fileRef}
@@ -193,34 +147,14 @@ export default function ThumbnailSettings({
             JPEG, PNG, WebP, or GIF — max 5 MB
           </p>
         </div>
-      )}
-
-      {/* YouTube URL input */}
-      {mode === "youtube" && (
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={youtubeInput}
-            onChange={(e) => setYoutubeInput(e.target.value)}
-            placeholder="https://youtube.com/watch?v=..."
-            className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 focus:border-glass-blue focus:outline-none"
-          />
-          <button
-            onClick={handleYoutubeSave}
-            disabled={saving || !youtubeInput.trim()}
-            className="btn btn-primary btn-sm"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-        </div>
-      )}
+      }
 
       {/* Current thumbnail display */}
       {thumbUrl && (
         <div className="mt-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-zinc-400">
-              Current: {thumbType === "youtube" ? "YouTube video" : "Image"}
+              Current: Image
             </span>
             <button
               onClick={handleRemove}
@@ -230,20 +164,11 @@ export default function ThumbnailSettings({
               <Trash2 size={12} /> Remove
             </button>
           </div>
-          {thumbType === "image" && (
-            <img
-              src={thumbUrl}
-              alt="Current thumbnail"
-              className="w-full max-w-xs h-32 object-cover rounded-lg border border-zinc-700"
-            />
-          )}
-          {thumbType === "youtube" && videoId && (
-            <img
-              src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
-              alt="YouTube thumbnail"
-              className="w-full max-w-xs h-32 object-cover rounded-lg border border-zinc-700"
-            />
-          )}
+          <img
+            src={thumbUrl}
+            alt="Current thumbnail"
+            className="w-full max-w-xs h-32 object-cover rounded-lg border border-zinc-700"
+          />
         </div>
       )}
 
@@ -254,19 +179,13 @@ export default function ThumbnailSettings({
             Explore card preview
           </p>
           <div className="max-w-xs rounded-card border border-white/10 bg-zinc-900 p-4">
-            {thumbType === "image" ? (
+            {thumbUrl && (
               <img
                 src={thumbUrl}
                 alt="preview"
                 className="w-full h-32 object-cover rounded-card mb-3"
               />
-            ) : videoId ? (
-              <img
-                src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
-                alt="preview"
-                className="w-full h-32 object-cover rounded-card mb-3"
-              />
-            ) : null}
+            )}
             <h4 className="text-sm font-semibold text-zinc-200 truncate">{repo}</h4>
             <p className="text-xs text-zinc-500">by {owner}</p>
           </div>

@@ -71,7 +71,7 @@ services:
       - POSTGRES_PASSWORD=${GITEA_DB_PASSWORD}
       - POSTGRES_DB=gitea
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - gitea_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -118,7 +118,7 @@ services:
     volumes:
       - ./gitea:/data
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
       - "2222:2222"
     depends_on:
       gitea_db:
@@ -158,7 +158,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       # In development, mount source for hot reload
       - ./apps/backend:/app

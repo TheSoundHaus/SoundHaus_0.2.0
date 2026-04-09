@@ -349,6 +349,79 @@ async def record_clone_event(
     }
 
 
+# ── Fork ─────────────────────────────────────────────────────────────────────
+
+@router.post("/repos/{owner}/{repo}/fork")
+@limiter.limit("10/minute")
+async def fork_repo(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Fork a public repository into the current user's namespace."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in to fork")
+
+    user_id = user_res["user"]["id"]
+    profile = db.query(Profile).filter(Profile.id == user_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="User profile not found")
+
+    # Resolve source repo
+    repo_service = RepoService()
+    source = repo_service.get_repo(owner, repo)
+    if not source.get("success"):
+        raise HTTPException(status_code=404, detail="Source repository not found")
+
+    source_data = source.get("repo", {})
+    if source_data.get("private", True):
+        raise HTTPException(status_code=403, detail="Only public repositories can be forked")
+
+    # Cannot fork your own repo
+    owner_id = resolve_owner_id(owner, db)
+    if owner_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot fork your own repository")
+
+    # Gitea user login is the Supabase UUID
+    gitea_login = _resolve_gitea_username(user_id, db)
+
+    result = repo_service.fork_repo(
+        source_owner=owner,
+        source_repo=repo,
+        fork_owner=gitea_login,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=result.get("status", 500),
+            detail=result.get("message", "Failed to fork repository"),
+        )
+
+    # Register fork in RepoData so it appears in user's repo list
+    forked_repo = result["repo"]
+    fork_name = forked_repo.get("name", repo)
+    fork_repo_id = f"{gitea_login}/{fork_name}"
+
+    existing = db.query(RepoData).filter(RepoData.gitea_id == fork_repo_id).first()
+    if not existing:
+        new_repo_data = RepoData(
+            gitea_id=fork_repo_id,
+            owner_id=user_id,
+            is_public=True,
+        )
+        db.add(new_repo_data)
+        db.commit()
+
+    return {
+        "success": True,
+        "message": f"Repository forked as {profile.username}/{fork_name}",
+        "fork_name": fork_name,
+        "fork_owner": profile.username,
+    }
+
+
 # ── Public / Stats ───────────────────────────────────────────────────────────
 
 @router.get("/repos/public")
