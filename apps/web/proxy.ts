@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 /**
- * Middleware to protect routes that require authentication.
+ * Proxy to protect routes that require authentication.
  * Redirects to /login when access token is missing on protected paths.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const accessToken = request.cookies.get('sb-access-token')?.value
   const refreshToken = request.cookies.get('sb-refresh-token')?.value
 
