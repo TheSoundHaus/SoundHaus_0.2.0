@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bell, Waves } from "lucide-react";
+import { Bell, Waves, LogOut, Settings, User } from "lucide-react";
 import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "./UserAvatar";
 import { getPendingInvitations, acceptInvitation, declineInvitation } from "@/lib/api/invitations";
 import type { Invitation } from "@/lib/types/api";
+import { logout } from "@/actions/auth";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,10 @@ const Navbar = () => {
     const [seenCount, setSeenCount] = useState(0);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
+    // Profile dropdown state
+    const [profileOpen, setProfileOpen] = useState(false);
+    const profileDropdownRef = useRef<HTMLDivElement>(null);
+
     // Fetch notification data (Supabase only — no Gitea calls)
     const fetchNotifications = useCallback(async () => {
         const invResult = await getPendingInvitations();
@@ -55,7 +60,7 @@ const Navbar = () => {
         fetchNotifications();
     }, [fetchNotifications]);
 
-    // Close dropdown on outside click
+    // Close notification dropdown on outside click
     useEffect(() => {
         function handleClickOutside(e: MouseEvent) {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -67,6 +72,19 @@ const Navbar = () => {
         }
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [isOpen]);
+
+    // Close profile dropdown on outside click
+    useEffect(() => {
+        function handleClickOutside(e: MouseEvent) {
+            if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target as Node)) {
+                setProfileOpen(false);
+            }
+        }
+        if (profileOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+        }
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [profileOpen]);
 
     // Badge count
     const unreadCount = Math.max(0, invitations.length - seenCount);
@@ -95,8 +113,6 @@ const Navbar = () => {
         { href: "/explore", label: "Explore" },
         { href: "/repositories", label: "Projects" },
     ];
-
-    const isProfileActive = pathname === "/settings";
 
     return (
         <nav className={`sticky top-0 z-40 border-b px-6 py-4 transition-all duration-300 ${
@@ -210,29 +226,66 @@ const Navbar = () => {
                         )}
                     </div>
 
-                    {/* Profile avatar link */}
-                    <Link
-                        href="/settings"
-                        className={`group relative ml-3 rounded-full p-1 transition-all duration-300 ${
-                            isProfileActive
-                                ? "ring-2 ring-glass-blue-400"
-                                : "hover:ring-2 hover:ring-zinc-600"
-                        }`}
-                        title="Profile"
-                    >
-                        {loading ? (
-                            <div className="h-8 w-8 animate-pulse rounded-full bg-zinc-700" />
-                        ) : (
-                            <UserAvatar
-                                src={user?.avatar_url}
-                                alt={user?.username || "Profile"}
-                                size={32}
-                            />
+                    {/* Profile avatar dropdown */}
+                    <div className="relative ml-3" ref={profileDropdownRef}>
+                        <button
+                            onClick={() => setProfileOpen((prev) => !prev)}
+                            className={`rounded-full p-1 transition-all duration-300 cursor-pointer ${
+                                profileOpen
+                                    ? "ring-2 ring-glass-blue-400"
+                                    : "hover:ring-2 hover:ring-zinc-600"
+                            }`}
+                        >
+                            {loading ? (
+                                <div className="h-8 w-8 animate-pulse rounded-full bg-zinc-700" />
+                            ) : (
+                                <UserAvatar
+                                    src={user?.avatar_url}
+                                    alt={user?.username || "Profile"}
+                                    size={32}
+                                />
+                            )}
+                        </button>
+
+                        {profileOpen && (
+                            <div className="absolute right-0 top-full mt-2 w-52 z-50 rounded-xl bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 shadow-2xl shadow-black/40 overflow-hidden">
+                                <div className="px-4 py-3 border-b border-zinc-700/50">
+                                    <p className="text-sm font-medium text-zinc-100 truncate">{user?.username || "User"}</p>
+                                    <p className="text-xs text-zinc-500 truncate">{user?.email || ""}</p>
+                                </div>
+                                <div className="py-1">
+                                    <Link
+                                        href={`/profile/${user?.username || ""}`}
+                                        onClick={() => setProfileOpen(false)}
+                                        className="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+                                    >
+                                        <User size={15} className="text-zinc-400" />
+                                        Profile
+                                    </Link>
+                                    <Link
+                                        href="/settings"
+                                        onClick={() => setProfileOpen(false)}
+                                        className="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+                                    >
+                                        <Settings size={15} className="text-zinc-400" />
+                                        Settings
+                                    </Link>
+                                </div>
+                                <div className="border-t border-zinc-700/50 py-1">
+                                    <button
+                                        onClick={() => {
+                                            setProfileOpen(false);
+                                            logout();
+                                        }}
+                                        className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-900/20 hover:text-red-300 transition-colors cursor-pointer"
+                                    >
+                                        <LogOut size={15} />
+                                        Log Out
+                                    </button>
+                                </div>
+                            </div>
                         )}
-                        <span className="pointer-events-none absolute -bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-zinc-800 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 whitespace-nowrap">
-                            Profile
-                        </span>
-                    </Link>
+                    </div>
                 </div>
             </div>
         </nav>

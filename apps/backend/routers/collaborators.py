@@ -55,6 +55,14 @@ async def invite_collaborator(
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
 
+        # Invitations are only allowed for private repositories
+        repo_data = repo_check.get("repo", {})
+        if not repo_data.get("private", False):
+            return JSONResponse(
+                {"success": False, "message": "Invitations are only available for private repositories. Public repos use forking for collaboration."},
+                status_code=403,
+            )
+
         invitee_email = request_body.get("email")
         permission = request_body.get("permission", "write")
 

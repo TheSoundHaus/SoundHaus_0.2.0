@@ -38,7 +38,7 @@ export async function setAuthCookies(accessToken: string, refreshToken: string, 
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: expiresIn || 60 * 60, // Use provided expiry or default to 1 hour
+    maxAge: expiresIn || 60 * 60 * 24, // Use provided expiry or default to 24 hours
     path: '/',
   })
 
