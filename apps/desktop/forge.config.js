@@ -1,16 +1,40 @@
 const path = require('path');
+const fs = require('fs');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
 module.exports = {
   packagerConfig: {
     asar: {
-      unpack: '{**/node_modules/dugite/git/**,**/*.node}',
+      unpack: '{**/node_modules/dugite/git/**,**/node_modules/semantic-differ/*.node}',
     },
     extraResource: ['.env'],
     name: 'SoundHaus',
     executableName: 'SoundHaus',
     icon: path.join(__dirname, 'assets/icons/icon'),
+    ignore: [
+      /\/native\/semantic-diff\/(target|src|\.cargo)(\/|$)/,
+      /\/native\/semantic-diff\/(Cargo\.(toml|lock)|build\.rs)$/,
+    ],
+  },
+  hooks: {
+    packageAfterCopy: async (forgeConfig, buildPath) => {
+      const symPath = path.join(buildPath, 'node_modules', 'semantic-differ');
+      try {
+        const stats = fs.lstatSync(symPath);
+        if (stats.isSymbolicLink()) {
+          const linkTarget = fs.readlinkSync(symPath);
+          const resolved = path.resolve(path.dirname(symPath), linkTarget);
+          fs.unlinkSync(symPath);
+          fs.cpSync(resolved, symPath, { recursive: true });
+        }
+      } catch (err) {
+        console.warn('Failed to dereference semantic-differ symlink:', err.message);
+      }
+      // native/ dir is no longer needed — module resolves via node_modules
+      const nativeDir = path.join(buildPath, 'native');
+      fs.rmSync(nativeDir, { recursive: true, force: true });
+    },
   },
   rebuildConfig: {},
   makers: [
