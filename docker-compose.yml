@@ -111,6 +111,11 @@ services:
       - GITEA__security__INSTALL_LOCK=true
       - GITEA__security__SECRET_KEY=${GITEA_SECRET_KEY}
       - GITEA__security__INTERNAL_TOKEN=${GITEA_INTERNAL_TOKEN}
+      # Privacy: hide all content from unauthenticated visitors and block self-registration.
+      # Git clone/push/pull still work — PAT tokens authenticate at the HTTP protocol level.
+      - GITEA__service__REQUIRE_SIGNIN_VIEW=true
+      - GITEA__service__DISABLE_REGISTRATION=true
+      - GITEA__service__ALLOW_ONLY_INTERNAL_REGISTRATION=true
       # Webhook: Allow Gitea to send webhooks to the FastAPI container by name
       # and to external hosts (ngrok, production domains). "external" allows
       # any non-private IP. Add specific hostnames as needed.
