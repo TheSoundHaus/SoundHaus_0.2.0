@@ -130,11 +130,37 @@ function setAllowedCloneRemote(remote: string): Promise<string> {
     });
 }
 
+/** Remove all stored credentials and clear the git credential store for the Gitea host. */
+async function clearCredentials(): Promise<void> {
+    // Wipe the git credential store entries for the Gitea host
+    try {
+        const gitCredFile = path.join(os.homedir(), '.git-credentials');
+        if (fs.existsSync(gitCredFile) && fs.existsSync(allowedCloneRemotePath)) {
+            const remote = fs.readFileSync(allowedCloneRemotePath, 'utf-8').trim();
+            const parsed = new URL(remote.includes('://') ? remote : `https://${remote}`);
+            const giteaHost = parsed.host;
+            if (giteaHost) {
+                const lines = fs.readFileSync(gitCredFile, 'utf-8').split('\n');
+                const filtered = lines.filter(l => !l.includes(giteaHost));
+                fs.writeFileSync(gitCredFile, filtered.join('\n'));
+            }
+        }
+    } catch (err) {
+        console.warn('[logout] Could not clear git credential store (non-fatal):', err);
+    }
+
+    // Remove SoundHaus credential files
+    for (const p of [soundhausCredPath, giteaCredPath, allowedCloneRemotePath]) {
+        try { fs.unlinkSync(p); } catch { /* already absent */ }
+    }
+}
+
 export {
     getSoundHausCredentials,
     setSoundHausCredentials,
     getGiteaCredentials,
     setGiteaCredentials,
     getAllowedCloneRemote,
-    setAllowedCloneRemote
+    setAllowedCloneRemote,
+    clearCredentials
 }
