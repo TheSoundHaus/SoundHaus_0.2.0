@@ -23,6 +23,57 @@ function getGiteaApiRequestOptions(): { protocol: string; hostname: string; port
     };
 }
 
+async function fetchGiteaTokenUserLogin(token: string): Promise<string | null> {
+    const giteaRequestTarget = getGiteaApiRequestOptions();
+    const transport = giteaRequestTarget.protocol === 'https:' ? https : http;
+    const userPath = `${giteaRequestTarget.basePath}/api/v1/user`;
+
+    try {
+        const resBody: { status: number; body: string } = await new Promise(
+            (resolve, reject) => {
+                const req = transport.request(
+                    {
+                        hostname: giteaRequestTarget.hostname,
+                        port: giteaRequestTarget.port,
+                        path: userPath,
+                        method: 'GET',
+                        headers: { Authorization: `token ${token}` },
+                    },
+                    (res) => {
+                        let data = '';
+                        res.on('data', (chunk: string) => {
+                            data += chunk;
+                        });
+                        res.on('end', () => {
+                            resolve({ status: res.statusCode ?? 0, body: data });
+                        });
+                    },
+                );
+                req.on('error', reject);
+                req.end();
+            },
+        );
+        if (resBody.status !== 200) {
+            return null;
+        }
+        const parsed = JSON.parse(resBody.body) as { login?: string };
+        return parsed.login ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function httpsUrlWithEmbeddedToken(
+    cloneUrl: string,
+    username: string,
+    token: string,
+): string {
+    const u = new URL(cloneUrl);
+    u.username = username;
+    u.password = token;
+    return u.href;
+}
+
 async function approveGitCredentials(
     params: { protocol: string; host: string; username: string; password: string },
     cwd?: string,
@@ -429,22 +480,18 @@ async function cloneRepo(cloneUrl: string, destinationPath: string): Promise<str
             throw new Error('Allowed remote not configured. Please log in again.');
         }
 
-        // Validate URL against allowed SoundHaus remote and parse clone target
         const parsedClone = validateCloneUrlAgainstAllowedRemote(cloneUrl, allowedRemote);
         const repoOwner = parsedClone.repoOwner;
         const repoName = parsedClone.repoName;
-        
-        // Create full path including repo subdirectory
         const fullDestinationPath = path.join(destinationPath, repoName);
-        
+
         console.log('[clone] Repository owner:', repoOwner);
         console.log('[clone] Repository name:', repoName);
         console.log('[clone] Full destination:', fullDestinationPath);
 
-        if (parsedClone.protocol === 'https' || parsedClone.protocol === 'http') {
-            const cloneUrlObj = new URL(cloneUrl);
+        let cloneResult: Awaited<ReturnType<typeof gitExec>>;
 
-            // Get Gitea credentials
+        if (parsedClone.protocol === 'https' || parsedClone.protocol === 'http') {
             console.log('[clone] Getting Gitea credentials...');
             const token = await getGiteaCredentials();
             if (!token) {
@@ -452,37 +499,49 @@ async function cloneRepo(cloneUrl: string, destinationPath: string): Promise<str
             }
             console.log('[clone] ✓ Gitea token retrieved');
 
-            // Configure credential helper to store credentials
-            console.log('[clone] Setting up credential helper...');
-            const cloneHelperResult = await gitExec(['config', '--global', 'credential.helper', 'store'], os.homedir());
-            if (cloneHelperResult.stdout) console.log('[clone] Credential helper stdout:', cloneHelperResult.stdout);
-            if (cloneHelperResult.stderr) console.warn('[clone] Credential helper stderr:', cloneHelperResult.stderr);
-            console.log('[clone] ✓ Credential helper configured');
+            const tokenUserLogin = await fetchGiteaTokenUserLogin(token);
+            const credentialUsername = tokenUserLogin ?? repoOwner;
+            const authedCloneUrl = httpsUrlWithEmbeddedToken(
+                cloneUrl,
+                credentialUsername,
+                token,
+            );
 
-            // Approve credentials for this host
-            console.log('[clone] Approving credentials for:', `${cloneUrlObj.protocol}//${cloneUrlObj.host}`);
-            const { stdout: approveStdout, stderr: approveStderr } = await approveGitCredentials({
-                protocol: cloneUrlObj.protocol.replace(':', ''),
-                host: cloneUrlObj.host,
-                username: repoOwner,
-                password: token,
-            });
-            if (approveStdout) console.log('[clone] Credential approve stdout:', approveStdout);
-            if (approveStderr) console.warn('[clone] Credential approve stderr:', approveStderr);
-            console.log('[clone] ✓ Credentials approved');
+            console.log('[clone] Running git clone...');
+            const noPromptEnv: NodeJS.ProcessEnv = {
+                ...process.env,
+                GIT_TERMINAL_PROMPT: '0',
+            };
+            cloneResult = await gitExec(
+                ['clone', authedCloneUrl, fullDestinationPath],
+                destinationPath,
+                { env: noPromptEnv },
+            );
+
+            if (cloneResult.exitCode === 0) {
+                console.log('[clone] Stripping credentials from origin remote...');
+                const setUrlResult = await gitExec(
+                    ['remote', 'set-url', 'origin', cloneUrl],
+                    fullDestinationPath,
+                );
+                if (setUrlResult.exitCode !== 0) {
+                    console.warn('[clone] Could not reset origin URL:', setUrlResult.stderr);
+                } else {
+                    console.log('[clone] ✓ Origin uses credential-free URL');
+                }
+            }
+        } else {
+            console.log('[clone] Running git clone...');
+            console.log('[clone] Command: git clone', cloneUrl, fullDestinationPath);
+            cloneResult = await gitExec(['clone', cloneUrl, fullDestinationPath], destinationPath);
         }
 
-        // Run git clone - this will create the subdirectory automatically
-        console.log('[clone] Running git clone...');
-        console.log('[clone] Command: git clone', cloneUrl, fullDestinationPath);
-        const cloneResult = await gitExec(['clone', cloneUrl, fullDestinationPath], destinationPath);
-        
         if (cloneResult.stdout) console.log('[clone] Clone stdout:', cloneResult.stdout);
         if (cloneResult.stderr) console.warn('[clone] Clone stderr:', cloneResult.stderr);
         if (cloneResult.exitCode !== 0) {
             throw new Error(`git clone failed: ${cloneResult.stderr}`);
         }
-        
+
         console.log('[clone] ✅ Repository cloned successfully!');
         console.log('[clone] Summary:');
         console.log('[clone] - Clone URL:', cloneUrl);
