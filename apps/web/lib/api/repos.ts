@@ -1,6 +1,6 @@
 "use server";
 
-import type { GiteaRepo, ApiResponse, RepoStats, CloneResult, PublicRepo, EnrichedRepo } from "../types/api";
+import type { GiteaRepo, ApiResponse, RepoStats, CloneResult, PublicRepo, EnrichedRepo, SearchReposResponse } from "../types/api";
 import { authFetch } from "./client";
 
 // GET /repos — returns the authenticated user's Gitea repositories
@@ -16,6 +16,38 @@ export async function getMyRepos(): Promise<ApiResponse<GiteaRepo[]>> {
     // Backend wraps the array: { success: true, repos: [...] }
     // We unwrap it so callers get ApiResponse<GiteaRepo[]> not ApiResponse<{ repos: GiteaRepo[] }>
     return { success: true, data: result.data?.repos ?? [] };
+}
+
+/**
+ * Search public repositories
+ * Backend endpoint: GET /repos/search
+ */
+export async function searchPublicRepos(
+  query: string,
+  sort: string = "stars",
+  limit: number = 20,
+  offset: number = 0,
+): Promise<ApiResponse<SearchReposResponse>> {
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      sort,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const result = await authFetch<SearchReposResponse>(`/repos/search?${params}`);
+
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    return { success: true, data: result.data };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Network error",
+    };
+  }
 }
 
 export async function getPublicRepos(genres?: string[], match?: string) : Promise<ApiResponse<PublicRepo[]>> {

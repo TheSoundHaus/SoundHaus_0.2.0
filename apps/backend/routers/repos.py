@@ -3,7 +3,9 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
+import time
+
+from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -350,6 +352,49 @@ async def record_clone_event(
 
 
 # ── Public / Stats ───────────────────────────────────────────────────────────
+
+@router.get("/repos/search")
+@limiter.limit("60/minute")
+async def search_repos(
+    request: Request,
+    q: str = Query(..., min_length=1, description="Search query"),
+    limit: int = Query(20, ge=1, le=100, description="Results per page"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    sort: str = Query("stars", description="Sort order"),
+    db: Session = Depends(get_db),
+):
+    """Search public repositories by keyword (no auth required)."""
+    valid_sort_values = {"stars", "updated", "clones"}
+    if sort not in valid_sort_values:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sort value '{sort}'. Must be one of: {', '.join(sorted(valid_sort_values))}",
+        )
+
+    logger.info("search_repos_request", query=q, limit=limit, offset=offset, sort=sort)
+    start = time.monotonic()
+
+    try:
+        svc = RepoService()
+        result = svc.search_public_repos(query=q, limit=limit, offset=offset, sort=sort, db=db)
+
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.info("search_repos_response", success=result.get("success"), duration_ms=round(elapsed_ms, 1))
+
+        if not result.get("success"):
+            msg = result.get("message", "")
+            if "timeout" in msg.lower() or "network error" in msg.lower():
+                raise HTTPException(status_code=503, detail=msg)
+            raise HTTPException(status_code=500, detail=msg)
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("search_repos_unexpected_error", error=str(exc))
+        raise HTTPException(status_code=500, detail="Unexpected error during search")
+
 
 @router.get("/repos/public")
 @limiter.limit("60/minute")

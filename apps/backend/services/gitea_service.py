@@ -1083,3 +1083,48 @@ class GiteaAdminService:
 		except Exception as e:
 			return {"success": False, "message": f"Unexpected error: {e}"}
 
+	def search_repos(self, query: str, limit: int = 20, page: int = 1, public_only: bool = True, sort: str = "stars") -> Dict[str, Any]:
+		"""
+		Search repositories via Gitea's search API.
+
+		Uses Gitea API: GET /api/v1/repos/search
+		Supports Gitea-native sort values: 'stars', 'updated'. For 'clones' (SoundHaus-specific),
+		callers should sort client-side after enrichment.
+		"""
+		# Gitea supports: alpha, created, updated, size, id, newest, oldest, forks, stars
+		gitea_sort = sort if sort in ("stars", "updated") else "stars"
+		params = {
+			"q": query,
+			"limit": limit,
+			"page": page,
+			"sort": gitea_sort,
+			"order": "desc",
+		}
+		if public_only:
+			params["private"] = "false"
+
+		logger.debug("search_repos_request", query=query, limit=limit, page=page)
+
+		try:
+			resp = requests.get(
+				self._url("/api/v1/repos/search"),
+				headers=self.headers,
+				params=params,
+				timeout=10,
+			)
+
+			if resp.status_code == 200:
+				data = resp.json().get("data", [])
+				total = int(resp.headers.get("X-Total-Count", len(data)))
+				return {"success": True, "repos": data, "total": total}
+			elif resp.status_code in (401, 403):
+				return {"success": False, "message": "Authentication failed"}
+			else:
+				return {"success": False, "message": f"HTTP {resp.status_code}: {resp.text}"}
+		except requests.Timeout:
+			return {"success": False, "message": "Gitea API timeout"}
+		except requests.RequestException as e:
+			return {"success": False, "message": f"Network error: {e}"}
+		except Exception as e:
+			return {"success": False, "message": f"Unexpected error: {e}"}
+

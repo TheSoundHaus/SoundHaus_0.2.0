@@ -1,6 +1,19 @@
 "use server";
 
-import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo } from "@/lib/api/repos";
+import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo, searchPublicRepos } from "@/lib/api/repos";
+import type { SearchReposResponse } from "@/lib/types/api";
+
+// Thin server action wrapper for searchPublicRepos
+export async function searchReposAction(
+  query: string,
+  sort: string = "stars",
+  limit: number = 20,
+  offset: number = 0,
+): Promise<{ success: true; data: SearchReposResponse } | { success: false; error: string }> {
+  const result = await searchPublicRepos(query, sort, limit, offset);
+  if (!result.success) return { success: false, error: result.error };
+  return { success: true, data: result.data };
+}
 
 // Thin server action wrapper for createRepo
 // Returns a simple serializable object (no complex GiteaRepo nesting)

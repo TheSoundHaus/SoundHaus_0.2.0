@@ -27,6 +27,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── File Guard ─────────────────────────────────────────────────
+  file-guard:
+    name: File Guard — Block unwanted files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for banned file patterns
+        run: |
+          # Compare against the merge base (PR) or parent commit (push)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            # Handle initial push (no previous commit)
+            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              echo "Initial push — skipping file guard"
+              exit 0
+            fi
+          fi
+
+          BANNED=$(git diff --name-only --diff-filter=ACMR "$BASE" HEAD | grep -E \
+            '(^|\/)target\/|__pycache__\/|node_modules\/|\.next\/|vendor\/git\/|\.cursorrules$|\.superpowers\/|\.DS_Store$|package-lock\.json$|\.pyc$|test_files\/' \
+            || true)
+
+          if [ -n "$BANNED" ]; then
+            echo "::error::The following files should not be committed:"
+            echo "$BANNED"
+            echo ""
+            echo "Blocked patterns: target/, __pycache__/, node_modules/, .next/,"
+            echo "vendor/git/, .cursorrules, .superpowers/, .DS_Store, package-lock.json,"
+            echo ".pyc, test_files/"
+            exit 1
+          fi
+
+          echo "✓ No banned files detected"
+
   # ── Web (Next.js) ──────────────────────────────────────────────
   web:
     name: Web — Lint & Build

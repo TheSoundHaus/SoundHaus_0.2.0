@@ -140,6 +140,35 @@ export interface EnrichedRepo {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SEARCH
+// Matches GET /repos/search → { success, repos, total, has_more, offset, limit }
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SearchRepoItem {
+  gitea_id: string;                        // "owner/repo-name"
+  owner: string;                           // UUID
+  owner_username: string;                  // human-readable username
+  repo_name: string;
+  description: string | null;
+  stars_count: number;
+  updated_at: string;                      // ISO timestamp
+  clone_count: number;
+  audio_snippet: string | null;            // CDN URL
+  snippet_metadata: SnippetMetadata | null;
+  genres: string[];
+  clone_url: string;
+}
+
+export interface SearchReposResponse {
+  success: boolean;
+  repos: SearchRepoItem[];
+  total: number;
+  has_more: boolean;
+  offset: number;
+  limit: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // INVITATIONS
 // Matches GET /invitations/pending, POST /invitations/{id}/accept|decline
 // ─────────────────────────────────────────────────────────────────────────────
