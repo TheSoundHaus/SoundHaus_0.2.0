@@ -1,20 +1,20 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { logout, requestPasswordResetAction } from "@/actions/auth";
-import { getSentInvitations } from "@/lib/api/invitations";
+import { requestPasswordResetAction } from "@/actions/auth";
+import { getSentInvitations, getPendingInvitations } from "@/lib/api/invitations";
 import { getUserStats } from "@/lib/api/profile";
-import { cancelInvitationAction } from "@/actions/invitations";
+import { cancelInvitationAction, acceptInvitationAction, declineInvitationAction } from "@/actions/invitations";
 import { updateProfileAction } from "@/actions/profile";
 import { useUser } from "@/lib/context/UserContext";
 import UserAvatar from "@/components/UserAvatar";
 import ImageCropper from "@/components/ImageCropper";
-import type { SentInvitation } from "@/lib/types/api";
-import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail, Instagram, Youtube, Twitter } from "lucide-react";
+import type { SentInvitation, Invitation } from "@/lib/types/api";
+import { Send, X, Clock, CheckCircle, XCircle, Camera, Trash2, Globe, Lock, Mail, Instagram, Youtube, Twitter, Inbox } from "lucide-react";
 
 export default function SettingsPage() {
   const { user, loading: userLoading, refreshUser } = useUser();
-  const [activeTab, setActiveTab] = useState<"profile" | "account" | "invitations" | "stats">(
+  const [activeTab, setActiveTab] = useState<"profile" | "invitations" | "stats">(
     "profile"
   );
 
@@ -34,9 +34,11 @@ export default function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [sentInvitations, setSentInvitations] = useState<SentInvitation[]>([]);
+  const [receivedInvitations, setReceivedInvitations] = useState<Invitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [respondingId, setRespondingId] = useState<string | null>(null);
 
   const [visibilityDialogOpen, setVisibilityDialogOpen] = useState(false);
   const [pendingVisibility, setPendingVisibility] = useState<boolean | null>(null);
@@ -216,11 +218,17 @@ export default function SettingsPage() {
   const loadInvitations = useCallback(async () => {
     setInvitationsLoading(true);
     setInvitationsError(null);
-    const res = await getSentInvitations();
-    if (res.success) {
-      setSentInvitations(res.data ?? []);
+    const [sentRes, receivedRes] = await Promise.all([
+      getSentInvitations(),
+      getPendingInvitations(),
+    ]);
+    if (sentRes.success) {
+      setSentInvitations(sentRes.data ?? []);
     } else {
-      setInvitationsError(res.error ?? "Failed to load invitations");
+      setInvitationsError(sentRes.error ?? "Failed to load invitations");
+    }
+    if (receivedRes.success) {
+      setReceivedInvitations(receivedRes.data ?? []);
     }
     setInvitationsLoading(false);
   }, []);
@@ -255,6 +263,28 @@ export default function SettingsPage() {
       setInvitationsError(result.error);
     }
     setCancellingId(null);
+  };
+
+  const handleAcceptInvite = async (id: string) => {
+    setRespondingId(id);
+    const result = await acceptInvitationAction(id);
+    if (result.success) {
+      loadInvitations();
+    } else {
+      setInvitationsError(result.error);
+    }
+    setRespondingId(null);
+  };
+
+  const handleDeclineInvite = async (id: string) => {
+    setRespondingId(id);
+    const result = await declineInvitationAction(id);
+    if (result.success) {
+      loadInvitations();
+    } else {
+      setInvitationsError(result.error);
+    }
+    setRespondingId(null);
   };
 
   function formatStorageSize(kb: number): string {
@@ -335,16 +365,6 @@ export default function SettingsPage() {
                 }`}
               >
                 Profile
-              </button>
-              <button
-                onClick={() => setActiveTab("account")}
-                className={`rounded-md px-4 py-3 text-left text-sm font-medium transition-colors ${
-                  activeTab === "account"
-                    ? "bg-zinc-800 text-glass-blue-400"
-                    : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100"
-                }`}
-              >
-                Account
               </button>
               <button
                 onClick={() => setActiveTab("invitations")}
@@ -577,6 +597,49 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
+                    {/* Account Section */}
+                    <div className="space-y-4 rounded-md border border-zinc-800 p-4">
+                      <p className="text-sm font-medium text-zinc-100">Account</p>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-zinc-400">
+                          Email Address
+                        </label>
+                        <input
+                          type="email"
+                          value={user?.email || ""}
+                          disabled
+                          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-500 cursor-not-allowed"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-zinc-400">
+                          Password
+                        </label>
+                        <p className="mb-3 text-xs text-zinc-500">
+                          Password changes are handled via email reset link.
+                        </p>
+                        {resetMessage && (
+                          <div
+                            className={`mb-3 rounded-md border px-4 py-3 text-sm ${
+                              resetMessage.type === "success"
+                                ? "border-green-800/50 bg-green-900/20 text-green-400"
+                                : "border-red-800/50 bg-red-900/20 text-red-400"
+                            }`}
+                          >
+                            {resetMessage.text}
+                          </div>
+                        )}
+                        <button
+                          onClick={handlePasswordReset}
+                          disabled={resetSending}
+                          className="flex items-center gap-2 rounded-md border border-zinc-700 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-wait"
+                        >
+                          <Mail size={14} />
+                          {resetSending ? "Sending..." : "Send Password Reset Email"}
+                        </button>
+                      </div>
+                    </div>
+
                     <button
                       onClick={handleProfileSave}
                       disabled={profileSaving}
@@ -589,123 +652,132 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {activeTab === "account" && (
-              <div className="glass-card rounded-xl p-8">
-                <h2 className="mb-6 text-2xl font-semibold text-zinc-100">Account Settings</h2>
-                <div className="space-y-6">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-zinc-100">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      value={user?.email || ""}
-                      disabled
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-500 cursor-not-allowed"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-zinc-100">
-                      Password
-                    </label>
-                    <p className="mb-3 text-sm text-zinc-400">
-                      For security, password changes are handled via email. Click below and we&apos;ll send a secure reset link to your inbox.
-                    </p>
-                    {resetMessage && (
-                      <div
-                        className={`mb-3 rounded-md border px-4 py-3 text-sm ${
-                          resetMessage.type === "success"
-                            ? "border-green-800/50 bg-green-900/20 text-green-400"
-                            : "border-red-800/50 bg-red-900/20 text-red-400"
-                        }`}
-                      >
-                        {resetMessage.text}
-                      </div>
-                    )}
-                    <button
-                      onClick={handlePasswordReset}
-                      disabled={resetSending}
-                      className="flex items-center gap-2 rounded-md border border-zinc-700 px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-wait"
-                    >
-                      <Mail size={14} />
-                      {resetSending ? "Sending..." : "Send Password Reset Email"}
-                    </button>
-                  </div>
-                  <div className="flex gap-4 pt-2 border-t border-zinc-800">
-                    <button
-                      onClick={() => logout()}
-                      className="flex items-center gap-2 rounded-md bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700">
-                      Logout
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {activeTab === "invitations" && (
-              <div className="glass-card rounded-xl p-8">
-                <h2 className="mb-6 text-2xl font-semibold text-zinc-100 flex items-center gap-2">
-                  <Send size={20} /> Sent Invitations
-                </h2>
-                <p className="mb-6 text-sm text-zinc-400">
-                  All collaboration invitations you&apos;ve sent across your projects.
-                </p>
-
+              <div className="space-y-6">
                 {invitationsError && (
-                  <div className="mb-4 rounded-md border border-red-800/50 bg-red-900/20 px-4 py-3 text-sm text-red-400">
+                  <div className="rounded-md border border-red-800/50 bg-red-900/20 px-4 py-3 text-sm text-red-400">
                     {invitationsError}
                   </div>
                 )}
 
-                {invitationsLoading ? (
-                  <p className="text-sm text-zinc-400">Loading invitations...</p>
-                ) : sentInvitations.length === 0 ? (
-                  <p className="text-sm text-zinc-400">
-                    You haven&apos;t sent any invitations yet. Go to a project&apos;s Collaborators tab to invite users.
+                {/* Received Invitations */}
+                <div className="glass-card rounded-xl p-8">
+                  <h2 className="mb-6 text-2xl font-semibold text-zinc-100 flex items-center gap-2">
+                    <Inbox size={20} /> Received Invitations
+                  </h2>
+                  <p className="mb-6 text-sm text-zinc-400">
+                    Collaboration invitations you&apos;ve received from other users.
                   </p>
-                ) : (
-                  <div className="space-y-3">
-                    {sentInvitations.map((inv) => (
-                      <div
-                        key={inv.id}
-                        className="flex items-center justify-between glass-card rounded-lg px-4 py-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800">
-                            {statusIcon(inv.status)}
-                          </div>
-                          <div>
-                            <div className="text-sm font-medium text-zinc-200">
-                              {inv.invitee_email}
+
+                  {invitationsLoading ? (
+                    <p className="text-sm text-zinc-400">Loading invitations...</p>
+                  ) : receivedInvitations.length === 0 ? (
+                    <p className="text-sm text-zinc-400">
+                      No pending invitations.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {receivedInvitations.map((inv) => (
+                        <div
+                          key={inv.id}
+                          className="flex items-center justify-between glass-card rounded-lg px-4 py-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800">
+                              <Clock size={16} className="text-amber-400" />
                             </div>
-                            <div className="flex items-center gap-2 text-xs text-zinc-500">
-                              {inv.repo_name && (
+                            <div>
+                              <div className="text-sm font-medium text-zinc-200">
                                 <span className="text-glass-blue-400">{inv.repo_name}</span>
-                              )}
-                              <span>&middot; {inv.permission} access</span>
-                              <span>&middot; Sent {timeAgo(inv.created_at)}</span>
-                              {inv.responded_at && (
-                                <span>&middot; Responded {timeAgo(inv.responded_at)}</span>
-                              )}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                <span>From <span className="text-zinc-300">{inv.owner_username}</span></span>
+                                <span>&middot; {inv.permission} access</span>
+                                <span>&middot; {timeAgo(inv.created_at)}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {statusBadge(inv.status)}
-                          {inv.status === "pending" && (
+                          <div className="flex items-center gap-2">
                             <button
-                              onClick={() => handleCancelInvite(inv.id)}
-                              disabled={cancellingId === inv.id}
-                              className="flex items-center gap-1 rounded border border-red-800/50 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/20 disabled:opacity-50"
+                              onClick={() => handleAcceptInvite(inv.id)}
+                              disabled={respondingId === inv.id}
+                              className="flex items-center gap-1 rounded border border-green-500/30 bg-green-600/20 px-3 py-1 text-xs font-medium text-green-400 transition-colors hover:bg-green-600/30 disabled:opacity-50"
                             >
-                              <X size={11} /> Cancel
+                              <CheckCircle size={11} /> Accept
                             </button>
-                          )}
+                            <button
+                              onClick={() => handleDeclineInvite(inv.id)}
+                              disabled={respondingId === inv.id}
+                              className="flex items-center gap-1 rounded border border-red-500/30 bg-red-600/20 px-3 py-1 text-xs font-medium text-red-400 transition-colors hover:bg-red-600/30 disabled:opacity-50"
+                            >
+                              <XCircle size={11} /> Decline
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sent Invitations */}
+                <div className="glass-card rounded-xl p-8">
+                  <h2 className="mb-6 text-2xl font-semibold text-zinc-100 flex items-center gap-2">
+                    <Send size={20} /> Sent Invitations
+                  </h2>
+                  <p className="mb-6 text-sm text-zinc-400">
+                    All collaboration invitations you&apos;ve sent across your projects.
+                  </p>
+
+                  {invitationsLoading ? (
+                    <p className="text-sm text-zinc-400">Loading invitations...</p>
+                  ) : sentInvitations.length === 0 ? (
+                    <p className="text-sm text-zinc-400">
+                      You haven&apos;t sent any invitations yet. Go to a project&apos;s Collaborators tab to invite users.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {sentInvitations.map((inv) => (
+                        <div
+                          key={inv.id}
+                          className="flex items-center justify-between glass-card rounded-lg px-4 py-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800">
+                              {statusIcon(inv.status)}
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-zinc-200">
+                                {inv.invitee_email}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                                {inv.repo_name && (
+                                  <span className="text-glass-blue-400">{inv.repo_name}</span>
+                                )}
+                                <span>&middot; {inv.permission} access</span>
+                                <span>&middot; Sent {timeAgo(inv.created_at)}</span>
+                                {inv.responded_at && (
+                                  <span>&middot; Responded {timeAgo(inv.responded_at)}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {statusBadge(inv.status)}
+                            {inv.status === "pending" && (
+                              <button
+                                onClick={() => handleCancelInvite(inv.id)}
+                                disabled={cancellingId === inv.id}
+                                className="flex items-center gap-1 rounded border border-red-800/50 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/20 disabled:opacity-50"
+                              >
+                                <X size={11} /> Cancel
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

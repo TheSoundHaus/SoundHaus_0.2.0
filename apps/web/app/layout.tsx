@@ -4,6 +4,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "SoundHaus",
   description: "The Git for Music",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({

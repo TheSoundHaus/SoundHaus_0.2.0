@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
     ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine,
-    Music, AlertTriangle, CheckCircle, ExternalLink, History, GitCommit
+    Music, AlertTriangle, CheckCircle, ExternalLink, History, GitCommit, Users
 } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
@@ -38,6 +38,7 @@ const ProjectPage = () => {
     const [selectedCommitSummary, setSelectedCommitSummary] = useState<string>('')
     const [selectedNoteDiff, setSelectedNoteDiff] = useState<NoteDiff | null>(null)
     const [openingAbleton, setOpeningAbleton] = useState(false)
+    const [isCollaboration, setIsCollaboration] = useState(false)
 
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
@@ -183,6 +184,19 @@ const ProjectPage = () => {
         handleLoadHistory()
     }, [handleLoadHistory])
 
+    // Check if this project is a collaboration
+    useEffect(() => {
+        if (!selectedProject) return
+        let cancelled = false
+        electronAPI.checkIsCollaboration(selectedProject).then(result => {
+            if (cancelled) return
+            if (result?.ok) {
+                setIsCollaboration(!!result.isCollaboration)
+            }
+        })
+        return () => { cancelled = true }
+    }, [selectedProject])
+
     // Scroll commit details into view when a commit is selected
     useEffect(() => {
         if (selectedCommit && commitDetailRef.current) {
@@ -214,7 +228,14 @@ const ProjectPage = () => {
                         <Music className="w-4 h-4 text-accent" />
                     </div>
                     <div>
-                        <h1 className="text-lg font-semibold text-text-primary truncate">{projectName}</h1>
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-lg font-semibold text-text-primary truncate">{projectName}</h1>
+                            {isCollaboration && (
+                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/15 border border-accent/30 text-[11px] font-medium text-accent">
+                                    <Users className="w-3 h-3" /> Collaboration
+                                </span>
+                            )}
+                        </div>
                         <p className="text-xs text-text-tertiary truncate max-w-xs">{selectedProject}</p>
                     </div>
                 </div>

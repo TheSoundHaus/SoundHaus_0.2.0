@@ -26,8 +26,16 @@ interface RustReport {
     project?: {
         tracks?: Array<{
             id: string;
-            label: string;
-            track_type: string; // 'MIDI' | 'Audio' | 'Return' | 'Group'
+            effective_name: string;
+            user_name?: string | null;
+            track_type: string; // 'MidiTrack' | 'AudioTrack' | 'ReturnTrack' | 'GroupTrack'
+            color?: number;
+            device_chain?: {
+                devices?: Array<{
+                    class_name?: string;
+                    name?: string;
+                }>;
+            };
         }>;
     };
 }
@@ -138,11 +146,18 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
     // Pre-populate from report.project.tracks so we have metadata
     const projectTracks = report.project?.tracks ?? [];
     for (const t of projectTracks) {
+        // Rust serializes effective_name / user_name, not label
+        const trackName = t.user_name || t.effective_name || 'Unnamed Track';
+        // Extract instrument from the first device in the chain
+        const firstDevice = t.device_chain?.devices?.[0];
+        const instrument = firstDevice?.name || firstDevice?.class_name || undefined;
         trackMap.set(t.id, {
             trackId: t.id,
-            trackName: t.label || 'Unnamed Track',
+            trackName,
             trackType: mapTrackType(t.track_type),
             changeType: 'modified',
+            instrument,
+            colorIndex: t.color ?? undefined,
         });
     }
 
@@ -156,6 +171,9 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
                 changeType: 'modified',
             };
             trackMap.set(id, track);
+        } else if (name && track.trackName === 'Unnamed Track') {
+            // Update stale fallback name if we now have a real name
+            track.trackName = name;
         }
         return track;
     }
@@ -170,7 +188,11 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
             if (node.type === 'Track') {
                 const trackId = node.id || `track:${node.label}`;
                 const trackMeta = projectTracks.find(t => t.id === trackId);
-                const track = ensureTrack(trackId, node.label, trackMeta?.track_type ?? 'MIDI');
+                // Prefer project metadata name over change node label
+                const trackName = trackMeta
+                    ? (trackMeta.user_name || trackMeta.effective_name || node.label)
+                    : node.label;
+                const track = ensureTrack(trackId, trackName, trackMeta?.track_type ?? 'MIDI');
                 track.changeType = mapAction(node.action);
                 touchedTrackIds.add(trackId);
                 nextTrack = track;
