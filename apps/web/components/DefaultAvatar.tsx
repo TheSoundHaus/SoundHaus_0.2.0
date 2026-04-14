@@ -3,14 +3,19 @@
 /**
  * DefaultAvatar – SoundHaus-branded avatar fallback with waveform motif.
  * Used anywhere a user has no custom profile picture.
+ * When a `name` is provided, shows the first letter instead of the waveform.
  */
 export default function DefaultAvatar({
     size = 32,
     className = "",
+    name,
 }: {
     size?: number;
     className?: string;
+    name?: string;
 }) {
+    const initial = name?.trim()?.[0]?.toUpperCase();
+
     return (
         <svg
             width={size}
@@ -27,12 +32,29 @@ export default function DefaultAvatar({
                 </linearGradient>
             </defs>
             <circle cx="20" cy="20" r="20" fill="url(#avatarGrad)" />
-            {/* Waveform bars */}
-            <rect x="10" y="16" width="2.5" height="8" rx="1.25" fill="white" opacity="0.9" />
-            <rect x="14.5" y="12" width="2.5" height="16" rx="1.25" fill="white" opacity="0.9" />
-            <rect x="19" y="14" width="2.5" height="12" rx="1.25" fill="white" opacity="0.9" />
-            <rect x="23.5" y="10" width="2.5" height="20" rx="1.25" fill="white" opacity="0.9" />
-            <rect x="28" y="15" width="2.5" height="10" rx="1.25" fill="white" opacity="0.9" />
+            {initial ? (
+                <text
+                    x="20"
+                    y="20"
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill="white"
+                    fontSize="18"
+                    fontWeight="600"
+                    fontFamily="system-ui, sans-serif"
+                >
+                    {initial}
+                </text>
+            ) : (
+                <>
+                    {/* Waveform bars */}
+                    <rect x="10" y="16" width="2.5" height="8" rx="1.25" fill="white" opacity="0.9" />
+                    <rect x="14.5" y="12" width="2.5" height="16" rx="1.25" fill="white" opacity="0.9" />
+                    <rect x="19" y="14" width="2.5" height="12" rx="1.25" fill="white" opacity="0.9" />
+                    <rect x="23.5" y="10" width="2.5" height="20" rx="1.25" fill="white" opacity="0.9" />
+                    <rect x="28" y="15" width="2.5" height="10" rx="1.25" fill="white" opacity="0.9" />
+                </>
+            )}
         </svg>
     );
 }
