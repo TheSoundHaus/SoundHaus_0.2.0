@@ -113,6 +113,7 @@ export interface RepoStats {
   thumbnail_type: "image" | "youtube" | null;
   genres: GenreRef[];
   recent_clones: RecentClone[];
+  fork_parent?: { owner: string; repo: string } | null;
 }
 
 // GET /repos/enriched – single-call aggregate of Gitea + SoundHaus metadata
@@ -145,7 +146,7 @@ export interface EnrichedRepo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface Invitation {
-  id: number;
+  id: string;
   repo_name: string;
   owner_username: string;
   owner_email: string;

@@ -14,7 +14,10 @@ type Props = {
 
 const EPSILON = 0.001;
 const MIN_ROLL_WIDTH = 900;
-const PIXELS_PER_BEAT = 72;
+const DEFAULT_PIXELS_PER_BEAT = 72;
+const ZOOM_STEP = 12;
+const ZOOM_MIN = 24;
+const ZOOM_MAX = 144;
 
 // Fixed Ableton pitch range: C-2 (0) to C8 (120), but we crop to a padded window
 // around actual notes for readability. Minimum 2 octaves shown.
@@ -29,8 +32,37 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
     const [hoveredTooltip, setHoveredTooltip] = useState<TooltipState | null>(null);
     const [selectedTooltip, setSelectedTooltip] = useState<TooltipState | null>(null);
     const [expandedTracks, setExpandedTracks] = useState<Record<string, boolean>>({});
+    const [pixelsPerBeat, setPixelsPerBeat] = useState(DEFAULT_PIXELS_PER_BEAT);
 
     const tracks = noteDiff?.tracks ?? [];
+
+    // Compute a global pitch range across ALL tracks so every track
+    // renders at the same vertical scale (no stretching/squashing).
+    const globalPitch = React.useMemo(() => {
+        let lo = 127;
+        let hi = 0;
+        for (const track of tracks) {
+            const allNotes: SnapshotNote[] = [
+                ...track.added,
+                ...track.removed,
+                ...track.adjusted.flatMap((pair) => [pair.from, pair.to]),
+                ...(track.unchanged ?? []),
+            ];
+            for (const n of allNotes) {
+                if (n.pitch < lo) lo = n.pitch;
+                if (n.pitch > hi) hi = n.pitch;
+            }
+        }
+        if (lo > hi) { lo = 48; hi = 72; }
+        lo = Math.max(0, Math.floor((lo - PITCH_PADDING) / 12) * 12);
+        hi = Math.min(127, Math.ceil((hi + PITCH_PADDING + 1) / 12) * 12);
+        if (hi - lo < 24) {
+            const mid = Math.round((lo + hi) / 2);
+            lo = Math.max(0, mid - 12);
+            hi = Math.min(127, mid + 12);
+        }
+        return { lo, hi };
+    }, [tracks]);
     const hasAnyNotes = tracks.some((track) => track.added.length + track.removed.length + track.adjusted.length > 0);
     const totalAdded = tracks.reduce((sum, t) => sum + t.added.length, 0);
     const totalRemoved = tracks.reduce((sum, t) => sum + t.removed.length, 0);
@@ -145,7 +177,45 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
 
     return (
         <div style={{ display: 'grid', gap: 12, position: 'relative' }}>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+                <button
+                    type="button"
+                    onClick={() => setPixelsPerBeat((p) => Math.max(ZOOM_MIN, p - ZOOM_STEP))}
+                    disabled={pixelsPerBeat <= ZOOM_MIN}
+                    style={{
+                        border: '1px solid rgba(167,199,231,0.2)',
+                        background: 'rgba(167,199,231,0.08)',
+                        color: pixelsPerBeat <= ZOOM_MIN ? 'rgba(167,199,231,0.25)' : '#A7C7E7',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        cursor: pixelsPerBeat <= ZOOM_MIN ? 'default' : 'pointer',
+                        transition: 'background 200ms ease',
+                    }}
+                >
+                    −
+                </button>
+                <span style={{ fontSize: 11, color: 'rgba(160,160,160,0.6)', minWidth: 36, textAlign: 'center' }}>
+                    {Math.round((pixelsPerBeat / DEFAULT_PIXELS_PER_BEAT) * 100)}%
+                </span>
+                <button
+                    type="button"
+                    onClick={() => setPixelsPerBeat((p) => Math.min(ZOOM_MAX, p + ZOOM_STEP))}
+                    disabled={pixelsPerBeat >= ZOOM_MAX}
+                    style={{
+                        border: '1px solid rgba(167,199,231,0.2)',
+                        background: 'rgba(167,199,231,0.08)',
+                        color: pixelsPerBeat >= ZOOM_MAX ? 'rgba(167,199,231,0.25)' : '#A7C7E7',
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        fontSize: 12,
+                        cursor: pixelsPerBeat >= ZOOM_MAX ? 'default' : 'pointer',
+                        transition: 'background 200ms ease',
+                    }}
+                >
+                    +
+                </button>
+                <span style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
                 <button
                     type="button"
                     onClick={() => setAllTracksExpanded(true)}
@@ -251,18 +321,16 @@ const PianoRollCanvas: React.FC<Props> = ({ noteDiff }) => {
 
                 if (allTrackNotes.length === 0) return null;
 
-                const minPitch = Math.min(...allTrackNotes.map((n) => n.pitch));
-                const maxPitch = Math.max(...allTrackNotes.map((n) => n.pitch));
                 const minStart = Math.min(...allTrackNotes.map((n) => n.start_beat));
                 const maxEnd = Math.max(...allTrackNotes.map((n) => n.start_beat + n.duration_beats));
 
-                // Snap to C boundaries with padding, minimum 2 octaves
-                const pitchLo = Math.max(0, Math.floor((minPitch - PITCH_PADDING) / 12) * 12);
-                const pitchHi = Math.min(127, Math.ceil((maxPitch + PITCH_PADDING + 1) / 12) * 12);
+                // Use global pitch range so all tracks share the same vertical scale
+                const pitchLo = globalPitch.lo;
+                const pitchHi = globalPitch.hi;
                 const pitchRange = Math.max(24, pitchHi - pitchLo);
                 const ROLL_HEIGHT = pitchRange * PITCH_ROW_HEIGHT + 24; // dynamic height
                 const timeRange = Math.max(1, maxEnd - minStart);
-                const rollWidth = Math.max(MIN_ROLL_WIDTH, Math.ceil(timeRange * PIXELS_PER_BEAT) + LABEL_WIDTH + 20);
+                const rollWidth = Math.max(MIN_ROLL_WIDTH, Math.ceil(timeRange * pixelsPerBeat) + LABEL_WIDTH + 20);
                 const noteHeight = Math.max(3, PITCH_ROW_HEIGHT - 1);
                 const adjustedPairs = track.adjusted.map((pair, pairIndex) => ({
                     ...pair,

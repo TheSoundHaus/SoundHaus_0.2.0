@@ -10,19 +10,17 @@ interface CloneModalProps {
   onClose: () => void;
 }
 
-function buildSoundHausCloneLink(owner: string, repo: string): string {
-  // Use the Gitea public URL so the desktop app can validate and clone directly
-  const giteaBase = process.env.NEXT_PUBLIC_GITEA_URL || "https://git.thesound.haus";
-  return `${giteaBase}/${owner}/${repo}.git`;
-}
-
-export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
+export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModalProps) {
   const [copied, setCopied] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const soundhausLink = buildSoundHausCloneLink(owner, repo);
+  // Prefer the backend-provided clone URL; fall back to constructing from NEXT_PUBLIC_GITEA_URL
+  const soundhausLink = cloneUrl || (() => {
+    const giteaBase = process.env.NEXT_PUBLIC_GITEA_URL || "https://git.thesound.haus";
+    return `${giteaBase}/${owner}/${repo}.git`;
+  })();
 
   useEffect(() => {
     const id = setTimeout(() => setShowContent(true), 80);
@@ -130,10 +128,7 @@ export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
             </button>
           </div>
 
-          <p className="mt-3 text-xs text-muted/70">
-            Don&apos;t have the desktop app?{" "}
-            <span className="text-glass-blue cursor-default">Coming soon.</span>
-          </p>
+
         </div>
       </div>
     </div>

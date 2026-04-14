@@ -69,7 +69,7 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
     });
   }
 
-  function handleAcceptInvite(invitationId: number) {
+  function handleAcceptInvite(invitationId: string) {
     startTransition(async () => {
       const result = await acceptInvitationAction(invitationId);
       if (!result.success) {
@@ -80,7 +80,7 @@ export default function RepositoriesClient({ repos, genres, invitations }: Repos
     });
   }
 
-  function handleDeclineInvite(invitationId: number) {
+  function handleDeclineInvite(invitationId: string) {
     startTransition(async () => {
       const result = await declineInvitationAction(invitationId);
       if (!result.success) {

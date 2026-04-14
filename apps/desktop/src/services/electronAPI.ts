@@ -65,6 +65,46 @@ const electronAPI = {
             return Promise.resolve(null)
         }
         return window.electronAPI.getCommitDiff(repoPath, commitHash, alsPath)
+    },
+
+    getPendingInvitations: (): Promise<any> => {
+        if(!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve({ ok: false, reason: 'electronAPI not available' })
+        }
+        return window.electronAPI.getPendingInvitations()
+    },
+
+    acceptInvitation: (invitationId: string): Promise<any> => {
+        if(!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve({ ok: false, reason: 'electronAPI not available' })
+        }
+        return window.electronAPI.acceptInvitation(invitationId)
+    },
+
+    declineInvitation: (invitationId: string): Promise<any> => {
+        if(!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve({ ok: false, reason: 'electronAPI not available' })
+        }
+        return window.electronAPI.declineInvitation(invitationId)
+    },
+
+    checkIsCollaboration: (repoPath: string): Promise<{ ok: boolean; isCollaboration?: boolean; ownerName?: string; reason?: string }> => {
+        if(!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve({ ok: false, reason: 'electronAPI not available' })
+        }
+        return window.electronAPI.checkIsCollaboration(repoPath)
+    },
+
+    logout: async (): Promise<{ success: boolean }> => {
+        if (!window.patService) {
+            console.warn('patService not available')
+            return { success: false }
+        }
+        return window.patService.logout()
     }
 }
 

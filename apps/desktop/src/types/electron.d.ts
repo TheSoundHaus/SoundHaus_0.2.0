@@ -16,6 +16,10 @@ declare global {
       getChanges: (alsPath: string) => Promise<any>
       getCommitHistory: (repoPath: string) => Promise<any[]>
       getCommitDiff: (repoPath: string, commitHash: string, alsPath: string) => Promise<any>
+      getPendingInvitations: () => Promise<{ ok: boolean; invitations?: any[]; reason?: string }>
+      acceptInvitation: (invitationId: string) => Promise<{ ok: boolean; reason?: string }>
+      declineInvitation: (invitationId: string) => Promise<{ ok: boolean; reason?: string }>
+      checkIsCollaboration: (repoPath: string) => Promise<{ ok: boolean; isCollaboration?: boolean; ownerName?: string; reason?: string }>
     }
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
@@ -33,6 +37,7 @@ declare global {
       setAllowedCloneRemote: (remote: string) => Promise<string>
       autoLogin: () => Promise<{ success: boolean; reason?: string; status?: number; body?: string; error?: string }>
       manualLogin: (email: string, password: string) => Promise<{ success: boolean; reason?: string; status?: number; body?: string; error?: string }>
+      logout: () => Promise<{ success: boolean }>
     }
     electron?: {
       showProjectSetup: () => Promise<ProjectSetupData | null>

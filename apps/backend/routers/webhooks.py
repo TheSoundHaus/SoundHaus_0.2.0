@@ -6,7 +6,10 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session, selectinload
 from typing import Optional
 import json as _json
+import re as _re
 from starlette.requests import ClientDisconnect
+
+_UUID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.I)
 
 from database import get_db
 from dependencies import limiter, verify_token, resolve_owner_id
@@ -137,18 +140,21 @@ async def get_repo_activity(
         .all()
     )
 
-    # Batch-resolve pusher avatars
+    # Batch-resolve pusher avatars and display names
     pusher_names = {e.pusher_username for e in push_events if e.pusher_username}
     pusher_avatars: dict[str, str | None] = {}
+    pusher_display: dict[str, str] = {}  # stored-name → human username
     if pusher_names:
         rows = db.query(Profile).filter(Profile.username.in_(pusher_names)).all()
         for p in rows:
             pusher_avatars[p.username] = p.avatar_url
-        unresolved = pusher_names - set(pusher_avatars.keys())
+            pusher_display[p.username] = p.username
+        unresolved = [u for u in pusher_names - set(pusher_avatars.keys()) if _UUID_RE.match(u)]
         if unresolved:
             rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
             for p in rows:
                 pusher_avatars[p.id] = p.avatar_url
+                pusher_display[p.id] = p.username or (p.email.split("@")[0] if p.email else p.id)
 
     activity_items = []
     for e in push_events:
@@ -169,7 +175,7 @@ async def get_repo_activity(
             "after_sha": e.after_sha[:8] if e.after_sha else None,
             "commit_count": e.commit_count,
             "commit_message": commit_message,
-            "pusher": e.pusher_username,
+            "pusher": pusher_display.get(e.pusher_username, e.pusher_username),
             "pusher_avatar": pusher_avatars.get(e.pusher_username),
             "pushed_at": str(e.pushed_at) if e.pushed_at else None,
         })
@@ -243,21 +249,35 @@ async def get_repo_events(
         for p in rows:
             email_to_username[p.email] = p.username or p.email.split("@")[0]
 
+    # Resolve invitation owner UUIDs -> human usernames
+    owner_ids = {inv.owner_username for inv in invitations if inv.owner_username}
+    owner_display: dict[str, str] = {}
+    if owner_ids:
+        rows = db.query(Profile).filter(Profile.username.in_(owner_ids)).all()
+        for p in rows:
+            owner_display[p.username] = p.username
+        unresolved = [u for u in owner_ids - set(owner_display.keys()) if _UUID_RE.match(u)]
+        if unresolved:
+            rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
+            for p in rows:
+                owner_display[p.id] = p.username or p.id
+
     for inv in invitations:
         invitee_name = email_to_username.get(inv.invitee_email, inv.invitee_email.split("@")[0])
+        owner_name = owner_display.get(inv.owner_username, inv.owner_username)
         if inv.status == "accepted":
             all_events.append({
                 "id": f"collab-{inv.id}",
                 "event_type": "collaborator_joined",
                 "actor": invitee_name,
-                "detail": f"Invited by {inv.owner_username} with {inv.permission} access",
+                "detail": f"Invited by {owner_name} with {inv.permission} access",
                 "occurred_at": str(inv.responded_at or inv.created_at),
             })
         elif inv.status == "pending":
             all_events.append({
                 "id": f"collab-{inv.id}",
                 "event_type": "collaborator_invited",
-                "actor": inv.owner_username,
+                "actor": owner_name,
                 "detail": f"Invited {invitee_name} with {inv.permission} access",
                 "occurred_at": str(inv.created_at),
             })
@@ -292,21 +312,34 @@ async def get_repo_events(
     all_events.sort(key=lambda x: x["occurred_at"] or "", reverse=True)
     all_events = all_events[:min(limit, 50)]
 
-    # Batch-resolve avatar URLs for all actors
+    # Batch-resolve avatar URLs and display names for all actors
     actor_names = {ev["actor"] for ev in all_events if ev.get("actor")}
     actor_avatars: dict[str, str | None] = {}
+    actor_display: dict[str, str] = {}  # stored-name → human username
     if actor_names:
         rows = db.query(Profile).filter(Profile.username.in_(actor_names)).all()
         for p in rows:
             actor_avatars[p.username] = p.avatar_url
-        unresolved = actor_names - set(actor_avatars.keys())
+            actor_display[p.username] = p.username
+        unresolved = [u for u in actor_names - set(actor_avatars.keys()) if _UUID_RE.match(u)]
         if unresolved:
             rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
             for p in rows:
                 actor_avatars[p.id] = p.avatar_url
+                actor_display[p.id] = p.username or p.id
 
     for ev in all_events:
-        ev["actor_avatar"] = actor_avatars.get(ev.get("actor"))
+        raw_actor = ev.get("actor")
+        ev["actor_avatar"] = actor_avatars.get(raw_actor)
+        # Resolve UUID actors to human-readable usernames
+        resolved_name = actor_display.get(raw_actor, raw_actor)
+        # If still a UUID after resolution, try email-based fallback
+        if resolved_name and _UUID_RE.match(str(resolved_name)):
+            fallback_profile = db.query(Profile).filter(Profile.id == resolved_name).first()
+            if fallback_profile:
+                resolved_name = fallback_profile.username or (fallback_profile.email.split("@")[0] if fallback_profile.email else resolved_name)
+                ev["actor_avatar"] = fallback_profile.avatar_url
+        ev["actor"] = resolved_name
 
     return {
         "success": True,

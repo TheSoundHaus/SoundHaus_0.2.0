@@ -8,6 +8,7 @@ module.exports = {
     asar: {
       unpack: '{**/node_modules/dugite/git/**,**/node_modules/semantic-differ/*.node}',
     },
+    extraResource: ['.env'],
     name: 'SoundHaus',
     executableName: 'SoundHaus',
     icon: path.join(__dirname, 'assets/icons/icon'),
