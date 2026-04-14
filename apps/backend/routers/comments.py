@@ -2,17 +2,17 @@
 Snippet comment endpoints — CRUD for time-stamped comments on audio snippets.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from sqlalchemy.orm import Session
-from sqlalchemy import asc
 from pydantic import BaseModel, Field
+from sqlalchemy import asc
+from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import limiter, verify_token, get_auth
+from dependencies import get_auth, limiter, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
 from models.comment_models import SnippetComment
-from models.repo_models import RepoData
 from models.profile_models import Profile
+from models.repo_models import RepoData
 
 logger = get_logger(__name__)
 

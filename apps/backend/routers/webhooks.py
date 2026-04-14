@@ -2,24 +2,23 @@
 Webhook endpoints – receive Gitea events, list deliveries, activity feed, repo events.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from sqlalchemy.orm import Session, selectinload
-from typing import Optional
 import json as _json
 import re as _re
+
+from sqlalchemy.orm import Session, selectinload
 from starlette.requests import ClientDisconnect
 
-_UUID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.I)
-
 from database import get_db
-from dependencies import limiter, verify_token, resolve_owner_id
+from dependencies import limiter, resolve_owner_id, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
-from services.webhook_service import webhook_service
-from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent
-from models.commit_models import CommitDetail
 from models.invitation_models import CollaboratorInvitation
-from models.snippet_models import SnippetHistory
 from models.profile_models import Profile
+from models.snippet_models import SnippetHistory
+from models.webhook_models import PushEvent, RepositoryEvent, WebhookDelivery
+from services.webhook_service import webhook_service
+
+_UUID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.I)
 
 logger = get_logger(__name__)
 
@@ -75,9 +74,9 @@ async def receive_gitea_webhook(
 @limiter.limit("30/minute")
 async def list_webhook_deliveries(
     request: Request,
-    repo: Optional[str] = None,
-    event_type: Optional[str] = None,
-    status: Optional[str] = None,
+    repo: str | None = None,
+    event_type: str | None = None,
+    status: str | None = None,
     limit: int = 50,
     token: str = Depends(verify_token),
     db: Session = Depends(get_db),

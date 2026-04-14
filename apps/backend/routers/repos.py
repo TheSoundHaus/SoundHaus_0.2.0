@@ -3,34 +3,39 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from typing import Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime
 
-from database import get_db
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from config import settings
-from dependencies import limiter, user_limiter, verify_token, verify_token_or_pat, get_auth, resolve_owner_id
+from database import get_db
+from dependencies import (
+    get_auth,
+    limiter,
+    resolve_owner_id,
+    user_limiter,
+    verify_token,
+    verify_token_or_pat,
+)
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from logging_config import get_logger
-from services.repo_service import RepoService
-from services.gitea_service import GiteaAdminService
-from services.webhook_service import webhook_service
-from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
+from models.invitation_models import CollaborationRequest, CollaboratorInvitation
 from models.profile_models import Profile
-from models.invitation_models import CollaboratorInvitation, CollaborationRequest
+from models.repo_models import RepoData
 from models.schemas import (
     CreateRepoRequest,
+    DeleteFileRequest,
     RegisterRepoRequest,
     UploadFileRequest,
-    DeleteFileRequest,
 )
-from sqlalchemy.exc import IntegrityError
-from datetime import datetime, timezone
+from services.gitea_service import GiteaAdminService
+from services.repo_service import RepoService
 
 logger = get_logger(__name__)
 
@@ -53,7 +58,7 @@ def _resolve_gitea_username(user_id: str, db: Session) -> str:
     return user_id
 
 
-def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[str, str]:
+def _owner_profile_fields(profile: Profile | None, gitea_owner: str) -> dict[str, str]:
     """SoundHaus username (for /profile links)."""
     if profile is None:
         return {"owner_username": gitea_owner}
@@ -356,131 +361,25 @@ async def record_clone_event(
     }
 
 
-# ── Fork ─────────────────────────────────────────────────────────────────────
-
-@router.post("/repos/{owner}/{repo}/fork")
-@limiter.limit("10/minute")
-async def fork_repo(
-    request: Request,
-    owner: str,
-    repo: str,
-    token: str = Depends(verify_token),
-    db: Session = Depends(get_db),
-):
-    """Fork a public repository into the current user's namespace."""
-    user_res = await get_auth().get_user(token)
-    if not user_res.get("success"):
-        raise HTTPException(status_code=401, detail="Must be logged in to fork")
-
-    user_id = user_res["user"]["id"]
-    profile = db.query(Profile).filter(Profile.id == user_id).first()
-    if not profile:
-        raise HTTPException(status_code=404, detail="User profile not found")
-
-    # Resolve source repo
-    repo_service = RepoService()
-    source = repo_service.get_repo(owner, repo)
-    if not source.get("success"):
-        raise HTTPException(status_code=404, detail="Source repository not found")
-
-    source_data = source.get("repo", {})
-    if source_data.get("private", True):
-        raise HTTPException(status_code=403, detail="Only public repositories can be forked")
-
-    # Cannot fork your own repo
-    owner_id = resolve_owner_id(owner, db)
-    if owner_id == user_id:
-        raise HTTPException(status_code=400, detail="Cannot fork your own repository")
-
-    # Gitea user login is the Supabase UUID
-    gitea_login = _resolve_gitea_username(user_id, db)
-
-    result = repo_service.fork_repo(
-        source_owner=owner,
-        source_repo=repo,
-        fork_owner=gitea_login,
-    )
-    if not result.get("success"):
-        logger.warning(
-            "fork_repo_endpoint_failed",
-            source_owner=owner,
-            source_repo=repo,
-            fork_owner=gitea_login,
-            user_id=user_id,
-            status=result.get("status"),
-            message=result.get("message"),
-        )
-        raise HTTPException(
-            status_code=result.get("status", 500),
-            detail=result.get("message", "Failed to fork repository"),
-        )
-
-    # Register fork in RepoData so it appears in user's repo list
-    forked_repo = result["repo"]
-    fork_name = forked_repo.get("name", repo)
-    fork_repo_id = f"{gitea_login}/{fork_name}"
-
-    existing = db.query(RepoData).filter(RepoData.gitea_id == fork_repo_id).first()
-    if not existing:
-        new_repo_data = RepoData(
-            gitea_id=fork_repo_id,
-            owner_id=user_id,
-            is_public=True,
-        )
-        db.add(new_repo_data)
-        db.commit()
-
-    # Protect the forked repo's default branch (no direct push, 1 approval)
-    default_branch = forked_repo.get("default_branch", "main")
-    repo_service.set_branch_protection(gitea_login, fork_name, branch=default_branch)
-
-    # Create webhook for the forked repo so pushes are tracked
-    try:
-        repo_service._create_repo_webhook(gitea_login, fork_name, db)
-    except Exception as e:
-        logger.warning("fork_webhook_creation_failed", error=str(e))
-
-    # Record a RepositoryEvent so the fork shows in the timeline
-    try:
-        from models.webhook_models import RepositoryEvent
-        fork_event = RepositoryEvent(
-            repo_id=fork_repo_id,
-            event_type="repository_forked",
-            actor_username=gitea_login,
-        )
-        db.add(fork_event)
-        db.commit()
-    except Exception as e:
-        logger.warning("fork_event_creation_failed", error=str(e))
-        db.rollback()
-
-    return {
-        "success": True,
-        "message": f"Repository forked as {profile.username}/{fork_name}",
-        "fork_name": fork_name,
-        "fork_owner": profile.username,
-    }
-
-
 # ── Public / Stats ───────────────────────────────────────────────────────────
 
 @router.get("/repos/public")
 @limiter.limit("60/minute")
 async def get_public_repos(
     request: Request,
-    genres: Optional[str] = None,
+    genres: str | None = None,
     match: str = "any",
     db: Session = Depends(get_db),
 ):
     """Get all publicly published repos with audio snippets (Explore page).
-    
+
     Only repos whose Gitea visibility is public are returned.
     """
     genre_names = []
     if genres is not None:
         genre_names = [g.strip() for g in genres.split(",")]
 
-    query = db.query(RepoData).filter(RepoData.is_public == True)
+    query = db.query(RepoData).filter(RepoData.is_public.is_(True))
 
     if genre_names:
         base = (
@@ -584,7 +483,7 @@ async def get_user_public_repos(
 
     repos = db.query(RepoData).filter(
         RepoData.owner_id == owner_id,
-        RepoData.is_public == True,
+        RepoData.is_public.is_(True),
     ).all()
 
     svc = RepoService()
@@ -646,7 +545,7 @@ async def get_user_public_stats(
 
     pub_filter = [
         RepoData.owner_id == user_id,
-        RepoData.is_public == True,
+        RepoData.is_public.is_(True),
     ]
     total_repos = (
         db.query(func.count(RepoData.gitea_id))
@@ -762,7 +661,7 @@ async def get_repo_stats(
                                 viewer_can_clone = True
                                 break
                     if not viewer_can_clone and email_n:
-                        now = datetime.now(timezone.utc)
+                        now = datetime.now(UTC)
                         pend = (
                             db.query(CollaboratorInvitation)
                             .filter(
@@ -1469,7 +1368,6 @@ async def upload_thumbnail_image(
     ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
     storage_path = f"{owner}/{repo}/thumbnail{ext}"
 
-    from services.snippet_service import snippet_service
     supabase = snippet_service.supabase
     bucket = "thumbnails"
 

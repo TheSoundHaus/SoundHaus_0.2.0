@@ -5,16 +5,17 @@ Contains authentication helpers, rate limiters, and constants
 that multiple router modules depend on.
 """
 
-from fastapi import Depends, Header, HTTPException, Request
+from typing import Any
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
 
-from database import get_db
 from config import settings
+from database import get_db
+from fastapi import Depends, Header, HTTPException, Request
 from logging_config import get_logger
-from services.auth_service import get_auth_service, SupabaseAuthService
+from services.auth_service import SupabaseAuthService, get_auth_service
 
 logger = get_logger(__name__)
 
@@ -98,7 +99,7 @@ def resolve_owner_id(owner: str, db: Session) -> str:
 
 
 async def verify_token(
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),
 ) -> str:
     """Extract and verify a JWT token from the Authorization header."""
@@ -123,10 +124,10 @@ async def verify_token(
 
 
 async def verify_token_or_pat(
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),
     db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Verify either a Supabase JWT token or a Personal Access Token.
 
