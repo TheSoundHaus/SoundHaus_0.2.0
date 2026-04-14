@@ -620,7 +620,7 @@ export default function RepoDetailClient({
             duration={snippet?.duration ?? undefined}
             comments={snippetComments}
             currentUserId={user?.id}
-            isOwner={canEdit}
+            isOwner={canWrite}
             onAddComment={async (ts, text) => {
               const res = await addSnippetComment(owner, repo, {
                 timestamp_seconds: ts,
@@ -1316,7 +1316,7 @@ export default function RepoDetailClient({
           )}
 
           {/* Invite Collaborators Section — owner or admin collab, private repos only */}
-          {canEdit && !isPrivate && (
+          {canWrite && !isPrivate && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
                 <Users size={18} /> Public Repository
@@ -1326,7 +1326,7 @@ export default function RepoDetailClient({
               </p>
             </div>
           )}
-          {canEdit && isPrivate && (
+          {canWrite && isPrivate && (
           <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <UserPlus size={18} /> Invite Collaborators
@@ -1417,7 +1417,7 @@ export default function RepoDetailClient({
           )}
 
           {/* Pending Invitations — owner or admin collab, private repos only */}
-          {canEdit && isPrivate && (
+          {canWrite && isPrivate && (
           <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <Clock size={18} /> Pending Invitations

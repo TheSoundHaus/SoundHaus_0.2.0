@@ -106,9 +106,9 @@ export default function PublicRepoClient({
     setForkError(null);
     const result = await forkRepoAction(owner, repo);
     setForking(false);
-    if (result.success) {
-      router.push(`/repository/${result.fork_owner}/${result.fork_name}`);
-    } else {
+    if (result.success && result.fork) {
+      router.push(`/repository/${result.fork.owner}/${result.fork.name}`);
+    } else if (!result.success) {
       setForkError(result.error);
     }
   }, [owner, repo, router]);
