@@ -150,6 +150,8 @@ class RepoService:
                 # attributed to the actual user (not the admin)
                 self._init_repo_with_user_commit(username, name, description)
                 self._create_repo_webhook(username, name, db)
+                # Protect default branch: disable direct push, require 1 PR approval
+                self.set_branch_protection(username, name, branch="main")
                 return {"success": True, "repo": repo_data}
             return {"success": False, "status": resp.status_code, "message": self._extract_msg(resp)}
         except requests.RequestException as e:
@@ -682,3 +684,134 @@ class RepoService:
         except Exception as e:
             logger.error("get_commit_count_error", owner=owner, repo=repo_name, error=str(e))
             return 0
+
+    def fork_repo(self, source_owner: str, source_repo: str, fork_owner: str, fork_name: Optional[str] = None) -> Dict[str, Any]:
+        """Fork a repository via Gitea API. The fork is created under fork_owner's user namespace.
+
+        Uses the Gitea admin Sudo header to impersonate fork_owner so the fork lands in their
+        personal namespace rather than an organization (passing 'organization' in the body
+        causes Gitea to look up an org entity which does not exist for regular users).
+        """
+        try:
+            url_path = f"/api/v1/repos/{source_owner}/{source_repo}/forks"
+            # Sudo header impersonates the target user so the fork is owned by them
+            headers = {**self.headers, "Sudo": fork_owner}
+            body: Dict[str, Any] = {}
+            if fork_name:
+                body["name"] = fork_name
+
+            full_url = self._url(url_path)
+            logger.info(
+                "fork_repo_request",
+                url=full_url,
+                source_owner=source_owner,
+                source_repo=source_repo,
+                fork_owner=fork_owner,
+                fork_name=fork_name,
+                body=body,
+            )
+
+            resp = requests.post(full_url, headers=headers, json=body, timeout=30)
+
+            logger.debug(
+                "fork_repo_response",
+                source=f"{source_owner}/{source_repo}",
+                fork_owner=fork_owner,
+                status=resp.status_code,
+                body=resp.text[:500],
+            )
+
+            if resp.status_code in [200, 202]:
+                return {"success": True, "repo": resp.json()}
+            else:
+                msg = self._extract_msg(resp)
+                logger.warning(
+                    "fork_repo_failed",
+                    source=f"{source_owner}/{source_repo}",
+                    fork_owner=fork_owner,
+                    status=resp.status_code,
+                    error=msg,
+                    raw_body=resp.text[:500],
+                )
+                return {"success": False, "status": resp.status_code, "message": msg}
+        except requests.RequestException as e:
+            logger.error("fork_repo_error", source=f"{source_owner}/{source_repo}", error=str(e))
+            return {"success": False, "status": 0, "message": f"Network error: {e}"}
+
+    # ── Branch Protection ────────────────────────────────────────────────────
+
+    def set_branch_protection(
+        self, owner: str, repo_name: str, branch: str = "main",
+        enable_push: bool = False, required_approvals: int = 1,
+    ) -> Dict[str, Any]:
+        """Create or update branch protection rules on a repository.
+
+        Default configuration:
+        - Disables direct pushes to the protected branch.
+        - Requires at least ``required_approvals`` PR approvals before merge.
+        """
+        url_path = f"/api/v1/repos/{owner}/{repo_name}/branch_protections"
+        payload = {
+            "branch_name": branch,
+            "enable_push": enable_push,
+            "required_approvals": required_approvals,
+        }
+        try:
+            resp = requests.post(
+                self._url(url_path), headers=self.headers, json=payload, timeout=15,
+            )
+            logger.debug(
+                "set_branch_protection_response",
+                owner=owner, repo=repo_name, branch=branch,
+                status=resp.status_code,
+            )
+            if resp.status_code in (200, 201):
+                return {"success": True, "protection": resp.json()}
+            # 422 → rule already exists; try PATCH to update instead
+            if resp.status_code == 422:
+                return self._update_branch_protection(
+                    owner, repo_name, branch, enable_push, required_approvals,
+                )
+            msg = self._extract_msg(resp)
+            logger.warning(
+                "set_branch_protection_failed",
+                owner=owner, repo=repo_name, branch=branch,
+                status=resp.status_code, error=msg,
+            )
+            return {"success": False, "status": resp.status_code, "message": msg}
+        except requests.RequestException as e:
+            logger.error(
+                "set_branch_protection_error",
+                owner=owner, repo=repo_name, branch=branch, error=str(e),
+            )
+            return {"success": False, "status": 0, "message": f"Network error: {e}"}
+
+    def _update_branch_protection(
+        self, owner: str, repo_name: str, branch: str,
+        enable_push: bool, required_approvals: int,
+    ) -> Dict[str, Any]:
+        """PATCH an existing branch protection rule."""
+        url_path = f"/api/v1/repos/{owner}/{repo_name}/branch_protections/{branch}"
+        payload = {
+            "enable_push": enable_push,
+            "required_approvals": required_approvals,
+        }
+        try:
+            resp = requests.patch(
+                self._url(url_path), headers=self.headers, json=payload, timeout=15,
+            )
+            if resp.status_code in (200, 204):
+                return {"success": True, "protection": resp.json() if resp.status_code == 200 else {}}
+            msg = self._extract_msg(resp)
+            logger.warning(
+                "update_branch_protection_failed",
+                owner=owner, repo=repo_name, branch=branch,
+                status=resp.status_code, error=msg,
+            )
+            return {"success": False, "status": resp.status_code, "message": msg}
+        except requests.RequestException as e:
+            logger.error(
+                "update_branch_protection_error",
+                owner=owner, repo=repo_name, branch=branch, error=str(e),
+            )
+            return {"success": False, "status": 0, "message": f"Network error: {e}"}

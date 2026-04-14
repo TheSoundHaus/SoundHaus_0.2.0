@@ -64,23 +64,35 @@ async def get_commit_list(
         )
         diff_shas = {row[0] for row in diff_rows}
 
-    # Batch-fetch author profiles by email for avatar + username
+    # Batch-fetch author profiles by email, username, and id (UUID) for avatar + display name
     author_emails = list({c.author_email for c in commits if c.author_email})
     author_names = list({c.author_name for c in commits if c.author_name})
     profile_by_email: dict = {}
     profile_by_name: dict = {}
+    profile_by_id: dict = {}  # fallback: author_name may be a Supabase UUID
     if author_emails:
         profiles = db.query(Profile).filter(Profile.email.in_(author_emails)).all()
         profile_by_email = {p.email: p for p in profiles}
     if author_names:
         profiles2 = db.query(Profile).filter(Profile.username.in_(author_names)).all()
         profile_by_name = {p.username: p for p in profiles2 if p.username}
+        # For any author_name not resolved via username, try as Profile.id (UUID)
+        import re
+        _uuid_re = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+        unresolved_uuids = [n for n in author_names if n not in profile_by_name and _uuid_re.match(n)]
+        if unresolved_uuids:
+            profiles3 = db.query(Profile).filter(Profile.id.in_(unresolved_uuids)).all()
+            profile_by_id = {p.id: p for p in profiles3}
 
     # Serialize
     commits_out = []
     for c in commits:
-        # Resolve author profile: try email first, then username match
-        author_profile = profile_by_email.get(c.author_email) or profile_by_name.get(c.author_name)
+        # Resolve author profile: try email first, then username match, then UUID match
+        author_profile = (
+            profile_by_email.get(c.author_email)
+            or profile_by_name.get(c.author_name)
+            or profile_by_id.get(c.author_name)
+        )
 
         # Determine diff status:
         #   "ready"   — AlsDiff row exists, diff is viewable

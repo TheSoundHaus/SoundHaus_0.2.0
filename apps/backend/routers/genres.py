@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from database import get_db
-from dependencies import limiter, user_limiter, verify_token, get_auth
+from dependencies import limiter, user_limiter, verify_token, get_auth, resolve_owner_id
 from logging_config import get_logger
 from models.genre_models import GenreList
 from models.repo_models import RepoData
+from models.profile_models import Profile
+from models.invitation_models import CollaboratorInvitation
 
 logger = get_logger(__name__)
 
@@ -161,10 +163,32 @@ async def update_repo_genres(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    if str(user_id) != str(owner):
+    # Resolve URL owner (could be username OR UUID) to canonical UUID
+    owner_id = resolve_owner_id(owner, db)
+    # Allow if user is the owner
+    is_owner = str(user_id) == str(owner_id)
+    # Allow if user is an admin collaborator
+    is_admin_collab = False
+    if not is_owner:
+        invite = (
+            db.query(CollaboratorInvitation)
+            .filter(
+                CollaboratorInvitation.repo_name == repo,
+                CollaboratorInvitation.owner_username == owner_id,
+                CollaboratorInvitation.status == "accepted",
+                CollaboratorInvitation.permission == "admin",
+            )
+            .first()
+        )
+        if invite:
+            # Check that the invitee is the current user
+            profile = db.query(Profile).filter(Profile.email == invite.invitee_email).first()
+            if profile and str(profile.id) == str(user_id):
+                is_admin_collab = True
+    if not is_owner and not is_admin_collab:
         raise HTTPException(status_code=403, detail="Not your repo")
 
-    repo_id = f"{owner}/{repo}"
+    repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")

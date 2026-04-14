@@ -55,13 +55,32 @@ class ProfileService:
         email: str,
         db: Session = None,
     ) -> Dict[str, Any]:
-        """Create a new profile row at signup time."""
+        """Create a new profile row at signup time (idempotent).
+
+        A Supabase trigger may have already inserted a skeleton profile row
+        when the auth user was created.  If so, we update it in-place instead
+        of inserting a duplicate.
+        """
         self._validate_username(username)
 
-        # Check uniqueness
-        existing = db.query(Profile).filter(Profile.username == username).first()
-        if existing:
+        # Check username uniqueness (exclude our own row if it exists)
+        existing_name = db.query(Profile).filter(
+            Profile.username == username,
+            Profile.id != user_id,
+        ).first()
+        if existing_name:
             return {"success": False, "message": f"Username '{username}' is already taken"}
+
+        # Check if the trigger already created a row for this user
+        profile = db.query(Profile).filter(Profile.id == user_id).first()
+        if profile:
+            # Update the trigger-created row with our validated data
+            profile.username = username
+            profile.email = email
+            db.commit()
+            db.refresh(profile)
+            logger.info("profile_updated_from_trigger", user_id=user_id, username=username)
+            return {"success": True, "profile": self._profile_to_dict(profile)}
 
         profile = Profile(
             id=user_id,
