@@ -61,8 +61,10 @@ export async function inviteCollaborator(
     email: string,
     permission: string = "write",
 ): Promise<ApiResponse<{ invitation_id: string; message: string }>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
     const result = await authFetch<{ invitation_id: string; message: string }>(
-        `/repos/${owner}/${repoName}/collaborators/invite`,
+        `/repos/${o}/${r}/collaborators/invite`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -86,8 +88,11 @@ export async function removeCollaborator(
     repoName: string,
     username: string,
 ): Promise<ApiResponse<{ message: string }>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
+    const u = encodeURIComponent(username);
     const result = await authFetch<{ message: string }>(
-        `/repos/${owner}/${repoName}/collaborators/${username}`,
+        `/repos/${o}/${r}/collaborators/${u}`,
         { method: "DELETE" },
     );
     if (!result.success) return { success: false, error: result.error };
