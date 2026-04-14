@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func as sql_func
 from datetime import datetime, timedelta, timezone
-from typing import Dict
 import uuid
 import secrets
 
@@ -17,6 +16,7 @@ from dependencies import limiter, user_limiter, verify_token, get_auth, resolve_
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
+from models.collaborator_requests import InviteCollaboratorRequest
 from models.invitation_models import CollaboratorInvitation
 from models.repo_models import RepoData
 from models.profile_models import Profile
@@ -38,32 +38,33 @@ async def invite_collaborator(
     request: Request,
     owner: str,
     repo_name: str,
-    request_body: dict,
+    body: InviteCollaboratorRequest,
     token: str = Depends(verify_token),
     db: Session = Depends(get_db),
 ):
-    """Invite a user to collaborate on a repository."""
+    """Invite a user to collaborate on a repository.
+
+    ``owner`` is the SoundHaus username or Gitea owner id (UUID), same as the
+    collaborators list route — resolved to the canonical Gitea owner before checks.
+    """
     try:
         user_res = await get_auth().get_user(token)
         if not user_res.get("success"):
             return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
 
-        user_id = user_res["user"]["id"]
-        email = user_res["user"]["email"]
+        user_id = str(user_res["user"]["id"])
+        email = user_res["user"].get("email") or ""
 
-        # Resolve the owner to a UUID (handles both username and UUID)
-        owner_id = resolve_owner_id(owner, db)
+        owner_gitea = str(resolve_owner_id(owner, db))
 
-        # Only the repo owner can send invitations
-        if str(user_id) != str(owner_id):
+        if owner_gitea != user_id:
             return JSONResponse(
-                {"success": False, "message": "Only the repository owner can invite collaborators"},
+                {"success": False, "message": "Only the repository owner can send invitations"},
                 status_code=403,
             )
 
-        # Verify repo exists using the resolved owner
         repo_service = RepoService()
-        repo_check = repo_service.get_repo(owner_id, repo_name)
+        repo_check = repo_service.get_repo(owner_gitea, repo_name)
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
 
@@ -71,19 +72,19 @@ async def invite_collaborator(
         repo_data = repo_check.get("repo", {})
         if not repo_data.get("private", False):
             return JSONResponse(
-                {"success": False, "message": "Invitations are only available for private repositories. Public repos use forking for collaboration."},
+                {
+                    "success": False,
+                    "message": "Invitations are only available for private repositories. Public repos use forking for collaboration.",
+                },
                 status_code=403,
             )
 
-        invitee_email = _norm_email(request_body.get("email"))
-        permission = request_body.get("permission", "write")
+        invitee_email = _norm_email(body.email)
+        permission = body.permission
 
-        if not invitee_email:
-            return JSONResponse({"success": False, "message": "Email required"}, status_code=400)
-
-        if permission not in ("read", "write"):
+        if permission not in ("read", "write", "admin"):
             return JSONResponse(
-                {"success": False, "message": "Permission must be 'read' or 'write'"},
+                {"success": False, "message": "Permission must be 'read', 'write', or 'admin'"},
                 status_code=400,
             )
 
@@ -95,7 +96,7 @@ async def invite_collaborator(
             invitation_token=invitation_token,
             repo_name=repo_name,
             owner_email=email,
-            owner_username=owner_id,
+            owner_username=owner_gitea,
             invitee_email=invitee_email,
             permission=permission,
             status="pending",
@@ -228,7 +229,7 @@ async def accept_invitation(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        user_id = user_res["user"]["id"]
+        user_id = str(user_res["user"]["id"])
         email = _norm_email(user_res["user"].get("email"))
         if not email:
             raise HTTPException(status_code=400, detail="Your account must have an email to accept this invitation")
@@ -577,9 +578,16 @@ async def remove_collaborator(
     if not user_res.get("success"):
         return JSONResponse({"success": False}, status_code=401)
 
-    owner_id = resolve_owner_id(owner, db)
+    user_id = str(user_res["user"]["id"])
+    owner_gitea = str(resolve_owner_id(owner, db))
+    if owner_gitea != user_id:
+        return JSONResponse(
+            {"success": False, "message": "Only the repository owner can remove collaborators"},
+            status_code=403,
+        )
+
     repo_service = RepoService()
-    result = repo_service.remove_collaborator(owner_id, repo_name, username)
+    result = repo_service.remove_collaborator(owner_gitea, repo_name, username)
 
     if not result.get("success"):
         return JSONResponse({"success": False, "message": result.get("message")}, status_code=400)
