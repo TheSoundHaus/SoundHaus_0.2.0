@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	getChanges: (alsPath: string): Promise<any> => ipcRenderer.invoke('get-changes', alsPath),
 	getCommitHistory: (repoPath: string): Promise<any[]> => ipcRenderer.invoke('get-commit-history', repoPath),
 	getCommitDiff: (repoPath: string, commitHash: string, alsPath: string): Promise<any> => ipcRenderer.invoke('get-commit-diff', repoPath, commitHash, alsPath),
+	getPendingInvitations: (): Promise<any> => ipcRenderer.invoke('get-pending-invitations'),
+	acceptInvitation: (invitationId: string): Promise<any> => ipcRenderer.invoke('accept-invitation', invitationId),
+	declineInvitation: (invitationId: string): Promise<any> => ipcRenderer.invoke('decline-invitation', invitationId),
+	checkIsCollaboration: (repoPath: string): Promise<any> => ipcRenderer.invoke('check-is-collaboration', repoPath),
 });
 
 contextBridge.exposeInMainWorld('gitService', {
@@ -29,6 +33,7 @@ contextBridge.exposeInMainWorld('patService', {
 	setAllowedCloneRemote: (remote: string): Promise<string> => ipcRenderer.invoke('set-allowed-clone-remote', remote),
 	autoLogin: (): Promise<unknown> => ipcRenderer.invoke('auto-login'),
 	manualLogin: (email: string, password: string): Promise<unknown> => ipcRenderer.invoke('manual-login', email, password),
+	logout: (): Promise<{ success: boolean }> => ipcRenderer.invoke('logout'),
 });
 
 contextBridge.exposeInMainWorld('electron', {
