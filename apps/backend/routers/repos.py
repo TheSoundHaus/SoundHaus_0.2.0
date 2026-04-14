@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from database import get_db
 from config import settings
@@ -349,6 +350,112 @@ async def record_clone_event(
     }
 
 
+# ── Fork ─────────────────────────────────────────────────────────────────────
+
+@router.post("/repos/{owner}/{repo}/fork")
+@limiter.limit("10/minute")
+async def fork_repo(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Fork a public repository into the current user's namespace."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in to fork")
+
+    user_id = user_res["user"]["id"]
+    profile = db.query(Profile).filter(Profile.id == user_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="User profile not found")
+
+    # Resolve source repo
+    repo_service = RepoService()
+    source = repo_service.get_repo(owner, repo)
+    if not source.get("success"):
+        raise HTTPException(status_code=404, detail="Source repository not found")
+
+    source_data = source.get("repo", {})
+    if source_data.get("private", True):
+        raise HTTPException(status_code=403, detail="Only public repositories can be forked")
+
+    # Cannot fork your own repo
+    owner_id = resolve_owner_id(owner, db)
+    if owner_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot fork your own repository")
+
+    # Gitea user login is the Supabase UUID
+    gitea_login = _resolve_gitea_username(user_id, db)
+
+    result = repo_service.fork_repo(
+        source_owner=owner,
+        source_repo=repo,
+        fork_owner=gitea_login,
+    )
+    if not result.get("success"):
+        logger.warning(
+            "fork_repo_endpoint_failed",
+            source_owner=owner,
+            source_repo=repo,
+            fork_owner=gitea_login,
+            user_id=user_id,
+            status=result.get("status"),
+            message=result.get("message"),
+        )
+        raise HTTPException(
+            status_code=result.get("status", 500),
+            detail=result.get("message", "Failed to fork repository"),
+        )
+
+    # Register fork in RepoData so it appears in user's repo list
+    forked_repo = result["repo"]
+    fork_name = forked_repo.get("name", repo)
+    fork_repo_id = f"{gitea_login}/{fork_name}"
+
+    existing = db.query(RepoData).filter(RepoData.gitea_id == fork_repo_id).first()
+    if not existing:
+        new_repo_data = RepoData(
+            gitea_id=fork_repo_id,
+            owner_id=user_id,
+            is_public=True,
+        )
+        db.add(new_repo_data)
+        db.commit()
+
+    # Protect the forked repo's default branch (no direct push, 1 approval)
+    default_branch = forked_repo.get("default_branch", "main")
+    repo_service.set_branch_protection(gitea_login, fork_name, branch=default_branch)
+
+    # Create webhook for the forked repo so pushes are tracked
+    try:
+        repo_service._create_repo_webhook(gitea_login, fork_name, db)
+    except Exception as e:
+        logger.warning("fork_webhook_creation_failed", error=str(e))
+
+    # Record a RepositoryEvent so the fork shows in the timeline
+    try:
+        from models.webhook_models import RepositoryEvent
+        fork_event = RepositoryEvent(
+            repo_id=fork_repo_id,
+            event_type="repository_forked",
+            actor_username=gitea_login,
+        )
+        db.add(fork_event)
+        db.commit()
+    except Exception as e:
+        logger.warning("fork_event_creation_failed", error=str(e))
+        db.rollback()
+
+    return {
+        "success": True,
+        "message": f"Repository forked as {profile.username}/{fork_name}",
+        "fork_name": fork_name,
+        "fork_owner": profile.username,
+    }
+
+
 # ── Public / Stats ───────────────────────────────────────────────────────────
 
 @router.get("/repos/public")
@@ -392,13 +499,31 @@ async def get_public_repos(
 
     svc = RepoService()
     result = []
+
+    # Parallelize Gitea visibility checks to avoid N+1 sequential HTTP calls
+    def _fetch_gitea(repo_row):
+        owner, repo_name = repo_row.gitea_id.split("/", 1)
+        gitea_info = svc.get_repo(owner, repo_name)
+        return repo_row, gitea_info
+
+    gitea_results = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_fetch_gitea, r): r for r in all_repos}
+        for future in as_completed(futures):
+            try:
+                repo_row, gitea_info = future.result()
+                gitea_results[repo_row.gitea_id] = gitea_info
+            except Exception as e:
+                repo_row = futures[future]
+                logger.warning("get_public_repos_parallel", gitea_id=repo_row.gitea_id, error=str(e))
+
     for repo in all_repos:
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
             fields = profile_map.get(owner, _owner_profile_fields(None, owner))
 
             # Check Gitea visibility — skip private repos
-            gitea_info = svc.get_repo(owner, repo_name)
+            gitea_info = gitea_results.get(repo.gitea_id, {})
             if not gitea_info.get("success"):
                 continue
             gitea_repo = gitea_info.get("repo", {})
@@ -578,16 +703,26 @@ async def get_repo_stats(
         .all()
     )
 
-    # Fetch description and privacy from Gitea
+    # Fetch description, privacy, and fork parent from Gitea
     svc = RepoService()
     description = ""
     is_private = True
+    fork_parent = None
     try:
         gitea_info = svc.get_repo(owner_id, repo)
         if gitea_info.get("success"):
             repo_obj = gitea_info.get("repo", {})
             description = repo_obj.get("description", "")
             is_private = repo_obj.get("private", True)
+            parent = repo_obj.get("parent")
+            if parent:
+                parent_owner_id = parent.get("owner", {}).get("login", "")
+                parent_name = parent.get("name", "")
+                parent_profile = db.query(Profile).filter(Profile.id == parent_owner_id).first()
+                fork_parent = {
+                    "owner": parent_profile.username if parent_profile and parent_profile.username else parent_owner_id,
+                    "repo": parent_name,
+                }
     except Exception:
         pass  # Non-critical: description/privacy are cosmetic
 
@@ -611,6 +746,7 @@ async def get_repo_stats(
             {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
             for c in recent_clones
         ],
+        "fork_parent": fork_parent,
     }
 
 
@@ -623,6 +759,7 @@ async def star_repo(
     owner: str,
     repo: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Star (favorite) a repository on behalf of the current user."""
     user_res = await get_auth().get_user(token)
@@ -646,6 +783,7 @@ async def unstar_repo(
     owner: str,
     repo: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Unstar (unfavorite) a repository on behalf of the current user."""
     user_res = await get_auth().get_user(token)

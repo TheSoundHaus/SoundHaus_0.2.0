@@ -44,7 +44,10 @@ async def invite_collaborator(
 
         user_id = user_res["user"]["id"]
         email = user_res["user"]["email"]
-        owner_username = user_id
+
+        # Resolve human-readable username from Profile table
+        profile = db.query(Profile).filter(Profile.id == user_id).first()
+        owner_username = profile.username if profile else user_id
 
         # Verify repo exists
         repo_service = RepoService()
@@ -52,11 +55,25 @@ async def invite_collaborator(
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
 
+        # Invitations are only allowed for private repositories
+        repo_data = repo_check.get("repo", {})
+        if not repo_data.get("private", False):
+            return JSONResponse(
+                {"success": False, "message": "Invitations are only available for private repositories. Public repos use forking for collaboration."},
+                status_code=403,
+            )
+
         invitee_email = request_body.get("email")
         permission = request_body.get("permission", "write")
 
         if not invitee_email:
             return JSONResponse({"success": False, "message": "Email required"}, status_code=400)
+
+        if permission not in ("read", "write"):
+            return JSONResponse(
+                {"success": False, "message": "Permission must be 'read' or 'write'"},
+                status_code=400,
+            )
 
         invitation_id = str(uuid.uuid4())
         invitation_token = secrets.token_urlsafe(32)
@@ -149,11 +166,21 @@ async def get_pending_invitations(
             .all()
         )
 
+        # Collect unique owner identifiers and resolve to human-readable usernames
+        owner_ids = {inv.owner_username for inv in invitations}
+        profiles = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
+        # Also check by username in case some are already stored as username
+        profiles += db.query(Profile).filter(Profile.username.in_(owner_ids)).all()
+        id_to_username = {}
+        for p in profiles:
+            id_to_username[p.id] = p.username
+            id_to_username[p.username] = p.username
+
         invitation_list = [
             {
                 "id": inv.id,
                 "repo_name": inv.repo_name,
-                "owner_username": inv.owner_username,
+                "owner_username": id_to_username.get(inv.owner_username, inv.owner_username),
                 "owner_email": inv.owner_email,
                 "permission": inv.permission,
                 "created_at": inv.created_at.isoformat(),
@@ -223,9 +250,22 @@ async def accept_invitation(
                 raise HTTPException(status_code=500, detail="Failed to provision Git account")
 
         # Add collaborator to repository
+        # Gitea repos are keyed by the owner's Supabase UUID, not display username.
+        # Resolve the owner's UUID from the stored owner_username or owner_email.
+        owner_profile = (
+            db.query(Profile)
+            .filter(
+                (Profile.username == invitation.owner_username)
+                | (Profile.id == invitation.owner_username)
+            )
+            .first()
+        )
+        if not owner_profile:
+            raise HTTPException(status_code=500, detail="Could not resolve repo owner")
+
         repo_service = RepoService()
         result = repo_service.add_collaborator(
-            invitation.owner_username,
+            owner_profile.id,  # UUID — the Gitea repo namespace
             invitation.repo_name,
             invitee_username,
             invitation.permission,
