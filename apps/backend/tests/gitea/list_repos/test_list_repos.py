@@ -67,12 +67,38 @@ def main() -> None:
         if not isinstance(repos, list):
             fail(f"list_repos 'repos' field is not a list: {type(repos)}")
 
+        resp_owned = client.get("/repos", params={"ownership": "owned"}, headers=headers)
+        if resp_owned.status_code != 200:
+            fail(f"list_repos ownership=owned failed: {resp_owned.status_code} {resp_owned.text}")
+        body_owned = resp_owned.json()
+        if not body_owned.get("success"):
+            fail(f"list_repos ownership=owned success flag is false: {body_owned}")
+        repos_owned = body_owned.get("repos")
+        if not isinstance(repos_owned, list):
+            fail(f"list_repos owned 'repos' is not a list: {type(repos_owned)}")
+        if len(repos_owned) > len(repos):
+            fail(f"owned repo count {len(repos_owned)} exceeds all repos {len(repos)}")
+
+        test_pat = os.environ.get("TEST_PAT")
+        if test_pat:
+            pat_headers = {"Authorization": f"token {test_pat}"}
+            resp_pat = client.get("/repos", headers=pat_headers)
+            if resp_pat.status_code != 200:
+                fail(f"list_repos with PAT failed: {resp_pat.status_code} {resp_pat.text}")
+            body_pat = resp_pat.json()
+            if not body_pat.get("success"):
+                fail(f"list_repos PAT success flag is false: {body_pat}")
+            if not isinstance(body_pat.get("repos"), list):
+                fail(f"list_repos PAT 'repos' is not a list: {type(body_pat.get('repos'))}")
+
         print(
             json.dumps(
                 {
                     "test": "gitea_list_repos",
                     "status": "ok",
                     "repo_count": len(repos),
+                    "owned_repo_count": len(repos_owned),
+                    "pat_tested": bool(test_pat),
                 }
             )
         )

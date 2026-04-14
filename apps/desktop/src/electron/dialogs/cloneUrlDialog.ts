@@ -7,10 +7,17 @@ export interface CloneUrlData {
   path: string;
 }
 
+export interface CloneUrlDialogOptions {
+  initialCloneUrl?: string;
+}
+
 const isDev = process.env.DEV !== undefined;
 const isPreview = process.env.PREVIEW !== undefined;
 
-export function createCloneUrlDialog(parentWindow: BrowserWindow): Promise<CloneUrlData | null> {
+export function createCloneUrlDialog(
+  parentWindow: BrowserWindow,
+  options?: CloneUrlDialogOptions,
+): Promise<CloneUrlData | null> {
   return new Promise((resolve) => {
     const dialog = new BrowserWindow({
       width: 540,
@@ -28,12 +35,18 @@ export function createCloneUrlDialog(parentWindow: BrowserWindow): Promise<Clone
 
     dialog.setMenuBarVisibility(false);
 
+    const prefill = options?.initialCloneUrl?.trim();
+    const hashPath =
+      prefill !== undefined && prefill.length > 0
+        ? `/clone-url?cloneUrl=${encodeURIComponent(prefill)}`
+        : '/clone-url';
+
     if (isDev) {
-      dialog.loadURL('http://localhost:5173/#/clone-url');
+      dialog.loadURL(`http://localhost:5173/#${hashPath}`);
     } else if (isPreview) {
-      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/clone-url' });
+      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: hashPath });
     } else {
-      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: '/clone-url' });
+      dialog.loadFile(path.join(__dirname, '../../index.html'), { hash: hashPath });
     }
 
     dialog.once('ready-to-show', () => {

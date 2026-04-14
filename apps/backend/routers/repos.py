@@ -3,11 +3,11 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
+from typing import Literal, Optional
 
 from database import get_db
 from config import settings
@@ -69,18 +69,20 @@ def _verify_owner(user_id: str, url_owner: str, db: Session) -> None:
 
 @router.get("/repos")
 @user_limiter.limit("60/minute")
-async def list_repos(request: Request, token: str = Depends(verify_token), db: Session = Depends(get_db)):
-    """List Gitea repositories for the current user (protected)."""
+async def list_repos(
+    request: Request,
+    ownership: Literal["all", "owned"] = Query("all"),
+    user_info: dict = Depends(verify_token_or_pat),
+    db: Session = Depends(get_db),
+):
+    """List Gitea repositories for the current user (JWT or PAT; protected)."""
     logger.debug("list_repos", endpoint="/repos", method="GET")
-    user_res = await get_auth().get_user(token)
-    logger.debug("list_repos", get_user_success=user_res.get("success"))
+    user_id = user_info.get("user_id")
+    if not user_id:
+        logger.warning("list_repos", status="failed", reason="missing_user_id")
+        raise HTTPException(status_code=401, detail="Unable to identify user")
 
-    if not user_res.get("success"):
-        logger.warning("list_repos", status="failed", reason="user_fetch_failed", message=user_res.get("message"))
-        raise HTTPException(status_code=401, detail=user_res.get("message", "Unable to fetch user"))
-
-    user_id = user_res["user"]["id"]
-    gitea_username = _resolve_gitea_username(user_id, db)
+    gitea_username = _resolve_gitea_username(str(user_id), db)
     logger.debug("list_repos", user_id=user_id, gitea_username=gitea_username)
 
     svc = RepoService()
@@ -91,7 +93,13 @@ async def list_repos(request: Request, token: str = Depends(verify_token), db: S
         if "does not exist" in str(res.get("message", "")):
             return {"success": True, "repos": []}
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to list repos"))
-    return {"success": True, "repos": res.get("repos", [])}
+
+    repos: list = list(res.get("repos", []))
+    if ownership == "owned":
+        owned_ids = res.get("owned_ids") or set()
+        repos = [r for r in repos if r.get("id") in owned_ids]
+
+    return {"success": True, "repos": repos}
 
 
 @router.post("/repos")

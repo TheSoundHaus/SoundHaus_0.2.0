@@ -66,10 +66,16 @@ export function useProjectActions() {
         return completeOpenSoundHausProject(projectPath);
     }
 
-    const handleProjectClone = async () => {
-        const cloneInfo = await showCloneUrl();
+    const runCloneAfterPicker = async (options?: {
+        initialCloneUrl?: string;
+    }): Promise<boolean> => {
+        const cloneInfo = await showCloneUrl(
+            options?.initialCloneUrl?.trim()
+                ? { initialCloneUrl: options.initialCloneUrl.trim() }
+                : {},
+        );
         if (!cloneInfo) {
-            return;
+            return false;
         }
 
         try {
@@ -79,23 +85,34 @@ export function useProjectActions() {
                 type: 'success',
                 title: 'Project downloaded',
                 detail: `${name}\n${clonedRepoPath}`,
-            })
+            });
 
             const git = await hasGitFile(clonedRepoPath);
             if (git) {
                 const projectName = getProjectName(clonedRepoPath);
                 await window.electron?.setLastProjectPath(clonedRepoPath);
                 await trackRecentProject(clonedRepoPath, projectName);
-                navigate('/project', {state: {projectPath: clonedRepoPath}});
+                navigate('/project', { state: { projectPath: clonedRepoPath } });
+                return true;
             }
+            return false;
         } catch (error) {
             showToast({
                 type: 'error',
                 title: "Couldn't download project",
                 detail: error instanceof Error ? error.message : String(error),
-            })
+            });
+            return false;
         }
-    }
+    };
+
+    const handleProjectClone = async () => {
+        await runCloneAfterPicker();
+    };
+
+    const handleCloneOnlineRepo = async (initialCloneUrl: string): Promise<boolean> => {
+        return runCloneAfterPicker({ initialCloneUrl });
+    };
 
     const handleServerExplore = async () => {
         window.open("https://www.thesound.haus/", "_blank");
@@ -179,6 +196,7 @@ export function useProjectActions() {
 
     return {
         handleProjectClone,
+        handleCloneOnlineRepo,
         handleServerExplore,
         handleAbletonImport,
         handleExistingProject,

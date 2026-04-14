@@ -6,8 +6,8 @@ export function useElectronIPC() {
         return await window.electron?.showProjectSetup();
     };
 
-    const showCloneUrl = async () => {
-        return await window.electron?.showCloneUrl();
+    const showCloneUrl = async (opts?: { initialCloneUrl?: string }) => {
+        return await window.electron?.showCloneUrl(opts ?? {});
     };
 
     return {

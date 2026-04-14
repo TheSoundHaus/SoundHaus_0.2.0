@@ -80,6 +80,20 @@ export interface RecentProject {
   lastOpened: string
 }
 
+export type OnlineRepoItemStatus = 'installed_locally' | 'online_only'
+
+export interface OnlineRepoItem {
+  fullName: string
+  displayName: string
+  cloneUrl: string
+  localPath?: string
+  status: OnlineRepoItemStatus
+}
+
+export type GetOwnedReposForOpenDialogResult =
+  | { ok: true; items: OnlineRepoItem[] }
+  | { ok: false; error: string }
+
 // MIDI Diff types (used in ProjectPage and PianoRollCanvas)
 export type SnapshotNote = {
   pitch: number
@@ -119,7 +133,10 @@ declare global {
       showProjectSetup: () => Promise<ProjectSetupData | null>
       submitProjectSetup: (data: ProjectSetupData) => void
       cancelProjectSetup: () => void
-      showCloneUrl: () => Promise<{ url: string; path: string } | null>
+      showCloneUrl: (
+        opts?: { initialCloneUrl?: string },
+      ) => Promise<{ url: string; path: string } | null>
+      getOwnedReposForOpenDialog: () => Promise<GetOwnedReposForOpenDialogResult>
       submitCloneUrl: (data: { url: string; path: string }) => void
       cancelCloneUrl: () => void
       onMenuAction: (callback: (action: string, payload?: any) => void) => void

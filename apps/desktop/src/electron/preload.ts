@@ -35,7 +35,9 @@ contextBridge.exposeInMainWorld('electron', {
 	showProjectSetup: () => ipcRenderer.invoke('show-project-setup'),
 	submitProjectSetup: (data: any) => ipcRenderer.send('project-setup-submit', data),
 	cancelProjectSetup: () => ipcRenderer.send('project-setup-cancel'),
-	showCloneUrl: () => ipcRenderer.invoke('show-clone-url'),
+	showCloneUrl: (opts?: { initialCloneUrl?: string }) =>
+		ipcRenderer.invoke('show-clone-url', opts ?? {}),
+	getOwnedReposForOpenDialog: () => ipcRenderer.invoke('get-owned-repos-for-open-dialog'),
 	submitCloneUrl: (data: any) => ipcRenderer.send('clone-url-submit', data),
 	cancelCloneUrl: () => ipcRenderer.send('clone-url-cancel'),
 

@@ -13,6 +13,7 @@ import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
 import { buildSearchableIndex } from './menuIndexer';
 import { recentProjectsManager } from './recentProjectsManager';
+import { getOwnedReposForOpenDialog } from './ownedRepos';
 import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
@@ -569,11 +570,17 @@ ipcMain.handle('show-project-setup', async (event: IpcMainInvokeEvent) => {
   return await createProjectSetupDialog(win);
 });
 
-ipcMain.handle('show-clone-url', async (event: IpcMainInvokeEvent) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return null;
-  return await createCloneUrlDialog(win);
-});
+ipcMain.handle(
+  'show-clone-url',
+  async (event: IpcMainInvokeEvent, opts?: { initialCloneUrl?: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return null;
+    const trimmed =
+      typeof opts?.initialCloneUrl === 'string' ? opts.initialCloneUrl.trim() : '';
+    const dialogOpts = trimmed ? { initialCloneUrl: trimmed } : undefined;
+    return await createCloneUrlDialog(win, dialogOpts);
+  },
+);
 
 ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string, destinationPath: string) => {
   const allowedRemote = await getAllowedCloneRemote();
@@ -1186,6 +1193,16 @@ ipcMain.handle('get-recent-projects', async(_event: IpcMainInvokeEvent) => {
   } catch (error) {
     console.error('[get-recent-projects] Error:', error);
     return [];
+  }
+});
+
+ipcMain.handle('get-owned-repos-for-open-dialog', async (_event: IpcMainInvokeEvent) => {
+  try {
+    return await getOwnedReposForOpenDialog();
+  } catch (error) {
+    console.error('[get-owned-repos-for-open-dialog] Error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: msg };
   }
 });
 

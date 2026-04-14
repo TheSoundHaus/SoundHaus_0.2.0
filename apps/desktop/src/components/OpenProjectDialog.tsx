@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { FolderOpen, X, Clock, FolderSearch, Trash2 } from 'lucide-react'
-import type { RecentProject } from '../types/index'
+import { FolderOpen, X, Clock, FolderSearch, Trash2, Cloud, ChevronLeft, Download } from 'lucide-react'
+import type { OnlineRepoItem, RecentProject } from '../types/index'
 import electronAPI from '../services/electronAPI'
 import { useToast } from './ToastProvider'
 import InvalidProjectNotice from './InvalidProjectNotice'
@@ -17,6 +17,8 @@ interface OpenProjectDialogProps {
    * project setup + initRepo.
    */
   onSetupAbletonFolderAsSoundHaus?: (folderPath: string) => Promise<boolean>
+  /** Opens the clone dialog with an optional pre-filled URL (online-only repos). */
+  onCloneOnlineRepo?: (cloneUrl: string) => Promise<void>
 }
 
 const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
@@ -24,6 +26,7 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   onClose,
   onSelectProject,
   onSetupAbletonFolderAsSoundHaus,
+  onCloneOnlineRepo,
 }) => {
   const { showToast } = useToast()
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
@@ -34,6 +37,10 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
     variant: InvalidProjectNoticeVariant
     path: string
   } | null>(null)
+  const [onlinePanelOpen, setOnlinePanelOpen] = useState(false)
+  const [onlineLoading, setOnlineLoading] = useState(false)
+  const [onlineError, setOnlineError] = useState<string | null>(null)
+  const [onlineItems, setOnlineItems] = useState<OnlineRepoItem[]>([])
 
   useEffect(() => {
     if (!isOpen) return
@@ -56,16 +63,29 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   }, [isOpen])
 
   useEffect(() => {
+    if (!isOpen) {
+      setOnlinePanelOpen(false)
+      setOnlineItems([])
+      setOnlineError(null)
+      setOnlineLoading(false)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (invalidNotice) return
-      if (e.key === 'Escape' && !loading) {
-        onClose()
+      if (e.key === 'Escape' && !loading && !onlineLoading) {
+        if (onlinePanelOpen) {
+          setOnlinePanelOpen(false)
+        } else {
+          onClose()
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, loading, onClose, invalidNotice])
+  }, [isOpen, loading, onlineLoading, onClose, invalidNotice, onlinePanelOpen])
 
   const handleSelectProject = (projectPath: string) => {
     setSelectedPath(projectPath)
@@ -176,13 +196,80 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
     }
   }
 
+  const loadOnlineRepos = async () => {
+    setOnlineLoading(true)
+    setOnlineError(null)
+    try {
+      const res = await window.electron?.getOwnedReposForOpenDialog()
+      if (!res) {
+        const msg = 'This action is only available in the SoundHaus app.'
+        setOnlineError(msg)
+        showToast({ type: 'error', title: 'Unavailable', detail: msg })
+        return
+      }
+      if (!res.ok) {
+        setOnlineError(res.error)
+        showToast({
+          type: 'error',
+          title: 'Could not load online projects',
+          detail: res.error,
+        })
+        return
+      }
+      setOnlineItems(res.items)
+    } finally {
+      setOnlineLoading(false)
+    }
+  }
+
+  const handleOpenOnlinePanel = () => {
+    setOnlinePanelOpen(true)
+    setOnlineItems([])
+    setOnlineError(null)
+    void loadOnlineRepos()
+  }
+
+  const handleOpenInstalledFromOnline = async (localPath: string) => {
+    setLoading(true)
+    try {
+      const hasGit = await electronAPI.hasGitFile(localPath)
+      if (!hasGit) {
+        showToast({
+          type: 'error',
+          title: "Couldn't open project",
+          detail: 'This folder is no longer a valid git project.',
+        })
+        return
+      }
+      const success = await onSelectProject(localPath)
+      if (success) {
+        setOnlinePanelOpen(false)
+        onClose()
+      }
+    } catch (error) {
+      showToast({
+        type: 'error',
+        title: "Couldn't open project",
+        detail: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCloneFromOnlineList = async (cloneUrl: string) => {
+    if (!onCloneOnlineRepo) return
+    setOnlinePanelOpen(false)
+    await onCloneOnlineRepo(cloneUrl)
+  }
+
   if (!isOpen) return null
 
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center"
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.55)' }}
-      onClick={() => !invalidNotice && onClose()}
+      onClick={() => !invalidNotice && !onlinePanelOpen && onClose()}
     >
       <div
         ref={dialogRef}
@@ -272,8 +359,9 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center gap-2 px-5 py-4 border-t border-border-subtle">
+        <div className="flex flex-wrap items-center gap-2 px-5 py-4 border-t border-border-subtle">
           <button
+            type="button"
             onClick={handleOpenFromFilepath}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
@@ -285,7 +373,20 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
             <FolderSearch className="w-4 h-4" />
             Open from Filepath
           </button>
-          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={handleOpenOnlinePanel}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
+                       bg-bg-elevated border border-border-default text-text-secondary
+                       hover:text-text-primary hover:border-accent/30
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       transition-all duration-200 cursor-pointer"
+          >
+            <Cloud className="w-4 h-4" />
+            Open Online Project
+          </button>
+          <div className="flex-1 min-w-[1rem]" />
           <button
             onClick={onClose}
             disabled={loading}
@@ -309,6 +410,107 @@ const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
           </button>
         </div>
       </div>
+
+      {onlinePanelOpen && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+          onClick={() => !onlineLoading && setOnlinePanelOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="online-repos-title"
+            className="w-[520px] max-h-[72vh] glass-panel-heavy rounded-2xl flex flex-col animate-scale-in overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border-subtle">
+              <button
+                type="button"
+                onClick={() => !onlineLoading && setOnlinePanelOpen(false)}
+                className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0
+                           text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary/60
+                           disabled:opacity-50 transition-all duration-200 cursor-pointer"
+                disabled={onlineLoading}
+                aria-label="Back to recent projects"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 shrink-0">
+                  <Cloud className="w-4 h-4 text-accent" />
+                </div>
+                <h2 id="online-repos-title" className="text-sm font-semibold text-text-primary truncate">
+                  Your online projects
+                </h2>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 min-h-[200px]">
+              {onlineLoading && (
+                <p className="text-sm text-text-tertiary text-center py-12">Loading…</p>
+              )}
+              {!onlineLoading && onlineError && (
+                <p className="text-sm text-text-secondary text-center py-8 px-2">{onlineError}</p>
+              )}
+              {!onlineLoading && !onlineError && onlineItems.length === 0 && (
+                <p className="text-sm text-text-tertiary text-center py-12">
+                  You don&apos;t have any owned projects on the server yet.
+                </p>
+              )}
+              {!onlineLoading && !onlineError && onlineItems.length > 0 && (
+                <div className="space-y-2">
+                  {onlineItems.map((item) => (
+                    <div
+                      key={item.fullName}
+                      className="flex flex-col sm:flex-row sm:items-center gap-2 px-3 py-3 rounded-xl border border-border-subtle bg-bg-primary/40"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-text-primary truncate">
+                          {item.displayName}
+                        </div>
+                        <div className="text-xs text-text-tertiary truncate mt-0.5">{item.fullName}</div>
+                        <div className="text-xs text-text-tertiary/70 mt-1">
+                          {item.status === 'installed_locally'
+                            ? 'Installed locally'
+                            : 'Online only'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {item.status === 'installed_locally' && item.localPath && (
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenInstalledFromOnline(item.localPath as string)}
+                            disabled={loading}
+                            className="px-3 py-2 rounded-lg text-xs font-medium btn-brand
+                                       disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            Open
+                          </button>
+                        )}
+                        {item.status === 'online_only' && onCloneOnlineRepo && (
+                          <button
+                            type="button"
+                            onClick={() => void handleCloneFromOnlineList(item.cloneUrl)}
+                            disabled={loading}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium
+                                       bg-bg-elevated border border-border-default text-text-secondary
+                                       hover:text-text-primary hover:border-accent/30
+                                       disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Clone
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <InvalidProjectNotice
         open={invalidNotice !== null}

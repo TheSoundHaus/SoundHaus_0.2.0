@@ -10,7 +10,7 @@ interface ProjectTab {
 }
 
 const Navbar = () => {
-    const { setupAbletonFolderAsSoundHaus } = useProjectActions()
+    const { setupAbletonFolderAsSoundHaus, handleCloneOnlineRepo } = useProjectActions()
     const location = useLocation()
     const navigate = useNavigate()
     const [tabs, setTabs] = useState<ProjectTab[]>([])
@@ -126,6 +126,10 @@ const Navbar = () => {
                 onClose={() => setIsDialogOpen(false)}
                 onSelectProject={openProject}
                 onSetupAbletonFolderAsSoundHaus={setupAbletonFolderAsSoundHaus}
+                onCloneOnlineRepo={async (url) => {
+                    const ok = await handleCloneOnlineRepo(url)
+                    if (ok) setIsDialogOpen(false)
+                }}
             />
         </nav>
     )

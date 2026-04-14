@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Download, FolderSearch, X, AlertCircle } from 'lucide-react'
 
 function parseAllowedHostPort(remote: string): string {
@@ -31,7 +32,9 @@ function getCloneUrlHostPort(url: string): string | null {
 }
 
 const CloneUrlDialog = () => {
-    const [cloneUrl, setCloneUrl] = useState('')
+    const [searchParams] = useSearchParams()
+    const prefill = searchParams.get('cloneUrl') ?? ''
+    const [cloneUrl, setCloneUrl] = useState(prefill)
     const [clonePath, setClonePath] = useState('')
     const [allowedHostPort, setAllowedHostPort] = useState<string>('')
     const [loadingRemote, setLoadingRemote] = useState(true)

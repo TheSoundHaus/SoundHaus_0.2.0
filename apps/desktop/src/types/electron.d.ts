@@ -4,6 +4,20 @@ export interface ProjectSetupData {
   isPublic: boolean;
 }
 
+export type OnlineRepoItemStatus = 'installed_locally' | 'online_only';
+
+export interface OnlineRepoItem {
+  fullName: string;
+  displayName: string;
+  cloneUrl: string;
+  localPath?: string;
+  status: OnlineRepoItemStatus;
+}
+
+export type GetOwnedReposForOpenDialogResult =
+  | { ok: true; items: OnlineRepoItem[] }
+  | { ok: false; error: string };
+
 declare global {
   interface Window {
     electronAPI?: {
@@ -38,7 +52,10 @@ declare global {
       showProjectSetup: () => Promise<ProjectSetupData | null>
       submitProjectSetup: (data: ProjectSetupData) => void
       cancelProjectSetup: () => void
-      showCloneUrl: () => Promise<{ url: string; path: string } | null>
+      showCloneUrl: (
+        opts?: { initialCloneUrl?: string },
+      ) => Promise<{ url: string; path: string } | null>
+      getOwnedReposForOpenDialog: () => Promise<GetOwnedReposForOpenDialogResult>
       submitCloneUrl: (data: { url: string; path: string }) => void
       cancelCloneUrl: () => void
       onMenuAction: (callback: (action: string, payload?: any) => void) => void

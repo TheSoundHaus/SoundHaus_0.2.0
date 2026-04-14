@@ -13,6 +13,7 @@ const HomePage = () => {
         handleAbletonImport,
         handleOpenSoundHausProject,
         handleSelectFromDialog,
+        handleCloneOnlineRepo,
         setupAbletonFolderAsSoundHaus,
         isOpenDialogVisible,
         setIsOpenDialogVisible,
@@ -100,6 +101,10 @@ const HomePage = () => {
                 onClose={() => setIsOpenDialogVisible(false)}
                 onSelectProject={handleSelectFromDialog}
                 onSetupAbletonFolderAsSoundHaus={setupAbletonFolderAsSoundHaus}
+                onCloneOnlineRepo={async (url) => {
+                    const ok = await handleCloneOnlineRepo(url)
+                    if (ok) setIsOpenDialogVisible(false)
+                }}
             />
         </div>
     )
