@@ -44,7 +44,7 @@ import CloneModal from "@/components/CloneModal";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { getReadme, updateReadme } from "@/lib/api/readme";
-import { deleteRepoAction, renameRepoAction, updateVisibilityAction } from "@/actions/repos";
+import { deleteRepoAction, updateVisibilityAction, forkRepoAction } from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff, getDiffStatus } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
@@ -75,6 +75,8 @@ interface RepoDetailClientProps {
   allGenres: Genre[];
   initialCommits: CommitListResponse | null;
   initialStems: SnippetVersion | null;
+  ownerYoutube: string | null;
+  ownerSpotify: string | null;
 }
 
 export default function RepoDetailClient({
@@ -87,6 +89,8 @@ export default function RepoDetailClient({
   allGenres,
   initialCommits,
   initialStems,
+  ownerYoutube,
+  ownerSpotify,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
     "overview" | "commits" | "events" | "collaborators" | "about" | "settings"
@@ -111,7 +115,6 @@ export default function RepoDetailClient({
   const readmeLoadedRef = useRef(false);
 
   // Settings form state
-  const [newName, setNewName] = useState(repo);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isPrivate, setIsPrivate] = useState(stats?.private ?? true);
 
@@ -139,6 +142,22 @@ export default function RepoDetailClient({
   // Clone/Remix
   const [showCloneModal, setShowCloneModal] = useState(false);
   const [remixHovered, setRemixHovered] = useState(false);
+
+  // Fork state
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
+
+  const handleFork = useCallback(async () => {
+    setForking(true);
+    setForkError(null);
+    const result = await forkRepoAction(owner, repo);
+    setForking(false);
+    if (result.success) {
+      router.push(`/repository/${result.fork_owner}/${result.fork_name}`);
+    } else {
+      setForkError(result.error);
+    }
+  }, [owner, repo, router]);
 
   function handleCompareToggle() {
     if (compareMode) {
@@ -197,6 +216,13 @@ export default function RepoDetailClient({
   const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
   const [invitePermission, setInvitePermission] = useState<"write" | "admin">("write");
 
+  // Determine if current user is the owner or an admin collaborator
+  const isOwner = user?.username === owner;
+  const isAdminCollab = !isOwner && collaborators.some(
+    (c) => c.username === user?.username && c.permission === "admin"
+  );
+  const canEdit = isOwner || isAdminCollab;
+
   // Fetch collaborators & invitations when tab is active
   const loadCollaboratorsData = useCallback(async () => {
     setCollabLoading(true);
@@ -212,7 +238,7 @@ export default function RepoDetailClient({
   }, [owner, repo]);
 
   useEffect(() => {
-    if (activeTab === "collaborators" || activeTab === "overview") {
+    if (activeTab === "collaborators" || activeTab === "overview" || activeTab === "settings") {
       loadCollaboratorsData();
     }
     if (activeTab === "events") {
@@ -310,21 +336,6 @@ export default function RepoDetailClient({
       const result = await deleteRepoAction(owner, repo);
       if (result.success) {
         router.push("/repositories");
-      } else {
-        setSettingsError(result.error);
-      }
-    });
-  }
-
-  function handleRename(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newName.trim() || newName === repo) return;
-    setSettingsError(null);
-    startTransition(async () => {
-      const result = await renameRepoAction(owner, repo, newName.trim());
-      if (result.success) {
-        router.push(`/repository/${owner}/${newName.trim()}`);
-        router.refresh();
       } else {
         setSettingsError(result.error);
       }
@@ -462,9 +473,10 @@ export default function RepoDetailClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
+    { key: "about" as const, label: "About", icon: BookOpen },
     { key: "events" as const, label: "Timeline", icon: Activity },
     { key: "collaborators" as const, label: "Collaborators", icon: Users },
-    { key: "settings" as const, label: "Settings", icon: Settings },
+    ...(canEdit ? [{ key: "settings" as const, label: "Settings", icon: Settings }] : []),
   ];
 
   return (
@@ -502,42 +514,76 @@ export default function RepoDetailClient({
           </div>
         </div>
         <div className="flex gap-2">
+          {/* Clone button (secondary) */}
           <button
             onClick={() => setShowCloneModal(true)}
-            onMouseEnter={() => setRemixHovered(true)}
-            onMouseLeave={() => setRemixHovered(false)}
-            className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95"
-            style={{ minWidth: "120px" }}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
           >
-            <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
-              <span
-                className="absolute inline-flex items-center justify-center"
-                style={{
-                  transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
-                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-                }}
-              >
-                <RemixIcon hovered={remixHovered} size={18} />
-              </span>
-              <span
-                className="absolute inline-flex items-center justify-center whitespace-nowrap"
-                style={{
-                  transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
-                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-                }}
-              >
-                Clone
-              </span>
-            </span>
+            <Download size={16} />
+            Clone
           </button>
+          {/* Remix button — public repos, non-owners only */}
+          {!isPrivate && user?.username !== owner && (
+            <button
+              onClick={handleFork}
+              disabled={forking}
+              onMouseEnter={() => setRemixHovered(true)}
+              onMouseLeave={() => setRemixHovered(false)}
+              className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95 disabled:opacity-50"
+              style={{ minWidth: "120px" }}
+            >
+              <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
+                <span
+                  className="absolute inline-flex items-center justify-center"
+                  style={{
+                    transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
+                    transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                  }}
+                >
+                  <RemixIcon hovered={remixHovered} size={18} />
+                </span>
+                <span
+                  className="absolute inline-flex items-center justify-center whitespace-nowrap"
+                  style={{
+                    transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
+                    transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                  }}
+                >
+                  {forking ? "Remixing…" : "Remix"}
+                </span>
+              </span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Remixed from banner */}
+      {stats?.fork_parent && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-glass-blue/20 bg-glass-blue/5 px-4 py-2.5 text-sm text-zinc-300">
+          <GitBranch size={14} className="text-glass-blue" />
+          Remixed from{" "}
+          <Link
+            href={`/explore/${stats.fork_parent.owner}/${stats.fork_parent.repo}`}
+            className="font-medium text-glass-blue hover:underline"
+          >
+            {stats.fork_parent.owner}/{stats.fork_parent.repo}
+          </Link>
+        </div>
+      )}
+
+      {/* Fork error banner */}
+      {forkError && (
+        <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {forkError}
+        </div>
+      )}
 
       {/* Clone Modal */}
       {showCloneModal && (
         <CloneModal
           owner={owner}
           repo={repo}
+          cloneUrl={stats?.clone_url}
           onClose={() => setShowCloneModal(false)}
         />
       )}
@@ -550,7 +596,7 @@ export default function RepoDetailClient({
             duration={snippet?.duration ?? undefined}
             comments={snippetComments}
             currentUserId={user?.id}
-            isOwner={user?.username === owner}
+            isOwner={canEdit}
             onAddComment={async (ts, text) => {
               const res = await addSnippetComment(owner, repo, {
                 timestamp_seconds: ts,
@@ -696,21 +742,42 @@ export default function RepoDetailClient({
           {/* Sidebar */}
           <div className="space-y-8">
             {/* Thumbnail */}
-            {stats?.thumbnail_url && (
+            {stats?.thumbnail_url && stats.thumbnail_type === "image" && (
               <div className="glass-card rounded-lg overflow-hidden">
-                {stats.thumbnail_type === "youtube" ? (
-                  <iframe
-                    src={stats.thumbnail_url.replace("watch?v=", "embed/")}
-                    className="w-full aspect-video"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <img
-                    src={stats.thumbnail_url}
-                    alt={`${repo} thumbnail`}
-                    className="w-full object-cover"
-                  />
+                <img
+                  src={stats.thumbnail_url}
+                  alt={`${repo} thumbnail`}
+                  className="w-full object-cover"
+                />
+              </div>
+            )}
+
+            {/* Social Links (YouTube / Spotify) */}
+            {(ownerYoutube || ownerSpotify) && (
+              <div className="flex items-center gap-3">
+                {ownerYoutube && (
+                  <a
+                    href={ownerYoutube}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-md border border-zinc-700/50 bg-zinc-800/50 px-3 py-2 text-xs text-zinc-400 hover:text-red-400 hover:border-red-500/30 transition-all"
+                    title="YouTube"
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                    YouTube
+                  </a>
+                )}
+                {ownerSpotify && (
+                  <a
+                    href={ownerSpotify}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-md border border-zinc-700/50 bg-zinc-800/50 px-3 py-2 text-xs text-zinc-400 hover:text-green-400 hover:border-green-500/30 transition-all"
+                    title="Spotify"
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+                    Spotify
+                  </a>
                 )}
               </div>
             )}
@@ -729,7 +796,7 @@ export default function RepoDetailClient({
                 <div className="space-y-3">
                   {collaborators.map((c) => (
                     <div key={c.login} className="flex items-center gap-3">
-                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={28} />
+                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} name={c.username || c.login} size={28} />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-zinc-200 truncate">
                           {c.username || c.login}
@@ -1157,7 +1224,7 @@ export default function RepoDetailClient({
 
                               {/* Avatar */}
                               <div className="shrink-0">
-                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} size={32} />
+                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} name={item.actor} size={32} />
                               </div>
 
                               {/* Event details */}
@@ -1224,7 +1291,18 @@ export default function RepoDetailClient({
             </div>
           )}
 
-          {/* Invite Collaborators Section */}
+          {/* Invite Collaborators Section — owner or admin collab, private repos only */}
+          {canEdit && !isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
+                <Users size={18} /> Public Repository
+              </h2>
+              <p className="text-sm text-zinc-400">
+                Invitations are only available for private repositories. For public projects, collaborators should fork the repository to contribute.
+              </p>
+            </div>
+          )}
+          {canEdit && isPrivate && (
           <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <UserPlus size={18} /> Invite Collaborators
@@ -1232,15 +1310,7 @@ export default function RepoDetailClient({
 
             {/* Single search bar with inline send button */}
             <div className="relative">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const value = searchQuery.trim();
-                  if (value) handleInvite(value);
-                }}
-                className="flex gap-3"
-              >
-                <div className="relative flex-1">
+              <div className="relative">
                   <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
                     <Search size={16} className="text-zinc-400 shrink-0" />
                     <input
@@ -1288,15 +1358,7 @@ export default function RepoDetailClient({
                       )}
                     </div>
                   )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={isPending || !searchQuery.trim()}
-                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50 shrink-0"
-                >
-                  <Send size={14} /> Send Invite
-                </button>
-              </form>
+              </div>
 
               {/* Role selector */}
               <div className="mt-3 flex items-center gap-3">
@@ -1328,8 +1390,10 @@ export default function RepoDetailClient({
               </div>
             </div>
           </div>
+          )}
 
-          {/* Pending Invitations */}
+          {/* Pending Invitations — owner or admin collab, private repos only */}
+          {canEdit && isPrivate && (
           <div className="glass-card rounded-lg p-6">
             <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
               <Clock size={18} /> Pending Invitations
@@ -1372,6 +1436,7 @@ export default function RepoDetailClient({
               </div>
             )}
           </div>
+          )}
 
           {/* Active Collaborators */}
           <div className="glass-card rounded-lg p-6">
@@ -1398,7 +1463,7 @@ export default function RepoDetailClient({
                           onClick={() => setExpandedCollab(isExpanded ? null : c.login)}
                           className="flex items-center gap-3 text-left group"
                         >
-                          <UserAvatar src={c.avatar_url} alt={c.username} size={40} />
+                          <UserAvatar src={c.avatar_url} alt={c.username} name={c.username} size={40} />
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-base font-bold text-white">{c.username}</span>
@@ -1505,6 +1570,120 @@ export default function RepoDetailClient({
         </div>
       )}
 
+      {/* ── About Tab (README) ──────────────────────────────────────── */}
+      {activeTab === "about" && (
+        <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">About</h2>
+
+            {/* Edit/Preview toggle (only for owner or collaborator) */}
+            {user && (
+              <div className="flex rounded-md border border-zinc-700 overflow-hidden">
+                <button
+                  onClick={() => setReadmeTab("preview")}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    readmeTab === "preview"
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <Eye size={14} className="mr-1.5 inline" />
+                  Preview
+                </button>
+                <button
+                  onClick={() => setReadmeTab("edit")}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    readmeTab === "edit"
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <FileEdit size={14} className="mr-1.5 inline" />
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+
+          {readmeError && (
+            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {readmeError}
+            </div>
+          )}
+
+          {readmeLoading ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-4 w-3/4 rounded bg-zinc-800" />
+              <div className="h-4 w-1/2 rounded bg-zinc-800" />
+              <div className="h-4 w-5/6 rounded bg-zinc-800" />
+              <div className="h-4 w-2/3 rounded bg-zinc-800" />
+            </div>
+          ) : readmeTab === "preview" ? (
+            /* Markdown preview */
+            <div className="prose prose-invert prose-zinc max-w-none">
+              {readmeContent ? (
+                <Markdown>{readmeContent}</Markdown>
+              ) : (
+                <p className="text-zinc-500 italic">
+                  No README yet. Switch to Edit to add a description for this project.
+                </p>
+              )}
+            </div>
+          ) : (
+            /* Edit mode */
+            <div className="space-y-4">
+              <textarea
+                value={readmeDraft}
+                onChange={(e) => setReadmeDraft(e.target.value)}
+                placeholder="Write a description for your project using Markdown..."
+                className="w-full min-h-[300px] rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-y"
+                maxLength={50000}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">
+                  {readmeDraft.length.toLocaleString()} / 50,000 characters · Markdown supported
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setReadmeDraft(readmeContent);
+                      setReadmeTab("preview");
+                    }}
+                    className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={readmeSaving || readmeDraft === readmeContent}
+                    onClick={async () => {
+                      setReadmeSaving(true);
+                      setReadmeError(null);
+                      try {
+                        const res = await updateReadme(owner, repo, readmeDraft);
+                        if (res.success) {
+                          setReadmeContent(res.data);
+                          setReadmeTab("preview");
+                        } else {
+                          setReadmeError(res.error);
+                        }
+                      } catch {
+                        setReadmeError("Failed to save README");
+                      } finally {
+                        setReadmeSaving(false);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+                  >
+                    <Save size={14} />
+                    {readmeSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Settings Tab ───────────────────────────────────────────── */}
       {activeTab === "settings" && (
         <div className="glass-card rounded-lg p-6">
@@ -1518,29 +1697,7 @@ export default function RepoDetailClient({
           )}
 
           <div className="space-y-6">
-            {/* 1. Project Name */}
-            <form onSubmit={handleRename}>
-              <label className="mb-2 block text-sm font-medium">
-                Project Name
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 focus:border-glass-blue focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={isPending || newName === repo || !newName.trim()}
-                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save size={14} /> Rename
-                </button>
-              </div>
-            </form>
-
-            {/* 2. Genre Selector */}
+            {/* 1. Genre Selector */}
             <GenreEditor
               owner={owner}
               repo={repo}
@@ -1735,7 +1892,8 @@ export default function RepoDetailClient({
               }
             />
 
-            {/* 6. Delete project — bottom right */}
+            {/* 6. Delete project — owner only */}
+            {isOwner && (
             <div className="flex justify-end pt-4 border-t border-zinc-800">
               <button
                 onClick={handleDelete}
@@ -1745,6 +1903,7 @@ export default function RepoDetailClient({
                 <Trash2 size={14} /> Delete Project
               </button>
             </div>
+            )}
 
 
           </div>
