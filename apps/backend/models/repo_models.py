@@ -64,6 +64,9 @@ class RepoData(Base):
 
     # Whether this repo appears in public searches / explore feed
     is_public = Column(Boolean, default=True, nullable=False)
+
+    # If this repo is a fork, stores the source repo's gitea_id (e.g. "uuid/repo-name")
+    forked_from = Column(String(255), nullable=True, default=None)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too

@@ -29,6 +29,7 @@ import {
   UserPlus,
   UserMinus,
   BookOpen,
+  GitFork,
 } from "lucide-react";
 import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
 import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
@@ -147,18 +148,6 @@ export default function RepoDetailClient({
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
 
-  const handleFork = useCallback(async () => {
-    setForking(true);
-    setForkError(null);
-    const result = await forkRepoAction(owner, repo);
-    setForking(false);
-    if (result.success) {
-      router.push(`/repository/${result.fork_owner}/${result.fork_name}`);
-    } else {
-      setForkError(result.error);
-    }
-  }, [owner, repo, router]);
-
   function handleCompareToggle() {
     if (compareMode) {
       // Exit compare mode
@@ -216,12 +205,11 @@ export default function RepoDetailClient({
   const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
   const [invitePermission, setInvitePermission] = useState<"write" | "admin">("write");
 
-  // Determine if current user is the owner or an admin collaborator
-  const isOwner = user?.username === owner;
-  const isAdminCollab = !isOwner && collaborators.some(
-    (c) => c.username === user?.username && c.permission === "admin"
-  );
-  const canEdit = isOwner || isAdminCollab;
+  // Derive the current user's role relative to this repo
+  const isOwner = !!(user?.id && stats?.owner_id && user.id === stats.owner_id);
+  const isCollaborator = !isOwner && collaborators.some((c) => c.login === user?.id);
+  const canWrite = isOwner || isCollaborator;
+  const isForked = !!stats?.forked_from;
 
   // Fetch collaborators & invitations when tab is active
   const loadCollaboratorsData = useCallback(async () => {
@@ -229,7 +217,7 @@ export default function RepoDetailClient({
     setCollabError(null);
     const [collabRes, invRes] = await Promise.all([
       listCollaborators(owner, repo),
-      getRepoInvitations(repo),
+      getRepoInvitations(owner, repo),
     ]);
     if (collabRes.success) setCollaborators(collabRes.data ?? []);
     else setCollabError(collabRes.error);
@@ -291,7 +279,7 @@ export default function RepoDetailClient({
     setInviteError(null);
     setInviteSuccess(null);
     startTransition(async () => {
-      const result = await inviteCollaboratorAction(repo, email, invitePermission);
+      const result = await inviteCollaboratorAction(owner, repo, email, invitePermission);
       if (result.success) {
         setInviteSuccess(`Invitation sent to ${email} as ${invitePermission === "admin" ? "Admin" : "Contributor"}`);
         setSearchQuery("");
@@ -301,7 +289,7 @@ export default function RepoDetailClient({
         setInviteError(result.error);
       }
     });
-  }, [repo, invitePermission, loadCollaboratorsData]);
+  }, [owner, repo, invitePermission, loadCollaboratorsData]);
 
   // Cancel invite handler
   const handleCancelInvite = useCallback(async (invitationId: string) => {
@@ -320,14 +308,32 @@ export default function RepoDetailClient({
   const handleRemoveCollaborator = useCallback(async (username: string) => {
     if (!confirm(`Remove ${username} from this project?`)) return;
     startTransition(async () => {
-      const result = await removeCollaboratorAction(repo, username);
+      const result = await removeCollaboratorAction(owner, repo, username);
       if (result.success) {
         loadCollaboratorsData();
       } else {
         setCollabError(result.error);
       }
     });
-  }, [repo, loadCollaboratorsData]);
+  }, [owner, repo, loadCollaboratorsData]);
+
+  // Fork handler — creates a copy of the project in the user's namespace
+  const handleFork = useCallback(async () => {
+    setForking(true);
+    setForkError(null);
+    try {
+      const result = await forkRepoAction(owner, repo);
+      if (result.success && result.fork) {
+        router.push(`/repository/${result.fork.owner}/${result.fork.name}`);
+      } else if (!result.success) {
+        setForkError(result.error);
+      }
+    } catch {
+      setForkError("Something went wrong. Please try again.");
+    } finally {
+      setForking(false);
+    }
+  }, [owner, repo, router]);
 
   function handleDelete() {
     if (!confirm(`Delete "${repo}"? This cannot be undone.`)) return;
@@ -475,8 +481,8 @@ export default function RepoDetailClient({
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
     { key: "about" as const, label: "About", icon: BookOpen },
     { key: "events" as const, label: "Timeline", icon: Activity },
-    { key: "collaborators" as const, label: "Collaborators", icon: Users },
-    ...(canEdit ? [{ key: "settings" as const, label: "Settings", icon: Settings }] : []),
+    ...(canWrite ? [{ key: "collaborators" as const, label: "Collaborators", icon: Users }] : []),
+    ...(isOwner ? [{ key: "settings" as const, label: "Settings", icon: Settings }] : []),
   ];
 
   return (
@@ -494,6 +500,17 @@ export default function RepoDetailClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
+          {isForked && stats?.forked_from && (
+            <p className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
+              <GitFork size={12} /> Forked from{" "}
+              <Link
+                href={`/repository/${stats.forked_from.replace("/", "/")}`}
+                className="text-zinc-400 hover:text-[#A7C7E7] transition-colors"
+              >
+                {stats.forked_from.split("/").pop()}
+              </Link>
+            </p>
+          )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
               <User size={14} />{" "}
@@ -514,22 +531,13 @@ export default function RepoDetailClient({
           </div>
         </div>
         <div className="flex gap-2">
-          {/* Clone button (secondary) */}
-          <button
-            onClick={() => setShowCloneModal(true)}
-            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
-          >
-            <Download size={16} />
-            Clone
-          </button>
-          {/* Remix button — public repos, non-owners only */}
-          {!isPrivate && user?.username !== owner && (
+          {/* Owner / Collaborator → Clone (direct write access) */}
+          {canWrite && (
             <button
-              onClick={handleFork}
-              disabled={forking}
+              onClick={() => setShowCloneModal(true)}
               onMouseEnter={() => setRemixHovered(true)}
               onMouseLeave={() => setRemixHovered(false)}
-              className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95 disabled:opacity-50"
+              className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95"
               style={{ minWidth: "120px" }}
             >
               <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
@@ -549,10 +557,26 @@ export default function RepoDetailClient({
                     transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
                   }}
                 >
-                  {forking ? "Remixing…" : "Remix"}
+                  Clone
                 </span>
               </span>
             </button>
+          )}
+
+          {/* Public viewer → "Create My Own Version" (fork) */}
+          {!canWrite && user && (
+            <button
+              onClick={handleFork}
+              disabled={forking}
+              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/25 transition-all duration-300 hover:bg-emerald-500 hover:shadow-xl hover:shadow-emerald-500/40 active:scale-95 disabled:opacity-50"
+            >
+              <GitFork size={16} />
+              {forking ? "Creating..." : "Create My Own Version"}
+            </button>
+          )}
+
+          {forkError && (
+            <span className="self-center text-xs text-red-400">{forkError}</span>
           )}
         </div>
       </div>

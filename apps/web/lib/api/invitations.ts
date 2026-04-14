@@ -30,9 +30,9 @@ export async function declineInvitation(invitationId: string): Promise<ApiRespon
     return { success: true, data: result.data };
 }
 
-// GET /repos/{repo_name}/invitations — list all invitations sent by owner for a repo
-export async function getRepoInvitations(repoName: string): Promise<ApiResponse<SentInvitation[]>> {
-    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${repoName}/invitations`);
+// GET /repos/{owner}/{repo_name}/invitations — list all invitations sent by owner for a repo
+export async function getRepoInvitations(owner: string, repoName: string): Promise<ApiResponse<SentInvitation[]>> {
+    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${owner}/${repoName}/invitations`);
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data?.invitations ?? [] };
 }
@@ -54,14 +54,15 @@ export async function cancelInvitation(invitationId: string): Promise<ApiRespons
     return { success: true, data: result.data };
 }
 
-// POST /repos/{repo_name}/collaborators/invite — invite a user by email
+// POST /repos/{owner}/{repo_name}/collaborators/invite — invite a user by email
 export async function inviteCollaborator(
+    owner: string,
     repoName: string,
     email: string,
     permission: string = "write",
 ): Promise<ApiResponse<{ invitation_id: string; message: string }>> {
     const result = await authFetch<{ invitation_id: string; message: string }>(
-        `/repos/${repoName}/collaborators/invite`,
+        `/repos/${owner}/${repoName}/collaborators/invite`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -79,13 +80,14 @@ export async function listCollaborators(owner: string, repoName: string): Promis
     return { success: true, data: result.data?.collaborators ?? [] };
 }
 
-// DELETE /repos/{repo_name}/collaborators/{username} — remove a collaborator
+// DELETE /repos/{owner}/{repo_name}/collaborators/{username} — remove a collaborator
 export async function removeCollaborator(
+    owner: string,
     repoName: string,
     username: string,
 ): Promise<ApiResponse<{ message: string }>> {
     const result = await authFetch<{ message: string }>(
-        `/repos/${repoName}/collaborators/${username}`,
+        `/repos/${owner}/${repoName}/collaborators/${username}`,
         { method: "DELETE" },
     );
     if (!result.success) return { success: false, error: result.error };

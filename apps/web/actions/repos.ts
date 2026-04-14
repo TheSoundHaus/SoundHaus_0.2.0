@@ -102,12 +102,12 @@ export async function updateDescriptionAction(
 export async function forkRepoAction(
   owner: string,
   repo: string,
-): Promise<{ success: true; fork_name: string; fork_owner: string } | { success: false; error: string }> {
+): Promise<{ success: true; fork?: { full_name: string; name: string; owner: string; clone_url: string } } | { success: false; error: string }> {
   try {
     const result = await forkRepo(owner, repo);
     if (!result.success) return { success: false, error: result.error };
-    return { success: true, fork_name: result.data!.fork_name, fork_owner: result.data!.fork_owner };
+    return { success: true, fork: result.data?.fork };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to fork project" };
+    return { success: false, error: e instanceof Error ? e.message : "Failed to create your version" };
   }
 }

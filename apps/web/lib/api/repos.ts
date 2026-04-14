@@ -102,6 +102,19 @@ export async function unstarRepo(owner: string, repo: string): Promise<ApiRespon
     return { success: true, data: result.data };
 }
 
+// POST /repos/{owner}/{repo}/fork — fork a public repo into the current user's namespace
+export async function forkRepo(
+    owner: string,
+    repo: string,
+): Promise<ApiResponse<{ message: string; fork: { full_name: string; name: string; owner: string; clone_url: string; forked_from: string } }>> {
+    const result = await authFetch<{ message: string; fork: { full_name: string; name: string; owner: string; clone_url: string; forked_from: string } }>(
+        `/repos/${owner}/${repo}/fork`,
+        { method: "POST" },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}
+
 // DELETE /repos/{owner}/{repo} — delete a repo
 export async function deleteRepo(owner: string, repo: string): Promise<ApiResponse<{ message: string }>> {
     const result = await authFetch<{ message: string }>(`/repos/${owner}/${repo}`, { method: "DELETE" });
