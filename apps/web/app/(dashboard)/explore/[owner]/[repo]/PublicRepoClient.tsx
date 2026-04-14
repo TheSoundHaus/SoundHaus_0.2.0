@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   User,
   Users,
@@ -28,6 +29,8 @@ import RemixIcon from "@/components/RemixIcon";
 import CloneModal from "@/components/CloneModal";
 import UserAvatar from "@/components/UserAvatar";
 import Markdown from "react-markdown";
+import { useUser } from "@/lib/context/UserContext";
+import { forkRepoAction } from "@/actions/repos";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { listCollaborators } from "@/lib/api/invitations";
 import { getRepoEvents } from "@/lib/api/webhooks";
@@ -65,6 +68,8 @@ export default function PublicRepoClient({
 }: Props) {
   type TabKey = "overview" | "commits" | "events" | "collaborators";
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const router = useRouter();
+  const { user } = useUser();
 
   // Commits
   const [commits, setCommits] = useState<CommitSummary[]>(initialCommits?.commits ?? []);
@@ -91,6 +96,22 @@ export default function PublicRepoClient({
 
   // Events
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
+
+  // Fork state
+  const [forking, setForking] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
+
+  const handleFork = useCallback(async () => {
+    setForking(true);
+    setForkError(null);
+    const result = await forkRepoAction(owner, repo);
+    setForking(false);
+    if (result.success) {
+      router.push(`/repository/${result.fork_owner}/${result.fork_name}`);
+    } else {
+      setForkError(result.error);
+    }
+  }, [owner, repo, router]);
 
   const pushes: PushActivity[] = activity?.activity ?? [];
   const genres = stats?.genres ?? [];
@@ -224,44 +245,77 @@ export default function PublicRepoClient({
           <h1 className="mb-1 text-3xl font-bold">{repo}</h1>
           <p className="text-sm text-zinc-400">by <Link href={`/profile/${profileSlug}`} className="text-zinc-300 hover:text-glass-blue transition-colors">{ownerLabel}</Link></p>
         </div>
-        <button
-          onClick={() => setShowCloneModal(true)}
-          onMouseEnter={() => setRemixHovered(true)}
-          onMouseLeave={() => setRemixHovered(false)}
-          className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95"
-          style={{ minWidth: "120px" }}
-        >
-          {/* Animated swap: [Download] Remix  →  Remix [Crossfade] */}
-          <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
-            {/* Download/Crossfade icon: starts LEFT, moves RIGHT on hover */}
-            <span
-              className="absolute inline-flex items-center justify-center"
-              style={{
-                transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
-                transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-              }}
+        <div className="flex gap-2">
+          {/* Clone button (secondary) */}
+          <button
+            onClick={() => setShowCloneModal(true)}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
+          >
+            <Download size={16} />
+            Clone
+          </button>
+          {/* Remix button — hide for own repos */}
+          {user?.username !== owner && (
+            <button
+              onClick={handleFork}
+              disabled={forking}
+              onMouseEnter={() => setRemixHovered(true)}
+              onMouseLeave={() => setRemixHovered(false)}
+              className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95 disabled:opacity-50"
+              style={{ minWidth: "120px" }}
             >
-              <RemixIcon hovered={remixHovered} size={18} />
-            </span>
-            {/* "Remix" text: starts RIGHT, moves LEFT on hover */}
-            <span
-              className="absolute inline-flex items-center justify-center whitespace-nowrap"
-              style={{
-                transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
-                transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-              }}
-            >
-              Remix
-            </span>
-          </span>
-        </button>
+              <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
+                <span
+                  className="absolute inline-flex items-center justify-center"
+                  style={{
+                    transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
+                    transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                  }}
+                >
+                  <RemixIcon hovered={remixHovered} size={18} />
+                </span>
+                <span
+                  className="absolute inline-flex items-center justify-center whitespace-nowrap"
+                  style={{
+                    transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
+                    transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                  }}
+                >
+                  {forking ? "Remixing…" : "Remix"}
+                </span>
+              </span>
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Fork error banner */}
+      {forkError && (
+        <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {forkError}
+        </div>
+      )}
+
+      {/* Remixed from banner */}
+      {stats?.fork_parent && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-glass-blue/20 bg-glass-blue/5 px-4 py-2.5 text-sm text-zinc-300">
+          <GitBranch size={14} className="text-glass-blue" />
+          Remixed from{" "}
+          <Link
+            href={`/explore/${stats.fork_parent.owner}/${stats.fork_parent.repo}`}
+            className="font-medium text-glass-blue hover:underline"
+          >
+            {stats.fork_parent.owner}/{stats.fork_parent.repo}
+          </Link>
+        </div>
+      )}
 
       {/* Clone Modal */}
       {showCloneModal && (
         <CloneModal
           owner={owner}
           repo={repo}
+          cloneUrl={stats?.clone_url}
           onClose={() => setShowCloneModal(false)}
         />
       )}
@@ -474,7 +528,7 @@ export default function PublicRepoClient({
                 <div className="space-y-3">
                   {collaborators.map((c) => (
                     <Link key={c.login} href={`/profile/${c.username || c.login}`} className="flex items-center gap-3 hover:bg-zinc-800/50 rounded-md p-1 -m-1 transition-colors">
-                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={28} />
+                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} name={c.username || c.login} size={28} />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-zinc-200 truncate hover:text-glass-blue transition-colors">
                           {c.username || c.login}
@@ -842,7 +896,7 @@ export default function PublicRepoClient({
 
                               {/* Avatar */}
                               <div className="shrink-0">
-                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} size={32} />
+                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} name={item.actor} size={32} />
                               </div>
 
                               {/* Event details */}
@@ -910,7 +964,7 @@ export default function PublicRepoClient({
                   key={c.login}
                   className="flex items-center gap-4 rounded-lg border border-zinc-800 p-4"
                 >
-                  <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={40} />
+                  <UserAvatar src={c.avatar_url} alt={c.username || c.login} name={c.username || c.login} size={40} />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-zinc-200 truncate">
                       {c.username || c.login}

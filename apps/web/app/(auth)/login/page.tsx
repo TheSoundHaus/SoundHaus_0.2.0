@@ -3,7 +3,8 @@
 import Link from "next/link";
 import LoginForm from "@/components/LoginForm";
 import { Waves } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 /**
  * Animated canvas visualizer — sole visual on the login right panel
@@ -130,7 +131,19 @@ function LoginVisualizer() {
  * Left: sign-in form with clean zinc design
  * Right: animated canvas visualizer (particles, waveform, EQ bars, pulse rings)
  */
+function SessionExpiredBanner() {
+    const searchParams = useSearchParams();
+    const sessionExpired = searchParams.get('expired') === '1';
+    if (!sessionExpired) return null;
+    return (
+        <div className="mb-6 rounded-md border border-amber-800/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-400">
+            Your session has expired. Please sign in again.
+        </div>
+    );
+}
+
 export default function LoginPage() {
+
     return (
         <div className="min-h-screen flex bg-zinc-950">
             {/* Subtle noise texture overlay */}
@@ -150,6 +163,11 @@ export default function LoginPage() {
                             </h1>
                         </Link>
                     </div>
+
+                    {/* Session expired banner */}
+                    <Suspense fallback={null}>
+                        <SessionExpiredBanner />
+                    </Suspense>
 
                     {/* Header section */}
                     <div className="mb-8">

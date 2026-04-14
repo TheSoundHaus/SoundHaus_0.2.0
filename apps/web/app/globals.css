@@ -85,7 +85,18 @@
   
   body {
     @apply text-soft-white font-sans;
-    /* Chromatic midnight gradient - subtle hue shifts */
+    background: var(--background-primary);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    position: relative;
+  }
+
+  /* Fixed gradient background via pseudo-element — 
+     background-attachment: fixed is unreliable on Firefox and mobile Safari */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
     background: linear-gradient(
       135deg,
       #121212 0%,
@@ -94,8 +105,7 @@
       #1A1A1A 75%,
       #121212 100%
     );
-    background-attachment: fixed;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    pointer-events: none;
   }
   
   /* Headings */
@@ -1153,6 +1163,22 @@
   .card-glass {
     -webkit-backdrop-filter: blur(var(--glass-blur));
   }
+}
+
+/* Ensure -webkit-backdrop-filter is always set alongside backdrop-filter
+   (Tailwind v4 drops the prefix; Safari still needs it) */
+[class*="backdrop-blur"] {
+  -webkit-backdrop-filter: var(--tw-backdrop-blur, blur(12px));
+}
+
+/* DemoCarousel keyframes (global — styled-jsx unreliable in App Router) */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-40px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @-moz-document url-prefix() {

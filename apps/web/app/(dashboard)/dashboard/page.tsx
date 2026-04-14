@@ -12,6 +12,7 @@ import {
     Mail,
     Clock,
     Star,
+    ChevronDown,
 } from "lucide-react";
 import { useUser } from "@/lib/context/UserContext";
 import { getDashboardData } from "@/lib/api/dashboard";
@@ -79,6 +80,7 @@ export default function DashboardPage() {
     const [data, setData] = useState<DashboardData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [activityExpanded, setActivityExpanded] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -171,11 +173,22 @@ export default function DashboardPage() {
 
                     {/* Recent Activity Feed */}
                     <div className="glass-card rounded-xl p-6 animate-fade-in-up delay-300">
-                        <h2 className="mb-5 text-xl font-semibold flex items-center gap-2">
-                            <Music className="w-5 h-5 text-glass-blue-400 opacity-70" />
-                            Recent Activity
-                        </h2>
-                        <div className="space-y-1">
+                        <div className="mb-5 flex items-center justify-between">
+                            <h2 className="text-xl font-semibold flex items-center gap-2">
+                                <Music className="w-5 h-5 text-glass-blue-400 opacity-70" />
+                                Recent Activity
+                            </h2>
+                            {activity.length > 3 && (
+                                <button
+                                    onClick={() => setActivityExpanded(!activityExpanded)}
+                                    className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                                >
+                                    {activityExpanded ? "Collapse" : "Expand"}
+                                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${activityExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                            )}
+                        </div>
+                        <div className={`space-y-1 ${!activityExpanded ? "max-h-[300px] overflow-y-auto" : ""}`}>
                             {loading ? (
                                 Array.from({ length: 4 }).map((_, i) => (
                                     <ActivitySkeleton key={i} />
