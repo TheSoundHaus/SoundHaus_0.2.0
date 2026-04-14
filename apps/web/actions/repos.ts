@@ -1,6 +1,6 @@
 "use server";
 
-import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo, updateRepoDescription, updateRepoVisibility } from "@/lib/api/repos";
+import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo, updateRepoDescription, updateRepoVisibility, forkRepo } from "@/lib/api/repos";
 
 // Thin server action wrapper for createRepo
 // Returns a simple serializable object (no complex GiteaRepo nesting)
@@ -96,5 +96,18 @@ export async function updateDescriptionAction(
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Failed to update description" };
+  }
+}
+
+export async function forkRepoAction(
+  owner: string,
+  repo: string,
+): Promise<{ success: true; fork_name: string; fork_owner: string } | { success: false; error: string }> {
+  try {
+    const result = await forkRepo(owner, repo);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, fork_name: result.data!.fork_name, fork_owner: result.data!.fork_owner };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to fork project" };
   }
 }
