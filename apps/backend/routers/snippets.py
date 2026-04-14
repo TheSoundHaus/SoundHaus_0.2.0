@@ -2,13 +2,20 @@
 Audio snippet endpoints – upload, stream/redirect, metadata, delete.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from database import get_db
 from config import settings
-from dependencies import limiter, verify_token, get_auth, MAX_AUDIO_SNIPPET_SIZE, format_bytes, resolve_owner_id
+from database import get_db
+from dependencies import (
+    MAX_AUDIO_SNIPPET_SIZE,
+    format_bytes,
+    get_auth,
+    limiter,
+    resolve_owner_id,
+    verify_token,
+)
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from logging_config import get_logger
 from models.repo_models import RepoData
 

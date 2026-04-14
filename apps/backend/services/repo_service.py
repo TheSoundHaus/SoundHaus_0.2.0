@@ -577,42 +577,6 @@ class RepoService:
         except Exception:
             return f"HTTP {resp.status_code}: {resp.reason}"
 
-    def fork_repo(self, source_owner: str, source_repo: str, fork_owner: str) -> Dict[str, Any]:
-        """Fork a repository into another user's namespace via Gitea API."""
-        try:
-            url_path = f"/api/v1/repos/{source_owner}/{source_repo}/forks"
-            payload = {"organization": fork_owner}
-
-            resp = requests.post(
-                self._url(url_path),
-                headers=self.headers,
-                json=payload,
-                timeout=30,
-            )
-
-            logger.debug(
-                "fork_repo_response",
-                source=f"{source_owner}/{source_repo}",
-                fork_owner=fork_owner,
-                status_code=resp.status_code,
-            )
-
-            if resp.status_code in (200, 201, 202):
-                forked = resp.json()
-                return {"success": True, "repo": forked}
-
-            # 409 = fork already exists
-            if resp.status_code == 409:
-                return {"success": False, "status": 409, "message": "You already have a version of this project"}
-
-            msg = self._extract_msg(resp)
-            logger.warning("fork_repo_failed", source=f"{source_owner}/{source_repo}", error=msg)
-            return {"success": False, "status": resp.status_code, "message": msg}
-
-        except requests.RequestException as e:
-            logger.error("fork_repo_error", source=f"{source_owner}/{source_repo}", error=str(e))
-            return {"success": False, "status": 0, "message": f"Network error: {e}"}
-
     def check_collaborator(self, owner: str, repo_name: str, username: str) -> Dict[str, Any]:
         """Check if a user is a collaborator on a repository."""
         try:
@@ -773,19 +737,20 @@ class RepoService:
                 body=resp.text[:500],
             )
 
-            if resp.status_code in [200, 202]:
+            if resp.status_code in [200, 201, 202]:
                 return {"success": True, "repo": resp.json()}
-            else:
-                msg = self._extract_msg(resp)
-                logger.warning(
-                    "fork_repo_failed",
-                    source=f"{source_owner}/{source_repo}",
-                    fork_owner=fork_owner,
-                    status=resp.status_code,
-                    error=msg,
-                    raw_body=resp.text[:500],
-                )
-                return {"success": False, "status": resp.status_code, "message": msg}
+            if resp.status_code == 409:
+                return {"success": False, "status": 409, "message": "You already have a version of this project"}
+            msg = self._extract_msg(resp)
+            logger.warning(
+                "fork_repo_failed",
+                source=f"{source_owner}/{source_repo}",
+                fork_owner=fork_owner,
+                status=resp.status_code,
+                error=msg,
+                raw_body=resp.text[:500],
+            )
+            return {"success": False, "status": resp.status_code, "message": msg}
         except requests.RequestException as e:
             logger.error("fork_repo_error", source=f"{source_owner}/{source_repo}", error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}
