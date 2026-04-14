@@ -291,7 +291,7 @@ export default function RepoDetailClient({
     setInviteError(null);
     setInviteSuccess(null);
     startTransition(async () => {
-      const result = await inviteCollaboratorAction(repo, email, invitePermission);
+      const result = await inviteCollaboratorAction(owner, repo, email, invitePermission);
       if (result.success) {
         setInviteSuccess(`Invitation sent to ${email} as ${invitePermission === "admin" ? "Admin" : "Contributor"}`);
         setSearchQuery("");
@@ -301,7 +301,7 @@ export default function RepoDetailClient({
         setInviteError(result.error);
       }
     });
-  }, [repo, invitePermission, loadCollaboratorsData]);
+  }, [owner, repo, invitePermission, loadCollaboratorsData]);
 
   // Cancel invite handler
   const handleCancelInvite = useCallback(async (invitationId: string) => {
@@ -320,14 +320,14 @@ export default function RepoDetailClient({
   const handleRemoveCollaborator = useCallback(async (username: string) => {
     if (!confirm(`Remove ${username} from this project?`)) return;
     startTransition(async () => {
-      const result = await removeCollaboratorAction(repo, username);
+      const result = await removeCollaboratorAction(owner, repo, username);
       if (result.success) {
         loadCollaboratorsData();
       } else {
         setCollabError(result.error);
       }
     });
-  }, [repo, loadCollaboratorsData]);
+  }, [owner, repo, loadCollaboratorsData]);
 
   function handleDelete() {
     if (!confirm(`Delete "${repo}"? This cannot be undone.`)) return;

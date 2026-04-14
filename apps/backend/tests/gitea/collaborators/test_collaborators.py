@@ -5,7 +5,8 @@ Gitea collaborators test.
 Flow:
 - Login, GET /api/auth/user for user_id, create temp repo, then
   GET /repos/{user_id}/{repo_name}/collaborators with Bearer token
-- Verify 200+success, collaborators is a list
+- POST /repos/{user_id}/{repo_name}/collaborators/invite (owner in path matches list route)
+- Verify 200+success for list and invite
 - Exit 0 on success, 1 on failure
 """
 
@@ -73,6 +74,20 @@ def main() -> None:
         collaborators = collab_data.get("collaborators", [])
         if not isinstance(collaborators, list):
             fail(f"collaborators is not a list: {type(collaborators)}")
+
+        invite_email = f"collab-invite-{uuid.uuid4().hex[:8]}@example.com"
+        resp_invite = client.post(
+            f"/repos/{user_id}/{repo_name}/collaborators/invite",
+            headers={**headers, "Content-Type": "application/json"},
+            json={"email": invite_email, "permission": "write"},
+        )
+        if resp_invite.status_code != 200:
+            fail(f"invite collaborator failed: {resp_invite.status_code} {resp_invite.text}")
+        invite_data = resp_invite.json()
+        if not invite_data.get("success"):
+            fail(f"invite collaborator success flag is false: {invite_data}")
+        if not invite_data.get("invitation_id"):
+            fail("invite response missing invitation_id")
 
         print(json.dumps({"test": "gitea_collaborators", "status": "ok", "repo_name": repo_name, "collaborator_count": len(collaborators)}))
     finally:

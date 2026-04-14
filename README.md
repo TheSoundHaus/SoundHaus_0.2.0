@@ -489,7 +489,7 @@ For deployment details beyond this README, see **[scripts/DEPLOYMENT.md](scripts
 
 ### Collaborators
 
-- `POST /repos/{repo_name}/collaborators/invite` — Invite collaborator
+- `POST /repos/{owner}/{repo_name}/collaborators/invite` — Invite collaborator
 - `GET /repos/{repo_name}/collaborators` — List collaborators
 - `GET /invitations/pending` — Get pending invitations
 - `POST /invitations/{id}/accept` — Accept invitation
