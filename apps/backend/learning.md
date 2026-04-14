@@ -1261,3 +1261,484 @@ Identical design language but with Electron-specific adjustments:
 The desktop app has platform-specific installers:
 - **macOS (Apple Silicon)**: `https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus-0.0.1-arm64.dmg`
 - **Windows**: `https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus.Setup.exe`
+
+---
+
+## 23. Complete End-to-End Data Flows
+
+This section traces every major user operation through the entire stack — from the UI action, through the API layer, into the database, and back. Use this as your single source of truth for understanding how data moves through SoundHaus.
+
+### Architecture Overview
+
+```
+Desktop App (Electron)
+├─ Direct bundled git binary → Gitea (clone/push/pull bypass FastAPI)
+├─ IPC handlers (home.ts, login.ts, project.ts) → HTTP API calls to FastAPI
+└─ Credentials stored: ~/.soundhaus/.soundhaus-credentials (PAT), ~/.soundhaus/.gitea-credentials (Gitea token)
+
+Web App (Next.js)
+├─ Server Components fetch → FastAPI via authFetch() (server actions)
+├─ Browser → FastAPI (via cookies with Bearer token)
+└─ Auth via httpOnly cookies + server action verification
+
+FastAPI Backend
+├─ Routers in apps/backend/routers/ (auth, repos, webhooks, collaborators, etc.)
+├─ Services in apps/backend/services/ (business logic, Gitea integration)
+├─ Supabase: PostgreSQL + Auth (user identity, sessions)
+├─ Gitea: Git operations + repo metadata (on Digital Ocean)
+└─ Redis: Rate limiting only
+
+Token Broker Service
+├─ Separate FastAPI service apps/token-broker/main.py
+└─ Calls `gitea admin user generate-access-token` via docker exec
+
+Database Tables (PostgreSQL via Supabase)
+├─ auth.users (Supabase provided)
+├─ public.profile (id=UUID, username, email, avatar_url, etc.)
+├─ public.repo_data (gitea_id="uuid/repo-name", owner_id, audio_snippet, clone_count)
+├─ public.personal_access_token (user_id, token_hash, token_prefix, expires_at)
+├─ public.collaborator_invitation (repo_name, invitee_email, invitation_token, status)
+├─ public.push_event (repo_id, pusher_username, commit_count, pushed_at)
+├─ public.commit_detail (repo_id, sha, author_email, author_name, message, timestamp)
+├─ public.repository_event (repo_id, event_type, created_at)
+├─ public.snippet_version (repo_gitea_id, status, version_url)
+└─ public.webhook_config (repo_id, gitea_webhook_id, webhook_secret, is_active)
+
+UUID Mapping
+├─ Gitea login = Supabase user UUID (string representation)
+├─ SoundHaus username stored in Profile table
+├─ Desktop uses UUID for repo operations; Web uses username in URLs
+└─ resolve_owner_id(owner, db) in dependencies.py handles conversion
+```
+
+---
+
+### Flow 1: User Registration & Login
+
+#### 1A. Signup
+
+**User action:** Enter email, password, username on web signup page → POST /api/auth/signup
+
+**Backend sequence (routers/auth.py):**
+
+1. Validate username format via `profile_service._validate_username(username)`
+2. Check username uniqueness: `db.query(Profile).filter(Profile.username == username).first()`
+3. Call `auth_service.sign_up(email, password, metadata)` → Supabase creates `auth.users` row
+4. Extract `supabase_user_id` from response
+5. Set `gitea_login = str(supabase_user_id)` — Gitea login IS the UUID
+6. Create Gitea user via `GiteaAdminService.create_user()` → POST /api/v1/admin/users
+7. Create Profile row via `profile_service.create_profile()` → `db.add(profile), db.commit()`
+8. Return success with Supabase session tokens + Gitea user info
+
+**Tables written:** `auth.users` (Supabase), `public.profile` (new row)
+
+**Token state:** User has Supabase access_token & refresh_token (in response only, not stored yet)
+
+#### 1B. Web Login
+
+**User action:** Enter email/password on /login → calls lib/api/auth.ts → POST /api/auth/login
+
+**Backend sequence:**
+
+1. `auth_service.sign_in(email, password)` → Supabase verifies credentials
+2. Returns `{ access_token, refresh_token }`
+
+**Web app handling (lib/utils/auth.ts):**
+
+1. Receives tokens → calls `setAuthCookies(access_token, refresh_token)`
+2. Sets httpOnly cookies: `auth_token` and `auth_refresh`
+3. Redirects to /dashboard
+
+**Token state:** access_token + refresh_token in secure httpOnly cookies
+
+#### 1C. Desktop Login
+
+**User action:** Enter email/password in Electron login form → POST /api/auth/desktop-login
+
+**Backend sequence (routers/desktop.py):**
+
+1. Authenticate via Supabase (`auth_service.sign_in`)
+2. Revoke all old desktop PATs (filter tokens starting with "Desktop Auto Token")
+3. Create new PAT via `pat_service.create_pat()`:
+   - Generate token: `"soundh_{urlsafe_32_bytes}"`
+   - Hash with bcrypt (12 rounds) → store `token_hash` in `personal_access_token` table
+   - Return full plaintext token to desktop (one-time delivery)
+4. Return session + `desktop_credentials: { pat, pat_id, expires_at }`
+
+**Desktop app handling (src/electron/login.ts):**
+
+1. Store PAT → `~/.soundhaus/.soundhaus-credentials` (plain text)
+2. Call GET /api/desktop/credentials (with PAT) to get Gitea token:
+   - FastAPI → Token Broker → `docker exec gitea admin user generate-access-token`
+   - Returns Gitea token SHA1
+3. Store Gitea token → `~/.soundhaus/.gitea-credentials` (plain text)
+4. Store allowed remote → `~/.soundhaus/.allowed-clone-remote`
+5. Configure `git config --global credential.helper store`
+
+**Tables written:** `public.personal_access_token` (new row)
+
+**Local files created:**
+- `~/.soundhaus/.soundhaus-credentials` = SoundHaus PAT
+- `~/.soundhaus/.gitea-credentials` = Gitea access token
+- `~/.soundhaus/.allowed-clone-remote` = Gitea hostname
+
+---
+
+### Flow 2: Repository Creation
+
+**User action:** Desktop → "Create Project" → enter name, description, visibility
+
+**Desktop → Backend sequence (src/electron/project.ts, home.ts):**
+
+1. POST /api/repos (Auth: `token {PAT}`, Body: `{ name, description, private }`)
+2. Backend creates Gitea repo: POST /api/v1/admin/users/{gitea_login}/repos
+3. `RepoService._init_repo_with_user_commit()` → creates initial README + .gitattributes
+4. `RepoService._create_repo_webhook()` → creates webhook for push/create/delete/repository events
+5. `RepoService.set_branch_protection()` → requires 1 approval, no direct push to main
+6. Creates `RepoData` row: `gitea_id="{uuid}/{repo_name}"`, `owner_id=user_id`
+7. Desktop creates local git repo, adds .gitignore + .gitkeep
+8. Desktop sets remote: `git remote add origin {gitea_clone_url}`
+9. Desktop commits: `git add . && git commit -m "Initial snapshot"`
+10. Desktop pushes: `git push -u origin HEAD` (uses git credential helper)
+
+**Tables written:** `public.repo_data`, `public.webhook_config`
+
+**Note:** If public, repo immediately appears on explore page
+
+---
+
+### Flow 3: Git Push (Desktop → Server)
+
+**User action:** Desktop → click "Push" after editing Ableton project files
+
+**Desktop sequence:**
+
+1. `git add .` → `git commit -m "{message}"` → `git push -u origin HEAD`
+2. Git authenticates using `~/.gitea-credentials` token via credential helper
+3. Push goes directly to Gitea — **FastAPI is NOT involved in the git transfer**
+
+**Gitea webhook triggers → FastAPI processes (routers/webhooks.py):**
+
+1. Gitea fires POST to `/api/webhooks/gitea` with headers:
+   - `X-Gitea-Event: push`, `X-Gitea-Signature: {hmac_sha256}`
+2. Backend validates HMAC signature against stored `webhook_secret`
+3. `webhook_service.process_event()` creates:
+   - `PushEvent` row (repo_id, pusher_username, commit_count)
+   - `CommitDetail` rows (one per commit: sha, author, message, timestamp)
+   - `WebhookDelivery` row (logging)
+   - Updates `RepoData.last_activity_at`
+
+**Tables written:** `push_event`, `commit_detail`, `webhook_delivery`, `repo_data` (updated)
+
+**Immediate effects:**
+- Activity appears on repo detail page (GET /repo/{owner}/{repo}/activity)
+- Dashboard heatmap updates (aggregates push_events)
+
+---
+
+### Flow 4: Explore Page Load
+
+**User action:** Visit /repositories on web
+
+**Frontend:** Server component calls `getPublicRepos()` → GET /repos/public
+
+**Backend sequence (routers/repos.py):**
+
+1. Query `RepoData` where `is_public == True`
+2. If genre filters provided, join through `repo_genres` ↔ `genre_list` tables
+3. For each repo, fetch enrichment from Gitea API: GET /api/v1/repos/{owner}/{repo}
+   - **N+1 issue** — mitigated with `ThreadPoolExecutor(max_workers=10)` for parallel fetching
+   - Filters out repos that are private in Gitea or deleted
+4. Batch resolve owner UUIDs → usernames via single Profile query
+5. Return enriched repo list with genres, audio snippet URLs, clone counts
+
+**Tables read:** `repo_data`, `repo_genres`, `genre_list`, `profile`
+
+**Performance note:** No pagination yet — returns all matching repos. Gitea API calls are parallelized but still O(N).
+
+---
+
+### Flow 5: Clone/Remix (Desktop)
+
+**User action:** Desktop → enter clone URL → click "Clone"
+
+**Desktop sequence (src/electron/home.ts):**
+
+1. Validate clone URL against `~/.soundhaus/.allowed-clone-remote` (security boundary — prevents clones from untrusted hosts)
+2. Configure git credentials: `git credential approve` with Gitea token
+3. `git clone {url} {targetPath}` — direct to Gitea, no FastAPI involvement
+4. Post-clone setup: .gitignore, .gitkeep, untrack legacy paths
+5. POST /api/repos/register — registers repo in `RepoData` if not exists, creates webhook
+6. POST /api/repos/{owner}/{repo}/clone — increments `clone_count`
+
+**Tables written:** `repo_data` (new row or clone_count++), `webhook_config` (if new registration)
+
+---
+
+### Flow 6: Fork/Remix (Web)
+
+**User action:** Visit public repo detail → click "Remix"
+
+**Frontend:** Calls `forkRepoAction(owner, repo)` → POST /repos/{owner}/{repo}/fork
+
+**Backend sequence:**
+
+1. Ownership check: can't fork your own repo
+2. `RepoService.fork_repo()` → Gitea API: POST /api/v1/repos/{source}/{repo}/forks (Sudo impersonation)
+3. Creates `RepoData` row for the fork
+4. Creates webhook for the forked repo
+5. Sets branch protection on forked repo
+6. Inserts `RepositoryEvent` with `event_type="repository_forked"`
+
+**Tables written:** `repo_data` (fork), `webhook_config`, `repository_event`
+
+**Key difference from Clone:** Fork creates a new repo in the user's Gitea namespace; Clone copies an existing repo locally.
+
+---
+
+### Flow 7: Audio Snippet Upload
+
+**User action:** Repo detail page → upload .mp3/.wav file
+
+**Backend sequence (routers/snippets.py):**
+
+1. Validate: file < 10MB, content-type starts with "audio/"
+2. `snippet_service.save_snippet()` → uploads to Digital Ocean Spaces (S3-compatible)
+   - Storage path: `s3://{bucket}/repos/{owner}/{repo}/snippet.{ext}`
+   - Extracts metadata: duration, format, sample_rate, channels
+3. Updates `RepoData`: audio_snippet URL, snippet_duration, snippet_format, etc.
+4. Creates `SnippetHistory` row for version tracking
+5. Optionally queues stem separation (creates `SnippetVersion` with status=QUEUED)
+
+**Storage:** Digital Ocean Spaces CDN  
+**Tables written:** `repo_data` (updated), `snippet_history`, `snippet_version` (if stems queued)
+
+---
+
+### Flow 8: Stem Separation (Background Worker)
+
+**Trigger:** After snippet upload queues a stem separation job
+
+**Worker sequence (workers/stem_worker.py):**
+
+1. Long-lived polling loop connected to PostgreSQL
+2. On startup: recover stale PROCESSING jobs → reset to QUEUED
+3. Main loop:
+   - Query `SnippetVersion` where `status == QUEUED`, ordered by created_at
+   - Mark job PROCESSING
+   - Fetch snippet audio from S3
+   - Run Demucs model: separates into vocals, bass, drums, other
+   - Upload separated stems back to S3: `s3://{bucket}/repos/{owner}/{repo}/stems/{stem}.wav`
+   - Update `SnippetVersion`: status=SUCCESS, separated_stems JSON
+   - On error: status=FAILED, error_message stored
+4. Sleep `POLL_INTERVAL` (5s) between checks
+
+**Tables written:** `snippet_version` (status transitions, stem URLs)
+
+**User experience:** Stem player on repo detail activates once status=SUCCESS
+
+---
+
+### Flow 9: Collaborator Invitation
+
+**User action:** Repo owner (private repo) → Collaborators tab → "Invite" → enter email
+
+**Invite sequence (routers/collaborators.py):**
+
+1. Verify repo is private (invitations only for private repos)
+2. Generate `invitation_token = secrets.token_urlsafe(32)`
+3. Create `CollaboratorInvitation` row: token, repo_name, emails, permission, status=pending, expires in 7 days
+4. (Optional) Send invitation email with link: `/invitations/{id}/{token}`
+
+**Accept sequence:**
+
+1. Invitee visits invitation link → GET /api/collaborators/invitations/{id}
+2. Clicks Accept → POST /api/collaborators/invitations/{id}/accept with token
+3. Backend updates invitation status → "accepted"
+4. Adds collaborator in Gitea: PUT /api/v1/repos/{owner}/{repo}/collaborators/{username}
+5. Updates branch protection with new reviewer
+
+**Tables written:** `collaborator_invitation` (new row, status transitions)
+
+---
+
+### Flow 10: Desktop Authentication & Token Management
+
+**Three credential files in ~/.soundhaus/:**
+
+| File | Content | Used For | Lifetime |
+|------|---------|----------|----------|
+| `.soundhaus-credentials` | SoundHaus PAT (`soundh_...`) | All FastAPI API calls | 90 days |
+| `.gitea-credentials` | Gitea access token | git push/pull/clone | ~90 days |
+| `.allowed-clone-remote` | Gitea hostname | Security: prevents clones from other hosts | Until logout |
+
+**PAT validation flow:**
+
+1. Desktop sends `Authorization: token soundh_XXXXX`
+2. Backend `verify_token_or_pat()` detects `soundh_` prefix → treats as PAT
+3. Hashes incoming token → compares to stored `token_hash` in `personal_access_token`
+4. Checks: not revoked, not expired → returns `{ user_id, auth_type: "pat" }`
+
+**Token Broker (token provisioning):**
+
+```
+Desktop → FastAPI: GET /api/desktop/credentials (with PAT)
+FastAPI → Token-Broker: POST /mint-token (internal API key)
+Token-Broker → docker exec: gitea admin user generate-access-token
+Token-Broker → FastAPI: { token: { sha1 } }
+FastAPI → Desktop: { gitea_token, ... }
+```
+
+The Token Broker exists because FastAPI shouldn't have Docker socket access — it's a security isolation layer.
+
+**Logout flow:**
+
+1. Desktop reads PAT → DELETE /api/auth/tokens/{token_id} (revokes PAT)
+2. Deletes all credential files from `~/.soundhaus/`
+3. Clears git credential store entries for Gitea host
+4. Redirects to /login
+
+---
+
+### Flow Summary Table
+
+| Flow | Primary Endpoint | Auth Type | Tables Written | External Services |
+|------|------------------|-----------|----------------|-------------------|
+| Signup | POST /api/auth/signup | None | auth.users, profile | Supabase, Gitea |
+| Web Login | POST /api/auth/login | None | auth.users | Supabase |
+| Desktop Login | POST /api/auth/desktop-login | None | auth.users, pat | Supabase, Gitea, Token-Broker |
+| Create Repo | POST /api/repos | PAT/JWT | repo_data, webhook_config | Gitea |
+| Git Push | git push + Webhook | Gitea token | push_event, commit_detail | Gitea |
+| Explore Load | GET /repos/public | JWT (optional) | (read only) | Gitea (N calls) |
+| Clone Desktop | git clone + POST /repos/register | PAT | repo_data | Gitea |
+| Fork Web | POST /repos/{owner}/{repo}/fork | JWT | repo_data, webhook_config | Gitea |
+| Snippet Upload | POST /repos/{owner}/{repo}/snippet | JWT | repo_data, snippet_history | Digital Ocean |
+| Stem Separation | Worker poll | None | snippet_version | Digital Ocean, Demucs |
+| Invite Collab | POST /repos/{repo}/collaborators/invite | JWT | collaborator_invitation | Gitea |
+| Desktop Auth | Various | PAT/JWT | personal_access_token | Token-Broker |
+
+---
+
+### Database Schema Quick Reference
+
+```sql
+-- Profiles
+profile (id UUID PK, username VARCHAR UNIQUE, email VARCHAR, avatar_url, bio, created_at)
+
+-- Repositories
+repo_data (gitea_id VARCHAR PK, owner_id UUID FK→profile, is_public BOOL, audio_snippet VARCHAR,
+           clone_count INT, snippet_duration FLOAT, last_activity_at TIMESTAMP)
+
+-- Many-to-many: Repos ↔ Genres
+repo_genres (repo_id FK→repo_data, genre_id FK→genre_list)
+genre_list (genre_id SERIAL PK, genre_name VARCHAR UNIQUE, genre_color VARCHAR(7))
+
+-- Activity Tracking
+push_event (id PK, repo_id FK→repo_data, pusher_username, commit_count, pushed_at)
+commit_detail (id PK, repo_id, sha UNIQUE, author_name, author_email, message, timestamp)
+repository_event (id PK, repo_id, event_type, actor_username, created_at)
+
+-- Collaboration
+collaborator_invitation (id UUID PK, invitation_token UNIQUE, repo_name, owner_email,
+                         invitee_email, permission, status, expires_at)
+
+-- Authentication
+personal_access_token (id UUID PK, user_id FK→profile, token_hash, token_prefix,
+                       token_name, is_revoked BOOL, expires_at)
+
+-- Webhooks
+webhook_config (id PK, repo_id, gitea_webhook_id INT, webhook_secret, is_active BOOL)
+
+-- Audio Processing
+snippet_version (id UUID PK, repo_gitea_id, version_url, status, separated_stems JSONB, error_message)
+```
+
+---
+
+## 24. Feature Suggestions (Self-Implementable)
+
+These are features you could build on your own or with minimal help, organized by difficulty. Each one builds on patterns already in the codebase.
+
+### Beginner (1–2 files, follows existing patterns exactly)
+
+**1. Repo Search / Filtering on Explore**
+- Add a text search input to the explore page that filters by repo name or description
+- *Where:* Add a search param to GET /repos/public in repos.py (SQL `ILIKE` filter on repo_data), pass it from the explore page component
+- *Pattern to follow:* The genre filter already works this way — just add another query param
+
+**2. User Profile Page (Public)**
+- A `/profile/[username]` page showing bio, avatar, and list of public repos
+- *Where:* New Next.js page under `app/(dashboard)/profile/[username]/`, call existing GET /api/profile/{username} + GET /repos/public filtered by owner
+- *Pattern to follow:* The explore/[owner]/[repo] page structure; reuse `RepositoryCard` component
+
+**3. Star Count Display on Repo Cards**
+- Show how many stars a repo has on explore cards and repo detail
+- *Where:* Already have star/unstar endpoints. Add a GET /repos/{owner}/{repo}/stars/count endpoint (simple `db.query(StarredRepo).filter(...).count()`), display in RepositoryCard
+- *Pattern to follow:* clone_count is already displayed the same way
+
+**4. "My Remixes" Section on Dashboard**
+- Show repos the user forked, grouped in a section
+- *Where:* Query `RepoData` where owner_id = current user, then check Gitea API for `fork` flag, or track fork_parent in repo_data table
+- *Pattern to follow:* Dashboard already fetches user repos; just add a filter
+
+### Intermediate (2–4 files, new component or service method)
+
+**5. Repo Description Editing**
+- Let repo owner/admin edit description from the Settings tab
+- *Where:* Add a form to the Settings tab in RepoDetailClient (like the removed rename form but for description), call Gitea PATCH /api/v1/repos/{owner}/{repo} to update, also update RepoData
+- *Pattern to follow:* The visibility toggle in Settings already does a similar Gitea API update
+
+**6. Activity Feed on Dashboard**
+- Show a chronological feed of recent activity across all repos the user owns or collaborates on
+- *Where:* New endpoint GET /api/dashboard/activity that queries `push_event` + `repository_event` for user's repos, returns last 20 items sorted by date. New React component to render the feed
+- *Pattern to follow:* The repo-level activity endpoint in webhooks.py already returns this data per-repo
+
+**7. Audio Waveform Visualization**
+- Replace the basic audio player with a waveform visualization using wavesurfer.js
+- *Where:* Install wavesurfer.js in web app, create a WaveformPlayer component, swap into AudioPlayerWithComments
+- *Why achievable:* wavesurfer.js handles all the audio analysis; you just feed it the snippet URL
+
+**8. Email Notifications for Collaborator Invitations**
+- Actually send the invitation email (currently just creates the DB row)
+- *Where:* Add a Resend or SendGrid integration in a new `services/email_service.py`, call it from the collaborators router after creating the invitation
+- *Pattern to follow:* The invitation flow is complete except for the email send step
+
+**9. Pagination on Explore Page**
+- Add cursor-based or offset pagination to GET /repos/public
+- *Where:* Add `page` and `per_page` query params in repos.py, apply `.offset()` and `.limit()` to the SQLAlchemy query, return total count in response. Add pagination controls in the explore page component
+- *Pattern to follow:* Standard SQLAlchemy pattern; Gitea's own API uses this exact approach
+
+### Advanced (multiple files, new subsystem or complex logic)
+
+**10. Comment Threads on Commits**
+- Allow users to comment on specific commits in a repo's timeline
+- *Where:* New `comments` table (user_id, repo_id, commit_sha, body, created_at), new router `routers/comments.py` with CRUD endpoints, new CommitComments component on repo detail
+- *Pattern to follow:* The collaborator_invitation table + router pattern; AudioPlayerWithComments already handles comment UI for snippets
+
+**11. Repo README Rendering**
+- Fetch and render the README.md from the repo on the web detail page
+- *Where:* Gitea API: GET /api/v1/repos/{owner}/{repo}/raw/README.md to get content, render with react-markdown in a new tab on RepoDetailClient
+- *Pattern to follow:* The commits tab already fetches data from Gitea API on tab change
+
+**12. Desktop Credential Encryption (OS Keychain)**
+- Replace plain text `~/.soundhaus/` files with OS keychain storage via `safeStorage` (Electron built-in)
+- *Where:* In `src/electron/login.ts` and `src/electron/desktopEnv.ts`, use Electron's `safeStorage.encryptString()` / `decryptString()` to encrypt before writing and decrypt after reading
+- *Why important:* Currently the #1 security issue — plain text credentials readable by any process
+
+**13. Diff Viewer for .als Files**
+- Show a visual diff of Ableton project changes between commits
+- *Where:* The backend already has `routers/diff.py` and `services/diff_service.py` with .als → XML conversion. Build a frontend component that fetches the diff and renders a side-by-side or inline view with syntax highlighting
+- *Pattern to follow:* The diff endpoints exist — this is a frontend visualization task
+
+**14. Notification System**
+- In-app notifications for: new collaborator, push to your repo, invitation accepted
+- *Where:* New `notifications` table (user_id, type, message, read, created_at), insert from webhook processing and collaborator flows, poll or SSE from frontend, bell icon in nav
+- *Pattern to follow:* `repository_event` already tracks these events; notifications just need a user-facing layer on top
+
+### Quick Wins (< 30 min each)
+
+- **Sort explore repos** by newest, most cloned, most starred (add `sort` query param)
+- **Copy clone URL button** — add a clipboard copy button next to the clone URL in the modal
+- **Repo visibility badge** — show a lock icon on private repos in the dashboard list
+- **"Last updated" timestamp** on repo cards using `last_activity_at`
+- **Empty state illustrations** for dashboard with no repos, explore with no results
