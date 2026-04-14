@@ -253,8 +253,11 @@ async def accept_invitation(
                 password=secrets.token_urlsafe(32),
             )
             if not create_result.get("success"):
-                logger.error("accept_invitation", action="create_gitea_user", status="failed", message=create_result.get("message"))
-                raise HTTPException(status_code=500, detail="Failed to provision Git account")
+                already_exists = "already exists" in (create_result.get("message") or "")
+                if not already_exists:
+                    logger.error("accept_invitation", action="create_gitea_user", status="failed", message=create_result.get("message"))
+                    raise HTTPException(status_code=500, detail="Failed to provision Git account")
+                logger.info("accept_invitation", action="create_gitea_user", status="already_exists", username=invitee_username)
 
         # Add collaborator to repository
         # Gitea repos are keyed by the owner's Supabase UUID, not display username.
