@@ -88,7 +88,7 @@ class GiteaAdminService:
 		if visibility:
 			payload["visibility"] = visibility
 		else:
-			payload["visibility"] = "private"  # Default to private
+			payload["visibility"] = "public"
 
 		logger.info("create_user_request",
 			username=payload.get("username"),

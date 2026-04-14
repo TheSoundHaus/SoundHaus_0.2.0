@@ -112,7 +112,7 @@ async def signup(
                     if signup_request.password and signup_request.password.strip()
                     else secrets.token_urlsafe(32)
                 ),
-                visibility="private",
+                visibility="public",
             )
             gitea_result["is_new"] = True
 
