@@ -1,10 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  env: {
-    // Expose API_URL to server-side code
-    API_URL: process.env.API_URL,
-  },
+  // Required for Docker deployment — produces a standalone Node.js server
+  output: "standalone",
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

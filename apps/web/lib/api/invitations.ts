@@ -11,7 +11,7 @@ export async function getPendingInvitations(): Promise<ApiResponse<Invitation[]>
 }
 
 // POST /invitations/{id}/accept — accept a collaboration invitation
-export async function acceptInvitation(invitationId: number): Promise<ApiResponse<{ message: string }>> {
+export async function acceptInvitation(invitationId: string): Promise<ApiResponse<{ message: string }>> {
     const result = await authFetch<{ message: string }>(
         `/invitations/${invitationId}/accept`,
         { method: "POST" },
@@ -21,7 +21,7 @@ export async function acceptInvitation(invitationId: number): Promise<ApiRespons
 }
 
 // POST /invitations/{id}/decline — decline a collaboration invitation
-export async function declineInvitation(invitationId: number): Promise<ApiResponse<{ message: string }>> {
+export async function declineInvitation(invitationId: string): Promise<ApiResponse<{ message: string }>> {
     const result = await authFetch<{ message: string }>(
         `/invitations/${invitationId}/decline`,
         { method: "POST" },
