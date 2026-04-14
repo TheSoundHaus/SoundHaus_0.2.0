@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
-  Users,
   GitCommit,
   Download,
   Music,
   Calendar,
   GitBranch,
+  GitFork,
   Activity,
   FileText,
   Clock,
@@ -30,9 +30,8 @@ import CloneModal from "@/components/CloneModal";
 import UserAvatar from "@/components/UserAvatar";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
-import { forkRepoAction } from "@/actions/repos";
+import { forkRepoAction, requestCollaborationAction } from "@/actions/repos";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
-import { listCollaborators } from "@/lib/api/invitations";
 import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
   RepoStats,
@@ -41,7 +40,6 @@ import type {
   Snippet,
   PushActivity,
   RepoEvent,
-  Collaborator,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
 
@@ -66,8 +64,9 @@ export default function PublicRepoClient({
   initialCommits,
   readme,
 }: Props) {
-  type TabKey = "overview" | "commits" | "events" | "collaborators";
+  type TabKey = "overview" | "commits" | "events";
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [showActionMenu, setShowActionMenu] = useState(false);
   const router = useRouter();
   const { user } = useUser();
 
@@ -86,13 +85,11 @@ export default function PublicRepoClient({
   const [compareSelection, setCompareSelection] = useState<[string | null, string | null]>([null, null]);
   const [showComparison, setShowComparison] = useState(false);
 
-  // Collaborators
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
-
   // Clone/Remix button
   const [showCloneModal, setShowCloneModal] = useState(false);
-  const [remixHovered, setRemixHovered] = useState(false);
-  const [collabLoading, setCollabLoading] = useState(false);
+  const [collabRequestBusy, setCollabRequestBusy] = useState(false);
+  const [collabRequestNotice, setCollabRequestNotice] = useState<string | null>(null);
+  const remixMenuRef = useRef<HTMLDivElement>(null);
 
   // Events
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
@@ -150,21 +147,24 @@ export default function PublicRepoClient({
     }
   }
 
-  // Load collaborators on tab switch
   useEffect(() => {
-    if (activeTab === "collaborators" || activeTab === "overview") {
-      setCollabLoading(true);
-      listCollaborators(owner, repo).then((res) => {
-        if (res.success) setCollaborators(res.data ?? []);
-        setCollabLoading(false);
-      });
-    }
     if (activeTab === "events") {
       getRepoEvents(owner, repo).then((res) => {
         if (res.success) setRepoEvents(res.data?.events ?? []);
       });
     }
   }, [activeTab, owner, repo]);
+
+  useEffect(() => {
+    if (!showActionMenu) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (remixMenuRef.current && !remixMenuRef.current.contains(e.target as Node)) {
+        setShowActionMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [showActionMenu]);
 
   const handleLoadMore = useCallback(async () => {
     setLoadingMore(true);
@@ -219,11 +219,16 @@ export default function PublicRepoClient({
     }
   }
 
+  const ownerIsSelf =
+    !!user?.username &&
+    (user.username === owner || user.username === stats?.owner_username);
+  const canClone = !!stats?.viewer_can_clone;
+  const pendingInvite = !!stats?.viewer_pending_invite;
+
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
     { key: "events" as const, label: "Timeline", icon: Activity },
-    { key: "collaborators" as const, label: "Collaborators", icon: Users },
   ];
 
   return (
@@ -245,46 +250,90 @@ export default function PublicRepoClient({
           <h1 className="mb-1 text-3xl font-bold">{repo}</h1>
           <p className="text-sm text-zinc-400">by <Link href={`/profile/${profileSlug}`} className="text-zinc-300 hover:text-glass-blue transition-colors">{ownerLabel}</Link></p>
         </div>
-        <div className="flex gap-2">
-          {/* Clone button (secondary) */}
-          <button
-            onClick={() => setShowCloneModal(true)}
-            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
-          >
-            <Download size={16} />
-            Clone
-          </button>
-          {/* Remix button — hide for own repos */}
-          {user?.username !== owner && (
-            <button
-              onClick={handleFork}
-              disabled={forking}
-              onMouseEnter={() => setRemixHovered(true)}
-              onMouseLeave={() => setRemixHovered(false)}
-              className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95 disabled:opacity-50"
-              style={{ minWidth: "120px" }}
-            >
-              <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
-                <span
-                  className="absolute inline-flex items-center justify-center"
-                  style={{
-                    transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
-                    transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-                  }}
+        <div className="flex max-w-md flex-col items-end gap-2 text-right">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {user && ownerIsSelf && (
+              <button
+                type="button"
+                onClick={() => setShowCloneModal(true)}
+                className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
+              >
+                <Download size={16} />
+                Clone
+              </button>
+            )}
+            {user && !ownerIsSelf && (
+              <div className="relative" ref={remixMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowActionMenu((p) => !p)}
+                  className="flex items-center gap-2 rounded-lg bg-glass-blue px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90"
                 >
-                  <RemixIcon hovered={remixHovered} size={18} />
-                </span>
-                <span
-                  className="absolute inline-flex items-center justify-center whitespace-nowrap"
-                  style={{
-                    transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
-                    transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-                  }}
-                >
-                  {forking ? "Remixing…" : "Remix"}
-                </span>
-              </span>
-            </button>
+                  <RemixIcon hovered={showActionMenu} size={18} />
+                  Remix
+                  <ChevronDown size={16} className="opacity-90" />
+                </button>
+                {showActionMenu && (
+                  <div className="absolute right-0 top-full z-20 mt-1 min-w-[220px] rounded-md border border-zinc-700 bg-zinc-900 py-1 text-left shadow-lg">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleFork();
+                        setShowActionMenu(false);
+                      }}
+                      disabled={forking}
+                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      <GitFork size={14} />
+                      {forking ? "Forking…" : "Fork"}
+                    </button>
+                    {stats?.open_to_collab && (
+                      <button
+                        type="button"
+                        disabled={collabRequestBusy}
+                        onClick={async () => {
+                          setCollabRequestBusy(true);
+                          setCollabRequestNotice(null);
+                          const res = await requestCollaborationAction(owner, repo);
+                          setCollabRequestBusy(false);
+                          setShowActionMenu(false);
+                          if (res.success) {
+                            setCollabRequestNotice(res.message);
+                          } else {
+                            setCollabRequestNotice(res.error);
+                          }
+                        }}
+                        className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50"
+                      >
+                        <UserPlus size={14} />
+                        Request invite
+                      </button>
+                    )}
+                    {canClone && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCloneModal(true);
+                          setShowActionMenu(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                      >
+                        <Download size={14} />
+                        Clone
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {collabRequestNotice && (
+            <p className="text-sm text-zinc-400">{collabRequestNotice}</p>
+          )}
+          {pendingInvite && !ownerIsSelf && user && (
+            <p className="text-sm text-amber-400/90">
+              You have a pending invitation for this project. Accept it from your dashboard notifications.
+            </p>
           )}
         </div>
       </div>
@@ -513,35 +562,6 @@ export default function PublicRepoClient({
                 ) : null}
               </div>
             )}
-
-            {/* Collaborators */}
-            <div className="glass-card rounded-lg p-6">
-              <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
-                <Users size={16} /> Collaborators
-              </h3>
-              {collabLoading ? (
-                <div className="space-y-3 animate-pulse">
-                  <div className="h-8 w-full rounded bg-zinc-800" />
-                  <div className="h-8 w-full rounded bg-zinc-800" />
-                </div>
-              ) : collaborators.length > 0 ? (
-                <div className="space-y-3">
-                  {collaborators.map((c) => (
-                    <Link key={c.login} href={`/profile/${c.username || c.login}`} className="flex items-center gap-3 hover:bg-zinc-800/50 rounded-md p-1 -m-1 transition-colors">
-                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} name={c.username || c.login} size={28} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-zinc-200 truncate hover:text-glass-blue transition-colors">
-                          {c.username || c.login}
-                        </div>
-                        <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-400">No collaborators yet.</p>
-              )}
-            </div>
 
             {/* Project Info */}
             <div className="glass-card rounded-lg p-6">
@@ -943,40 +963,6 @@ export default function PublicRepoClient({
         );
       })()}
 
-      {/* ── Collaborators Tab ──────────────────────────────────────── */}
-      {activeTab === "collaborators" && (
-        <div className="glass-card rounded-lg p-6">
-          <h2 className="mb-6 text-2xl font-semibold flex items-center gap-2">
-            <Users size={20} /> Collaborators
-          </h2>
-          {collabLoading ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-20 rounded-lg bg-zinc-800 animate-pulse" />
-              ))}
-            </div>
-          ) : collaborators.length === 0 ? (
-            <p className="text-zinc-400">No collaborators.</p>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {collaborators.map((c) => (
-                <div
-                  key={c.login}
-                  className="flex items-center gap-4 rounded-lg border border-zinc-800 p-4"
-                >
-                  <UserAvatar src={c.avatar_url} alt={c.username || c.login} name={c.username || c.login} size={40} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-zinc-200 truncate">
-                      {c.username || c.login}
-                    </div>
-                    <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </main>
   );
 }

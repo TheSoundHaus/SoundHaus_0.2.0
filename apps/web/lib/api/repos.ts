@@ -106,6 +106,68 @@ export async function forkRepo(
     return { success: true, data: result.data };
 }
 
+// PATCH /repos/{owner}/{repo}/open-to-collab — toggle collaboration requests
+export async function toggleOpenToCollab(
+    owner: string,
+    repo: string,
+    openToCollab: boolean,
+): Promise<ApiResponse<{ open_to_collab: boolean }>> {
+    const result = await authFetch<{ open_to_collab: boolean }>(
+        `/repos/${owner}/${repo}/open-to-collab`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ open_to_collab: openToCollab }),
+        },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}
+
+export interface CollaborationRequestRow {
+    id: string;
+    requester_id: string;
+    requester_email: string;
+    requester_username: string | null;
+    created_at: string | null;
+}
+
+export async function requestCollaboration(
+    owner: string,
+    repo: string,
+): Promise<ApiResponse<{ message: string }>> {
+    const result = await authFetch<{ message: string }>(
+        `/repos/${owner}/${repo}/collaboration-request`,
+        { method: "POST" },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
+
+export async function listCollaborationRequests(
+    owner: string,
+    repo: string,
+): Promise<ApiResponse<{ requests: CollaborationRequestRow[] }>> {
+    const result = await authFetch<{ requests: CollaborationRequestRow[] }>(
+        `/repos/${owner}/${repo}/collaboration-requests`,
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
+
+export async function dismissCollaborationRequest(
+    owner: string,
+    repo: string,
+    requestId: string,
+): Promise<ApiResponse<{ message: string }>> {
+    const result = await authFetch<{ message: string }>(
+        `/repos/${owner}/${repo}/collaboration-requests/${requestId}`,
+        { method: "DELETE" },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
+
 // DELETE /repos/{owner}/{repo} — delete a repo
 export async function deleteRepo(owner: string, repo: string): Promise<ApiResponse<{ message: string }>> {
     const result = await authFetch<{ message: string }>(`/repos/${owner}/${repo}`, { method: "DELETE" });

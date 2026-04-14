@@ -113,6 +113,11 @@ export interface RepoStats {
   thumbnail_url: string | null;
   thumbnail_type: "image" | "youtube" | null;
   forked_from: string | null;    // Source repo gitea_id if this is a fork
+  open_to_collab: boolean;        // Whether repo accepts collaboration requests
+  /** Present when stats were loaded with auth; user has Gitea clone access */
+  viewer_can_clone?: boolean;
+  /** User has a pending private-repo invite (not yet accepted) */
+  viewer_pending_invite?: boolean;
   genres: GenreRef[];
   recent_clones: RecentClone[];
   fork_parent?: { owner: string; repo: string } | null;
