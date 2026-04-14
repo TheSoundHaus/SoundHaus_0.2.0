@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     
     # === Redis ===
     redis_url: str = Field(default="redis://redis:6379/0", description="Redis connection URL")
+
+    # === Encryption ===
+    encryption_key: Optional[str] = Field(
+        default=None,
+        description="Symmetric key for pgcrypto column-level encryption (pgp_sym_encrypt/decrypt)",
+    )
     
     @field_validator("environment")
     @classmethod
