@@ -67,6 +67,9 @@ class RepoData(Base):
 
     # If this repo is a fork, stores the source repo's gitea_id (e.g. "uuid/repo-name")
     forked_from = Column(String(255), nullable=True, default=None)
+
+    # Whether this repo is open to collaboration requests from non-collaborators
+    open_to_collab = Column(Boolean, default=False, nullable=False)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too
@@ -120,15 +123,6 @@ class RepoData(Base):
     # Order queries in the router/service instead of here.
     snippet_history = relationship(
         "SnippetHistory",
-        back_populates="repo",
-        cascade="all, delete-orphan",
-    )
-
-    # Populated by: models/stem_models.py — SnippetVersion table
-    # Each stem separation job creates a SnippetVersion row.
-    # Back-reference: SnippetVersion.repo
-    snippet_versions = relationship(
-        "SnippetVersion",
         back_populates="repo",
         cascade="all, delete-orphan",
     )

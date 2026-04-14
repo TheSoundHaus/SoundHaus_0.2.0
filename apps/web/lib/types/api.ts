@@ -74,6 +74,7 @@ export interface PublicRepo {
   owner: string;                 // Supabase UUID (used in API routes)
   owner_username?: string;       // Human-readable SoundHaus username
   repo_name: string;
+  is_public: boolean;
   clone_count: number;
   clone_url: string;
   audio_snippet: string | null;  // CDN URL to audio file, null if no snippet
@@ -96,6 +97,8 @@ export interface GenreRef {
 // Recent clone entry used in repo stats
 export interface RecentClone {
   user_id: string;
+  /** Resolved SoundHaus username when available (never a raw UUID for display). */
+  username?: string | null;
   cloned_at: string;             // ISO timestamp string
 }
 
@@ -243,63 +246,3 @@ export interface RepoEvents {
   events: RepoEvent[];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STEMS
-// Matches the stem separation pipeline (Demucs)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type StemJobStatus = "queued" | "processing" | "succeeded" | "failed";
-export type StemType = "vocals" | "drums" | "bass" | "other";
-
-/** Individual stem file returned by the API */
-export interface StemFile {
-  id: number;
-  stem_type: StemType;
-  public_url: string;
-  duration_seconds: number | null;
-  file_size_bytes: number | null;
-  format: string;
-  created_at: string;
-}
-
-/** A single stem-generation run (SnippetVersion) */
-export interface SnippetVersion {
-  id: number;
-  repo_gitea_id: string;
-  source_upload_url: string;
-  commit_sha: string | null;
-  status: StemJobStatus;
-  error_message: string | null;
-  is_confirmed: boolean;
-  created_at: string;
-  demucs_model_version: string;
-  stem_files: StemFile[];
-}
-
-/** POST /repos/{owner}/{repo}/stems/jobs — create job */
-export interface StemJobStatusResponse {
-  job_id: number;
-  status: StemJobStatus;
-  error_message: string | null;
-  progress_percent: number | null;
-}
-
-/** GET /repos/{owner}/{repo}/stems/latest */
-export interface StemsLatestResponse {
-  snippet_version: SnippetVersion | null;
-  has_stems: boolean;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SNIPPET COMMENTS
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface SnippetComment {
-  id: string;
-  user_id: string;
-  username: string;
-  avatar_url: string | null;
-  timestamp_seconds: number;
-  comment_text: string;
-  created_at: string;
-}

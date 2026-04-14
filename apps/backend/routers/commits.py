@@ -2,22 +2,40 @@
 Commit and diff endpoints — serve commit history and ALS diff data.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import limiter, verify_token, verify_token_or_pat, resolve_owner_id
+from dependencies import (
+    get_auth,
+    limiter,
+    require_repo_access,
+    resolve_owner_id,
+    verify_token_or_pat,
+)
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from logging_config import get_logger
 from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
-from models.repo_models import RepoData
 from models.profile_models import Profile
-from sqlalchemy.exc import IntegrityError
+from models.repo_models import RepoData
 
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["commits"])
+
+async def _optional_caller(request: Request):
+    """Return (caller_id, caller_email) if Authorization header is present and valid."""
+    authz = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not authz or not authz.startswith("Bearer "):
+        return None, None
+    token = authz.replace("Bearer ", "", 1).strip()
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        return None, None
+    user = user_res.get("user", {}) or {}
+    return user.get("id"), user.get("email")
 
 
 @router.get("/repos/{owner}/{repo}/commits")
@@ -31,6 +49,9 @@ async def get_commit_list(
     db: Session = Depends(get_db),
 ):
     """Returns paginated commit history for a repository."""
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
@@ -141,6 +162,9 @@ async def get_commit_detail(
     db: Session = Depends(get_db),
 ):
     """Returns full metadata for a single commit by SHA (full or short)."""
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
@@ -209,8 +233,8 @@ async def post_als_diff(
     # Parse request body
     try:
         body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from e
 
     # Validate required fields
     commit_sha = body.get("commit_sha")
@@ -327,6 +351,9 @@ async def get_commit_diff(
     db: Session = Depends(get_db),
 ):
     """Returns ALS diff data for a specific commit SHA."""
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
@@ -377,6 +404,9 @@ async def get_diff_status(
     Used by the web UI to check if pending diffs have arrived without refetching
     the full commit list.
     """
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
     sha_list = [s.strip() for s in shas.split(",") if s.strip()]

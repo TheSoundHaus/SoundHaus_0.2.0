@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/context/UserContext";
 import { getPublicRepos } from "@/lib/api/repos";
 import type { PublicRepo } from "@/lib/types/api";
@@ -12,7 +13,6 @@ import {
 } from "@/lib/utils/youtube";
 
 import WaveformSpinner from "@/components/WaveformSpinner";
-import AudioPlayer from "@/components/AudioPlayer";
 
 /** Filter out raw UUIDs that legacy users have as their Gitea username */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,6 +25,7 @@ function ownerLabel(username?: string | null, fallback?: string | null): string 
 
 export default function ExplorePage() {
     const { user, loading } = useUser();
+    const router = useRouter();
     const [sortBy, setSortBy] = useState<"top" | "recent" | "trending">("top");
     const [searchQuery, setSearchQuery] = useState("");
     const [repos, setRepos] = useState<PublicRepo[]>([]);
@@ -47,7 +48,7 @@ export default function ExplorePage() {
             const result = await getPublicRepos();
             if (cancelled) return;
             if (result.success) {
-                setRepos(result.data);
+                setRepos((result.data ?? []).filter((repo) => repo.is_public !== false));
             } else {
                 setError(result.error);
             }
@@ -302,6 +303,8 @@ export default function ExplorePage() {
                                             <img
                                                 src={repo.thumbnail_url}
                                                 alt={repo.repo_name}
+                                                loading="lazy"
+                                                decoding="async"
                                                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                                             />
                                         ) : ytId ? (
@@ -309,6 +312,8 @@ export default function ExplorePage() {
                                                 <img
                                                     src={youtubeThumbnailHq(ytId)}
                                                     alt=""
+                                                    loading="lazy"
+                                                    decoding="async"
                                                     className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                                                 />
                                                 {/* Play overlay */}
@@ -322,8 +327,20 @@ export default function ExplorePage() {
                                             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/85"
                                                 onClick={(e) => e.preventDefault()}>
                                                 <AudioLines className="w-8 h-8 text-glass-blue-400/60" />
-                                                <div className="w-4/5">
-                                                    <AudioPlayer src={repo.audio_snippet} compact />
+                                                <div className="w-4/5 rounded-xl border border-zinc-700/50 bg-zinc-950/60 px-4 py-3 backdrop-blur-sm">
+                                                    <div className="flex items-end justify-center gap-[2px] opacity-60">
+                                                        {Array.from({ length: 36 }).map((_, i) => {
+                                                            const h = 14 + Math.sin(i * 0.32 + (repo.stars ?? 0)) * 20 + Math.cos(i * 0.75) * 12;
+                                                            return (
+                                                                <div
+                                                                    key={i}
+                                                                    className="flex-1 rounded-t-sm bg-glass-blue-400"
+                                                                    style={{ height: `${Math.max(h, 8)}px` }}
+                                                                />
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    <p className="mt-3 text-center text-xs font-medium text-zinc-300">Audio preview available</p>
                                                 </div>
                                             </div>
                                         ) : (
@@ -351,13 +368,17 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-sm text-zinc-400">
-                                            <Link
-                                                href={`/profile/${repo.owner_username || repo.owner}`}
-                                                onClick={(e) => e.stopPropagation()}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    router.push(`/profile/${repo.owner_username || repo.owner}`);
+                                                }}
                                                 className="font-medium text-zinc-400 hover:text-[#A7C7E7] transition-colors"
                                             >
                                                 {ownerShown}
-                                            </Link>
+                                            </button>
                                             {repo.updated_at && (
                                                 <>
                                                     <span className="mx-2 text-zinc-600">&middot;</span>
@@ -385,7 +406,7 @@ export default function ExplorePage() {
                                                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                                                     <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" />
                                                 </svg>
-                                                {repo.clone_count} clones
+                                                {repo.clone_count} downloads
                                             </span>
                                             {repo.audio_snippet && (
                                                 <span className="flex items-center gap-1.5 text-zinc-400">
@@ -424,13 +445,17 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-xs text-zinc-500 mt-0.5">
-                                            <Link
-                                                href={`/profile/${repo.owner_username || repo.owner}`}
-                                                onClick={(e) => e.stopPropagation()}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    router.push(`/profile/${repo.owner_username || repo.owner}`);
+                                                }}
                                                 className="hover:text-zinc-300 transition-colors"
                                             >
                                                 {ownerLabel(repo.owner_username, repo.owner)}
-                                            </Link>
+                                            </button>
                                         </p>
                                         <div className="flex items-center gap-1 mt-1">
                                             <svg className="w-3 h-3 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">
