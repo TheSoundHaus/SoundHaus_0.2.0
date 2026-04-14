@@ -18,6 +18,7 @@ from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
 from services.profile_service import profile_service
 from models.invitation_models import CollaboratorInvitation
+from models.repo_models import RepoData
 from models.profile_models import Profile
 
 logger = get_logger(__name__)
@@ -27,10 +28,11 @@ router = APIRouter(tags=["collaborators"])
 
 # ── Invite ───────────────────────────────────────────────────────────────────
 
-@router.post("/repos/{repo_name}/collaborators/invite")
+@router.post("/repos/{owner}/{repo_name}/collaborators/invite")
 @limiter.limit("10/minute")
 async def invite_collaborator(
     request: Request,
+    owner: str,
     repo_name: str,
     request_body: dict,
     token: str = Depends(verify_token),
@@ -45,13 +47,19 @@ async def invite_collaborator(
         user_id = user_res["user"]["id"]
         email = user_res["user"]["email"]
 
-        # Resolve human-readable username from Profile table
-        profile = db.query(Profile).filter(Profile.id == user_id).first()
-        owner_username = profile.username if profile else user_id
+        # Resolve the owner to a UUID (handles both username and UUID)
+        owner_id = resolve_owner_id(owner, db)
 
-        # Verify repo exists
+        # Only the repo owner can send invitations
+        if str(user_id) != str(owner_id):
+            return JSONResponse(
+                {"success": False, "message": "Only the repository owner can invite collaborators"},
+                status_code=403,
+            )
+
+        # Verify repo exists using the resolved owner
         repo_service = RepoService()
-        repo_check = repo_service.get_repo(owner_username, repo_name)
+        repo_check = repo_service.get_repo(owner_id, repo_name)
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
 
@@ -83,7 +91,7 @@ async def invite_collaborator(
             invitation_token=invitation_token,
             repo_name=repo_name,
             owner_email=email,
-            owner_username=owner_username,
+            owner_username=owner_id,
             invitee_email=invitee_email,
             permission=permission,
             status="pending",
@@ -330,10 +338,11 @@ async def decline_invitation(
 
 # ── Repo Invitations (owner view) ────────────────────────────────────────────
 
-@router.get("/repos/{repo_name}/invitations")
+@router.get("/repos/{owner}/{repo_name}/invitations")
 @user_limiter.limit("60/minute")
 async def get_repo_invitations(
     request: Request,
+    owner: str,
     repo_name: str,
     token: str = Depends(verify_token),
     db: Session = Depends(get_db),
@@ -345,12 +354,13 @@ async def get_repo_invitations(
             raise HTTPException(status_code=401, detail="Unauthorized")
 
         user_id = user_res["user"]["id"]
+        owner_id = resolve_owner_id(owner, db)
 
         invitations = (
             db.query(CollaboratorInvitation)
             .filter(
                 CollaboratorInvitation.repo_name == repo_name,
-                CollaboratorInvitation.owner_username == user_id,
+                CollaboratorInvitation.owner_username == owner_id,
             )
             .order_by(CollaboratorInvitation.created_at.desc())
             .all()
@@ -533,22 +543,24 @@ async def search_users(
 
 # ── Remove ───────────────────────────────────────────────────────────────────
 
-@router.delete("/repos/{repo_name}/collaborators/{username}")
+@router.delete("/repos/{owner}/{repo_name}/collaborators/{username}")
 @user_limiter.limit("20/minute")
 async def remove_collaborator(
     request: Request,
+    owner: str,
     repo_name: str,
     username: str,
     token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
 ):
     """Remove a collaborator from a repository."""
     user_res = await get_auth().get_user(token)
     if not user_res.get("success"):
         return JSONResponse({"success": False}, status_code=401)
 
-    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
     repo_service = RepoService()
-    result = repo_service.remove_collaborator(user_id, repo_name, username)
+    result = repo_service.remove_collaborator(owner_id, repo_name, username)
 
     if not result.get("success"):
         return JSONResponse({"success": False, "message": result.get("message")}, status_code=400)

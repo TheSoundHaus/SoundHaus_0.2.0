@@ -736,17 +736,100 @@ async def get_repo_stats(
         "owner_username": olab["owner_username"],
         "description": description,
         "private": is_private,
+        "owner_id": owner_id,
         "clone_url": f"{settings.gitea_public_url}/{owner_id}/{repo}.git",
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "thumbnail_url": repo_data.thumbnail_url,
         "thumbnail_type": repo_data.thumbnail_type,
+        "forked_from": repo_data.forked_from,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
         "recent_clones": [
             {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
             for c in recent_clones
         ],
         "fork_parent": fork_parent,
+    }
+
+
+# ── Fork ─────────────────────────────────────────────────────────────────────
+
+@router.post("/repos/{owner}/{repo}/fork")
+@user_limiter.limit("10/minute")
+async def fork_repo(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Fork a public repository into the authenticated user's namespace."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in to fork")
+
+    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
+    source_repo_id = f"{owner_id}/{repo}"
+
+    # Verify the source repo exists in SoundHaus
+    source_data = db.query(RepoData).filter(RepoData.gitea_id == source_repo_id).first()
+    if not source_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    # Cannot fork your own repo
+    if str(user_id) == str(owner_id):
+        raise HTTPException(status_code=400, detail="Cannot fork your own project")
+
+    # Ensure the forking user has a Gitea account
+    gitea = GiteaAdminService()
+    user_check = gitea.get_user_by_username(user_id)
+    if not user_check.get("exists"):
+        raise HTTPException(status_code=400, detail="Git account not provisioned. Please log in from the desktop app first.")
+
+    # Call Gitea fork API
+    svc = RepoService()
+    result = svc.fork_repo(owner_id, repo, user_id)
+
+    if not result.get("success"):
+        status = result.get("status", 500)
+        if status == 409:
+            raise HTTPException(status_code=409, detail="You already have a version of this project")
+        raise HTTPException(status_code=status or 500, detail=result.get("message", "Failed to fork"))
+
+    forked_repo = result.get("repo", {})
+    fork_full_name = forked_repo.get("full_name", f"{user_id}/{repo}")
+
+    # Create a RepoData entry for the fork
+    try:
+        fork_data = RepoData(
+            gitea_id=fork_full_name,
+            owner_id=user_id,
+            forked_from=source_repo_id,
+            clone_count=0,
+            total_commits=0,
+            is_public=source_data.is_public,
+        )
+        db.add(fork_data)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Fork RepoData already exists — not an error
+
+    # Resolve forking user's display name
+    fork_profile = db.query(Profile).filter(Profile.id == user_id).first()
+    fork_username = fork_profile.username if fork_profile else user_id
+
+    return {
+        "success": True,
+        "message": f"Created your version of {repo}",
+        "fork": {
+            "full_name": fork_full_name,
+            "name": forked_repo.get("name", repo),
+            "owner": fork_username,
+            "clone_url": forked_repo.get("clone_url", f"{settings.gitea_public_url}/{fork_full_name}.git"),
+            "forked_from": source_repo_id,
+        },
     }
 
 

@@ -577,6 +577,58 @@ class RepoService:
         except Exception:
             return f"HTTP {resp.status_code}: {resp.reason}"
 
+    def fork_repo(self, source_owner: str, source_repo: str, fork_owner: str) -> Dict[str, Any]:
+        """Fork a repository into another user's namespace via Gitea API."""
+        try:
+            url_path = f"/api/v1/repos/{source_owner}/{source_repo}/forks"
+            payload = {"organization": fork_owner}
+
+            resp = requests.post(
+                self._url(url_path),
+                headers=self.headers,
+                json=payload,
+                timeout=30,
+            )
+
+            logger.debug(
+                "fork_repo_response",
+                source=f"{source_owner}/{source_repo}",
+                fork_owner=fork_owner,
+                status_code=resp.status_code,
+            )
+
+            if resp.status_code in (200, 201, 202):
+                forked = resp.json()
+                return {"success": True, "repo": forked}
+
+            # 409 = fork already exists
+            if resp.status_code == 409:
+                return {"success": False, "status": 409, "message": "You already have a version of this project"}
+
+            msg = self._extract_msg(resp)
+            logger.warning("fork_repo_failed", source=f"{source_owner}/{source_repo}", error=msg)
+            return {"success": False, "status": resp.status_code, "message": msg}
+
+        except requests.RequestException as e:
+            logger.error("fork_repo_error", source=f"{source_owner}/{source_repo}", error=str(e))
+            return {"success": False, "status": 0, "message": f"Network error: {e}"}
+
+    def check_collaborator(self, owner: str, repo_name: str, username: str) -> Dict[str, Any]:
+        """Check if a user is a collaborator on a repository."""
+        try:
+            url_path = f"/api/v1/repos/{owner}/{repo_name}/collaborators/{username}"
+            resp = requests.get(self._url(url_path), headers=self.headers, timeout=15)
+
+            if resp.status_code == 204:
+                return {"success": True, "is_collaborator": True}
+            elif resp.status_code == 404:
+                return {"success": True, "is_collaborator": False}
+            else:
+                return {"success": False, "message": self._extract_msg(resp)}
+        except requests.RequestException as e:
+            logger.error("check_collaborator_error", owner=owner, repo=repo_name, error=str(e))
+            return {"success": False, "message": str(e)}
+
     def list_collaborators(self, owner: str, repo_name: str, db: Session) -> Dict[str, Any]:
         """List all collaborators for a repository, enriched with SoundHaus profile data."""
         try:
