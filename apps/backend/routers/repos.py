@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import uuid
 
 from database import get_db
 from config import settings
@@ -21,7 +22,7 @@ from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
 from models.profile_models import Profile
-from models.invitation_models import CollaboratorInvitation
+from models.invitation_models import CollaboratorInvitation, CollaborationRequest
 from models.schemas import (
     CreateRepoRequest,
     RegisterRepoRequest,
@@ -29,8 +30,13 @@ from models.schemas import (
     DeleteFileRequest,
 )
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime, timezone
 
 logger = get_logger(__name__)
+
+
+def _norm_email(value: str | None) -> str:
+    return (value or "").strip().lower()
 
 router = APIRouter(tags=["repos"])
 
@@ -730,6 +736,48 @@ async def get_repo_stats(
     owner_profile = db.query(Profile).filter(Profile.id == owner_id).first()
     olab = _owner_profile_fields(owner_profile, owner_id)
 
+    viewer_can_clone = False
+    viewer_pending_invite = False
+    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        try:
+            user_res = await get_auth().get_user(token)
+            if user_res.get("success"):
+                uid = str(user_res["user"]["id"])
+                email_n = _norm_email(user_res["user"].get("email"))
+                if uid == str(owner_id):
+                    viewer_can_clone = True
+                else:
+                    collabs = svc.list_collaborators(owner_id, repo, db)
+                    if collabs.get("success"):
+                        my_ids = {uid}
+                        rp = db.query(Profile).filter(Profile.id == uid).first()
+                        if rp and rp.username:
+                            my_ids.add(rp.username.strip())
+                        for c in collabs.get("collaborators", []):
+                            login = (c.get("login") or "").strip()
+                            uname = (c.get("username") or "").strip()
+                            if login in my_ids or (rp and rp.username and uname == rp.username):
+                                viewer_can_clone = True
+                                break
+                    if not viewer_can_clone and email_n:
+                        now = datetime.now(timezone.utc)
+                        pend = (
+                            db.query(CollaboratorInvitation)
+                            .filter(
+                                CollaboratorInvitation.repo_name == repo,
+                                CollaboratorInvitation.owner_username == owner_id,
+                                func.lower(CollaboratorInvitation.invitee_email) == email_n,
+                                CollaboratorInvitation.status == "pending",
+                                CollaboratorInvitation.expires_at > now,
+                            )
+                            .first()
+                        )
+                        viewer_pending_invite = pend is not None
+        except Exception as ex:
+            logger.debug("get_repo_stats_viewer_flags", error=str(ex))
+
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
@@ -743,13 +791,200 @@ async def get_repo_stats(
         "thumbnail_url": repo_data.thumbnail_url,
         "thumbnail_type": repo_data.thumbnail_type,
         "forked_from": repo_data.forked_from,
+        "open_to_collab": repo_data.open_to_collab,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
         "recent_clones": [
             {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
             for c in recent_clones
         ],
         "fork_parent": fork_parent,
+        "viewer_can_clone": viewer_can_clone,
+        "viewer_pending_invite": viewer_pending_invite,
     }
+
+
+# ── Collaboration Requests Toggle ────────────────────────────────────────────
+
+@router.patch("/repos/{owner}/{repo}/open-to-collab")
+@user_limiter.limit("10/minute")
+async def toggle_open_to_collab(
+    request: Request,
+    owner: str,
+    repo: str,
+    body: dict,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Toggle whether this repo accepts collaboration requests. Owner only."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
+
+    if str(user_id) != str(owner_id):
+        raise HTTPException(status_code=403, detail="Only the repo owner can change this setting")
+
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    repo_data.open_to_collab = bool(body.get("open_to_collab", False))
+    db.commit()
+
+    return {"success": True, "open_to_collab": repo_data.open_to_collab}
+
+
+@router.post("/repos/{owner}/{repo}/collaboration-request")
+@user_limiter.limit("10/minute")
+async def create_collaboration_request(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Logged-in user asks the owner for an invite. Requires open_to_collab."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = str(user_res["user"]["id"])
+    email = _norm_email(user_res["user"].get("email"))
+    if not email:
+        raise HTTPException(status_code=400, detail="Your account needs an email address to request access")
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    if not repo_data.open_to_collab:
+        raise HTTPException(status_code=403, detail="This project is not accepting collaboration requests")
+
+    if user_id == str(owner_id):
+        raise HTTPException(status_code=400, detail="You already own this project")
+
+    svc = RepoService()
+    collabs = svc.list_collaborators(owner_id, repo, db)
+    if collabs.get("success"):
+        rp = db.query(Profile).filter(Profile.id == user_id).first()
+        my_ids = {user_id}
+        if rp and rp.username:
+            my_ids.add(rp.username.strip())
+        for c in collabs.get("collaborators", []):
+            login = (c.get("login") or "").strip()
+            uname = (c.get("username") or "").strip()
+            if login in my_ids or (rp and rp.username and uname == rp.username):
+                raise HTTPException(status_code=400, detail="You are already a collaborator")
+
+    existing = (
+        db.query(CollaborationRequest)
+        .filter(
+            CollaborationRequest.owner_id == owner_id,
+            CollaborationRequest.repo_name == repo,
+            CollaborationRequest.requester_id == user_id,
+            CollaborationRequest.status == "pending",
+        )
+        .first()
+    )
+    if existing:
+        return {"success": True, "message": "You already have a pending request for this project"}
+
+    row = CollaborationRequest(
+        id=str(uuid.uuid4()),
+        owner_id=owner_id,
+        repo_name=repo,
+        requester_id=user_id,
+        requester_email=email,
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    return {"success": True, "message": "Request sent to the project owner"}
+
+
+@router.get("/repos/{owner}/{repo}/collaboration-requests")
+@user_limiter.limit("60/minute")
+async def list_collaboration_requests(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Owner-only: pending collaboration requests for this repo."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = str(user_res["user"]["id"])
+    owner_id = resolve_owner_id(owner, db)
+    if user_id != str(owner_id):
+        raise HTTPException(status_code=403, detail="Only the repository owner can view requests")
+
+    rows = (
+        db.query(CollaborationRequest)
+        .filter(
+            CollaborationRequest.owner_id == owner_id,
+            CollaborationRequest.repo_name == repo,
+            CollaborationRequest.status == "pending",
+        )
+        .order_by(CollaborationRequest.created_at.desc())
+        .all()
+    )
+    out = []
+    for r in rows:
+        prof = db.query(Profile).filter(Profile.id == r.requester_id).first()
+        out.append(
+            {
+                "id": r.id,
+                "requester_id": r.requester_id,
+                "requester_email": r.requester_email,
+                "requester_username": prof.username if prof and prof.username else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+        )
+    return {"success": True, "requests": out}
+
+
+@router.delete("/repos/{owner}/{repo}/collaboration-requests/{request_id}")
+@user_limiter.limit("20/minute")
+async def dismiss_collaboration_request(
+    request: Request,
+    owner: str,
+    repo: str,
+    request_id: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Owner dismisses a pending collaboration request."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = str(user_res["user"]["id"])
+    owner_id = resolve_owner_id(owner, db)
+    if user_id != str(owner_id):
+        raise HTTPException(status_code=403, detail="Only the repository owner can dismiss requests")
+
+    row = (
+        db.query(CollaborationRequest)
+        .filter(
+            CollaborationRequest.id == request_id,
+            CollaborationRequest.owner_id == owner_id,
+            CollaborationRequest.repo_name == repo,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Request not found")
+    row.status = "dismissed"
+    db.commit()
+    return {"success": True, "message": "Request dismissed"}
 
 
 # ── Fork ─────────────────────────────────────────────────────────────────────

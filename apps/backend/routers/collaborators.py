@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func as sql_func
 from datetime import datetime, timedelta, timezone
 from typing import Dict
 import uuid
@@ -16,7 +17,6 @@ from dependencies import limiter, user_limiter, verify_token, get_auth, resolve_
 from logging_config import get_logger
 from services.repo_service import RepoService
 from services.gitea_service import GiteaAdminService
-from services.profile_service import profile_service
 from models.invitation_models import CollaboratorInvitation
 from models.repo_models import RepoData
 from models.profile_models import Profile
@@ -24,6 +24,10 @@ from models.profile_models import Profile
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["collaborators"])
+
+
+def _norm_email(value: str | None) -> str:
+    return (value or "").strip().lower()
 
 
 # ── Invite ───────────────────────────────────────────────────────────────────
@@ -71,7 +75,7 @@ async def invite_collaborator(
                 status_code=403,
             )
 
-        invitee_email = request_body.get("email")
+        invitee_email = _norm_email(request_body.get("email"))
         permission = request_body.get("permission", "write")
 
         if not invitee_email:
@@ -162,12 +166,14 @@ async def get_pending_invitations(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        email = user_res["user"]["email"]
+        email = _norm_email(user_res["user"].get("email"))
+        if not email:
+            return {"success": True, "invitations": []}
 
         invitations = (
             db.query(CollaboratorInvitation)
             .filter(
-                CollaboratorInvitation.invitee_email == email,
+                sql_func.lower(CollaboratorInvitation.invitee_email) == email,
                 CollaboratorInvitation.status == "pending",
                 CollaboratorInvitation.expires_at > datetime.now(timezone.utc),
             )
@@ -223,7 +229,9 @@ async def accept_invitation(
             raise HTTPException(status_code=401, detail="Unauthorized")
 
         user_id = user_res["user"]["id"]
-        email = user_res["user"]["email"]
+        email = _norm_email(user_res["user"].get("email"))
+        if not email:
+            raise HTTPException(status_code=400, detail="Your account must have an email to accept this invitation")
 
         invitation = db.query(CollaboratorInvitation).filter(
             CollaboratorInvitation.id == invitation_id
@@ -232,7 +240,7 @@ async def accept_invitation(
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")
 
-        if invitation.invitee_email != email:
+        if _norm_email(invitation.invitee_email) != email:
             raise HTTPException(status_code=403, detail="This invitation is not for you")
 
         if invitation.status != "pending":
@@ -241,16 +249,27 @@ async def accept_invitation(
         if invitation.expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="Invitation has expired")
 
-        # Ensure invitee has a Gitea account
+        # Ensure invitee has a Gitea account — login may be Profile.username or legacy Supabase UUID
         gitea = GiteaAdminService()
-        invitee_username = user_id
+        invitee_profile = db.query(Profile).filter(Profile.id == user_id).first()
+        preferred_login = (
+            (invitee_profile.username or "").strip() or user_id
+            if invitee_profile
+            else user_id
+        )
 
+        invitee_username = preferred_login
         user_check = gitea.get_user_by_username(invitee_username)
+        if not user_check.get("exists") and invitee_username != user_id:
+            user_check = gitea.get_user_by_username(user_id)
+            if user_check.get("exists"):
+                invitee_username = user_id
+
         if not user_check.get("exists"):
             logger.info("accept_invitation", action="creating_gitea_user", username=invitee_username)
             create_result = gitea.create_user(
                 username=invitee_username,
-                email=email,
+                email=email or (invitee_profile.email if invitee_profile else ""),
                 password=secrets.token_urlsafe(32),
             )
             if not create_result.get("success"):
@@ -310,7 +329,7 @@ async def decline_invitation(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        email = user_res["user"]["email"]
+        email = _norm_email(user_res["user"].get("email"))
 
         invitation = db.query(CollaboratorInvitation).filter(
             CollaboratorInvitation.id == invitation_id
@@ -319,7 +338,7 @@ async def decline_invitation(
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")
 
-        if invitation.invitee_email != email:
+        if _norm_email(invitation.invitee_email) != email:
             raise HTTPException(status_code=403, detail="This invitation is not for you")
 
         invitation.status = "declined"

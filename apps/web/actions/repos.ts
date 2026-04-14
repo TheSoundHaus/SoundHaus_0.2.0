@@ -1,6 +1,20 @@
 "use server";
 
-import { createRepo, starRepo, unstarRepo, deleteRepo, renameRepo, updateRepoDescription, updateRepoVisibility, forkRepo } from "@/lib/api/repos";
+import {
+    createRepo,
+    starRepo,
+    unstarRepo,
+    deleteRepo,
+    renameRepo,
+    updateRepoDescription,
+    updateRepoVisibility,
+    forkRepo,
+    toggleOpenToCollab,
+    requestCollaboration,
+    listCollaborationRequests,
+    dismissCollaborationRequest,
+    type CollaborationRequestRow,
+} from "@/lib/api/repos";
 
 // Thin server action wrapper for createRepo
 // Returns a simple serializable object (no complex GiteaRepo nesting)
@@ -108,6 +122,60 @@ export async function forkRepoAction(
     if (!result.success) return { success: false, error: result.error };
     return { success: true, fork: result.data?.fork };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Failed to create your version" };
+    return { success: false, error: e instanceof Error ? e.message : "Failed to fork project" };
   }
+}
+
+export async function toggleOpenToCollabAction(
+  owner: string,
+  repo: string,
+  openToCollab: boolean,
+): Promise<{ success: true; open_to_collab: boolean } | { success: false; error: string }> {
+  try {
+    const result = await toggleOpenToCollab(owner, repo, openToCollab);
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, open_to_collab: result.data!.open_to_collab };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Failed to update setting" };
+  }
+}
+
+export async function requestCollaborationAction(
+    owner: string,
+    repo: string,
+): Promise<{ success: true; message: string } | { success: false; error: string }> {
+    try {
+        const result = await requestCollaboration(owner, repo);
+        if (!result.success) return { success: false, error: result.error };
+        return { success: true, message: result.data?.message ?? "Request sent" };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Failed to send request" };
+    }
+}
+
+export async function listCollaborationRequestsAction(
+    owner: string,
+    repo: string,
+): Promise<{ success: true; requests: CollaborationRequestRow[] } | { success: false; error: string }> {
+    try {
+        const result = await listCollaborationRequests(owner, repo);
+        if (!result.success) return { success: false, error: result.error };
+        return { success: true, requests: result.data?.requests ?? [] };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Failed to load requests" };
+    }
+}
+
+export async function dismissCollaborationRequestAction(
+    owner: string,
+    repo: string,
+    requestId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+    try {
+        const result = await dismissCollaborationRequest(owner, repo, requestId);
+        if (!result.success) return { success: false, error: result.error };
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Failed to dismiss" };
+    }
 }
