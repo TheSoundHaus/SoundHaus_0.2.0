@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('patService', {
 	setAllowedCloneRemote: (remote: string): Promise<string> => ipcRenderer.invoke('set-allowed-clone-remote', remote),
 	autoLogin: (): Promise<unknown> => ipcRenderer.invoke('auto-login'),
 	manualLogin: (email: string, password: string): Promise<unknown> => ipcRenderer.invoke('manual-login', email, password),
+	logout: (): Promise<{ success: boolean }> => ipcRenderer.invoke('logout'),
 });
 
 contextBridge.exposeInMainWorld('electron', {

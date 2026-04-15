@@ -88,7 +88,7 @@ class GiteaAdminService:
 		if visibility:
 			payload["visibility"] = visibility
 		else:
-			payload["visibility"] = "private"  # Default to private
+			payload["visibility"] = "public"
 
 		logger.info("create_user_request",
 			username=payload.get("username"),
@@ -189,9 +189,10 @@ class GiteaAdminService:
 
 	def get_user_by_username(self, username: str) -> Dict[str, Any]:
 		"""Check if a Gitea user exists with the given username.
-		
-		Used to verify if a SoundHaus Gitea account already exists for a user.
-		
+
+		Uses the public /api/v1/users/{username} endpoint which is reliable
+		across Gitea versions (the admin variant can return 405).
+
 		Returns:
 			{"exists": True, "data": user_object} if found
 			{"exists": False} if not found
@@ -199,13 +200,13 @@ class GiteaAdminService:
 		logger.debug("get_user_by_username_request", username=username)
 		try:
 			resp = requests.get(
-				self._url(f"/api/v1/admin/users/{username}"),
+				self._url(f"/api/v1/users/{username}"),
 				headers=self.headers,
-				timeout=10
+				timeout=10,
 			)
-			
+
 			logger.debug("get_user_status", username=username, status_code=resp.status_code)
-			
+
 			if resp.status_code == 200:
 				logger.debug("user_exists", username=username)
 				return {"exists": True, "data": resp.json()}

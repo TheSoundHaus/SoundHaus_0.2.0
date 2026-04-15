@@ -37,6 +37,7 @@ declare global {
       setAllowedCloneRemote: (remote: string) => Promise<string>
       autoLogin: () => Promise<{ success: boolean; reason?: string; status?: number; body?: string; error?: string }>
       manualLogin: (email: string, password: string) => Promise<{ success: boolean; reason?: string; status?: number; body?: string; error?: string }>
+      logout: () => Promise<{ success: boolean }>
     }
     electron?: {
       showProjectSetup: () => Promise<ProjectSetupData | null>

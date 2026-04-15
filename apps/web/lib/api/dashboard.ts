@@ -6,9 +6,7 @@
  */
 
 import type { EnrichedRepo, ApiResponse } from "../types/api";
-import type { CommitListResponse } from "./commits";
 import { getEnrichedRepos } from "./repos";
-import { getCommits } from "./commits";
 import { getPendingInvitations } from "./invitations";
 import { authFetch } from "./client";
 
@@ -39,8 +37,7 @@ export interface DashboardData {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function buildActivity(repos: EnrichedRepo[]): DashboardActivity[] {
-    // Synthetic fallback — create/collaborate events from repo metadata.
-    // Real commit-based "push" events are added in getDashboardData().
+    // Build activity from repo metadata — create/collaborate events.
     const activities: DashboardActivity[] = [];
 
     for (const repo of repos) {
@@ -98,41 +95,10 @@ export async function getDashboardData(): Promise<{
         // Use total_commits from enriched repo data (maintained by webhook on each push)
         const totalCommits = repos.reduce((sum, r) => sum + (r.total_commits ?? 0), 0);
 
-        // Fetch commits for the 5 most recently updated repos (for activity feed only)
+        // Get the 5 most recently updated repos for display
         const recentRepos = [...repos]
             .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
             .slice(0, 5);
-
-        const commitResults = await Promise.all(
-            recentRepos.map((repo) => {
-                const owner = repo.owner_username;
-                const repoName = repo.name;
-                if (!owner || !repoName) return null;
-                return getCommits(owner, repoName, 1, 5).catch(() => null);
-            })
-        );
-
-        // Collect real push events for activity feed
-        const commitActivities: DashboardActivity[] = [];
-        for (let i = 0; i < commitResults.length; i++) {
-            const result = commitResults[i];
-            if (result && result.success && result.data) {
-                const resp = result.data as CommitListResponse;
-                const repo = recentRepos[i];
-                if (!repo) continue;
-                for (const commit of (resp.commits ?? [])) {
-                    if (commit.timestamp) {
-                        commitActivities.push({
-                            type: "push",
-                            description: commit.message || "Pushed changes to",
-                            repoName: repo.name,
-                            repoOwner: repo.owner_username,
-                            time: commit.timestamp,
-                        });
-                    }
-                }
-            }
-        }
 
         // Count collaborations
         const collaborationCount = repos.filter((r) => r.role === "collaborator").length;
@@ -142,9 +108,8 @@ export async function getDashboardData(): Promise<{
             .filter((r) => r.role === "owner")
             .reduce((sum, r) => sum + (r.stars_count ?? 0), 0);
 
-        // Build activity feed: real commit events + synthetic create/collaborate
-        const syntheticActivity = buildActivity(repos);
-        const allActivity = [...commitActivities, ...syntheticActivity]
+        // Build activity feed from repo metadata (create/collaborate events)
+        const allActivity = buildActivity(repos)
             .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
             .slice(0, 15);
 

@@ -57,7 +57,7 @@ def init_db():
         RepositoryEvent,
         WebhookConfig
     )
-    from models.invitation_models import CollaboratorInvitation
+    from models.invitation_models import CollaboratorInvitation, CollaborationRequest
     from models.repo_models import RepoData
     from models.clone_models import CloneEvent
     from models.genre_models import GenreList, repo_genres
@@ -65,7 +65,6 @@ def init_db():
     from models.commit_models import CommitDetail
     from models.diff_models import AlsDiff
     from models.profile_models import Profile
-    from models.comment_models import SnippetComment
-    
+
     Base.metadata.create_all(bind=engine)
     logger.info("database_tables_created", status="success")

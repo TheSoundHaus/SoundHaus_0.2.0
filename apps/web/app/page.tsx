@@ -575,7 +575,7 @@ const DEMO_SLIDES = [
         title: "Audio Snippet Previews",
         subtitle: "Listen before you dive in",
         description:
-            "Every project can have an audio snippet so visitors can hear your sound instantly. A waveform player gives them a taste before they explore the stems.",
+            "Every project can have an audio snippet so visitors can hear your sound instantly. A waveform player gives them a taste before they dive into the project.",
         render: () => (
             <div className="rounded-xl bg-zinc-900/80 p-5 md:p-6 min-h-[300px] flex flex-col gap-4">
                 {/* Repo header */}
@@ -827,9 +827,9 @@ const FEATURES = [
     },
     {
         icon: AudioLines,
-        title: "Stem Separation",
+        title: "Audio Snippet Previews",
         description:
-            "Upload a mix, get isolated vocals, drums, bass, and melody tracks. Perfect for remixes, sampling, and collabs.",
+            "Upload a short preview of your project so collaborators and visitors can hear your sound instantly before opening Ableton.",
     },
     {
         icon: BarChart3,
@@ -1069,8 +1069,8 @@ export default function LandingPage() {
                                 <h3 className="text-2xl md:text-3xl font-bold text-white mb-4">Transparent by design</h3>
                                 <p className="text-base text-zinc-400 leading-relaxed font-light">
                                     Every feature in SoundHaus is built to make collaboration between real musicians easier and
-                                    more transparent. Whether you are using version control, visual diffs, or stem
-                                    separation, we give you the tools to iterate on your own ideas, hear exactly
+                                    more transparent. Whether you are using version control, visual diffs, or audio
+                                    snippet previews, we give you the tools to iterate on your own ideas, hear exactly
                                     what your collaborator changed, and build something genuinely yours.
                                 </p>
                             </FadeInSection>
@@ -1099,7 +1099,7 @@ export default function LandingPage() {
                                 <p className="text-base text-zinc-400 leading-relaxed font-light">
                                     SoundHaus is where authenticity matters. When credit is tracked in the commit
                                     history instead of being lost in a chain of anonymous exports, a drummer in Berlin and
-                                    a vocalist in LA can trade stems across time zones without losing context.
+                                    a vocalist in LA can trade ideas across time zones without losing context.
                                     The future of music is collaborative, and it should be unmistakably human.
                                 </p>
                             </FadeInSection>
@@ -1219,7 +1219,7 @@ export default function LandingPage() {
                                     <div className="space-y-3 mb-8">
                                         {/* macOS - transparent gray with real Apple logo */}
                                         <a
-                                            href="https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus-0.0.1-arm64.dmg"
+                                            href="https://github.com/TheSoundHaus/SoundHaus_0.2.0/releases/download/latest/SoundHaus.dmg"
                                             className="flex items-center justify-center gap-3 w-full rounded-xl border border-white/10 bg-white/[0.06] hover:bg-white/[0.1] text-white font-medium py-3.5 px-6 transition-all duration-300 no-underline backdrop-blur-sm"
                                         >
                                             <AppleLogo className="w-5 h-5" />

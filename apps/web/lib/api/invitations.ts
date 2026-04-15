@@ -30,9 +30,11 @@ export async function declineInvitation(invitationId: string): Promise<ApiRespon
     return { success: true, data: result.data };
 }
 
-// GET /repos/{repo_name}/invitations — list all invitations sent by owner for a repo
-export async function getRepoInvitations(repoName: string): Promise<ApiResponse<SentInvitation[]>> {
-    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${repoName}/invitations`);
+// GET /repos/{owner}/{repo_name}/invitations — list all invitations sent by owner for a repo
+export async function getRepoInvitations(owner: string, repoName: string): Promise<ApiResponse<SentInvitation[]>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
+    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${o}/${r}/invitations`);
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data?.invitations ?? [] };
 }
@@ -54,14 +56,17 @@ export async function cancelInvitation(invitationId: string): Promise<ApiRespons
     return { success: true, data: result.data };
 }
 
-// POST /repos/{repo_name}/collaborators/invite — invite a user by email
+// POST /repos/{owner}/{repo_name}/collaborators/invite — invite a user by email
 export async function inviteCollaborator(
+    owner: string,
     repoName: string,
     email: string,
     permission: string = "write",
 ): Promise<ApiResponse<{ invitation_id: string; message: string }>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
     const result = await authFetch<{ invitation_id: string; message: string }>(
-        `/repos/${repoName}/collaborators/invite`,
+        `/repos/${o}/${r}/collaborators/invite`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -79,13 +84,17 @@ export async function listCollaborators(owner: string, repoName: string): Promis
     return { success: true, data: result.data?.collaborators ?? [] };
 }
 
-// DELETE /repos/{repo_name}/collaborators/{username} — remove a collaborator
+// DELETE /repos/{owner}/{repo_name}/collaborators/{username} — remove a collaborator
 export async function removeCollaborator(
+    owner: string,
     repoName: string,
     username: string,
 ): Promise<ApiResponse<{ message: string }>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
+    const u = encodeURIComponent(username);
     const result = await authFetch<{ message: string }>(
-        `/repos/${repoName}/collaborators/${username}`,
+        `/repos/${o}/${r}/collaborators/${u}`,
         { method: "DELETE" },
     );
     if (!result.success) return { success: false, error: result.error };
@@ -97,4 +106,29 @@ export async function searchUsers(query: string): Promise<ApiResponse<UserSearch
     const result = await authFetch<{ users: UserSearchResult[] }>(`/users/search?q=${encodeURIComponent(query)}`);
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data?.users ?? [] };
+}
+
+// GET /repos/{owner}/{repo_name}/collaboration-status — check current user's collab status
+export type CollabStatus = "collaborator" | "pending" | "none";
+export interface CollabStatusResponse {
+    status: CollabStatus;
+    invitation_id?: string;
+}
+export async function getCollaborationStatus(
+    owner: string,
+    repoName: string,
+): Promise<ApiResponse<CollabStatusResponse>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
+    const result = await authFetch<CollabStatusResponse & { success: boolean }>(
+        `/repos/${o}/${r}/collaboration-status`,
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return {
+        success: true,
+        data: {
+            status: result.data?.status ?? "none",
+            invitation_id: result.data?.invitation_id,
+        },
+    };
 }

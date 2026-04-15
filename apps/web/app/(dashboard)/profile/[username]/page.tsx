@@ -2,7 +2,7 @@ import { getPublicProfile, getUserPublicRepos, getPublicUserStats } from "@/lib/
 import type { PublicRepo } from "@/lib/types/api";
 import UserAvatar from "@/components/UserAvatar";
 import Link from "next/link";
-import { Calendar, User, Music, Star, Globe, Instagram, Youtube, Twitter, GitFork, BarChart3, Disc3 } from "lucide-react";
+import { Calendar, User, Music, Star, Globe, Instagram, Youtube, Twitter, BarChart3, Disc3 } from "lucide-react";
 import ProfileSnippetPlayer from "./ProfileSnippetPlayer";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -150,7 +150,7 @@ export default async function PublicProfilePage({
 
         {/* Stats pills */}
         {stats && (
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-6 grid grid-cols-3 gap-3">
             <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
               <span className="text-xl font-bold text-zinc-100">{stats.total_repos}</span>
               <span className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1"><Music size={11} /> Projects</span>
@@ -158,10 +158,6 @@ export default async function PublicProfilePage({
             <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
               <span className="text-xl font-bold text-zinc-100">{stats.total_commits}</span>
               <span className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1"><BarChart3 size={11} /> Commits</span>
-            </div>
-            <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
-              <span className="text-xl font-bold text-zinc-100">{stats.total_clones_received}</span>
-              <span className="mt-0.5 text-xs text-zinc-500 flex items-center gap-1"><GitFork size={11} /> Clones</span>
             </div>
             <div className="flex flex-col items-center rounded-lg border border-white/[0.06] bg-white/[0.03] py-3">
               <span className="text-xl font-bold text-zinc-100">{stats.collaborations}</span>
@@ -276,10 +272,6 @@ export default async function PublicProfilePage({
                     <span className="flex items-center gap-1">
                       <Star size={12} />
                       {repo.stars ?? 0}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Music size={12} />
-                      {repo.clone_count} clones
                     </span>
                     {repo.updated_at && (
                       <span>Updated {formatDate(repo.updated_at)}</span>

@@ -5,7 +5,7 @@ import { desktopEnv } from './env';
 
 updateElectronApp({ repo: 'TheSoundHaus/SoundHaus_0.2.0' });
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
-import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote } from "./login"; 
+import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote, clearCredentials } from "./login"; 
 import { exec as gitExec } from 'dugite';
 import { pull, commit, push } from "./project";
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
@@ -1154,6 +1154,16 @@ ipcMain.handle('manual-login', async (_event: IpcMainInvokeEvent, email: string,
     return { success: true };
   } catch (err) {
     return { success: false, reason: 'fetch-error', error: String(err) };
+  }
+});
+
+ipcMain.handle('logout', async () => {
+  try {
+    await clearCredentials();
+    return { success: true };
+  } catch (err) {
+    console.error('[logout] Failed to clear credentials:', err);
+    return { success: false };
   }
 });
 

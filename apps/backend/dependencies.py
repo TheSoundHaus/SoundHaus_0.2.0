@@ -5,16 +5,18 @@ Contains authentication helpers, rate limiters, and constants
 that multiple router modules depend on.
 """
 
-from fastapi import Depends, Header, HTTPException, Request
+from typing import Any
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
 
-from database import get_db
 from config import settings
+from database import get_db
+from fastapi import Depends, Header, HTTPException, Request
 from logging_config import get_logger
-from services.auth_service import get_auth_service, SupabaseAuthService
+from services.auth_service import SupabaseAuthService, get_auth_service
 
 logger = get_logger(__name__)
 
@@ -97,8 +99,38 @@ def resolve_owner_id(owner: str, db: Session) -> str:
     return owner
 
 
+def resolve_owner_invitation_keys(owner: str, db: Session) -> set[str]:
+    """Return all identifier forms that may have been stored for invitation ownership.
+
+    Historical rows may store either the repo owner's UUID or SoundHaus username
+    in ``CollaboratorInvitation.owner_username``. This helper returns both forms
+    so callers can query safely during the transition.
+    """
+    from models.profile_models import Profile
+
+    owner_id = resolve_owner_id(owner, db)
+    keys = {str(owner_id), str(owner)}
+    profile = (
+        db.query(Profile)
+        .filter((Profile.id == owner_id) | (Profile.username == owner) | (Profile.id == owner))
+        .first()
+    )
+    if profile and profile.username:
+        keys.add(profile.username)
+    return {key for key in keys if key}
+
+
+def load_repo_data(owner: str, repo_name: str, db: Session):
+    """Return the RepoData row for ``owner``/``repo_name`` URL segments, or ``None``."""
+    from models.repo_models import RepoData
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo_name}"
+    return db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+
+
 async def verify_token(
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),
 ) -> str:
     """Extract and verify a JWT token from the Authorization header."""
@@ -123,10 +155,10 @@ async def verify_token(
 
 
 async def verify_token_or_pat(
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),
     db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Verify either a Supabase JWT token or a Personal Access Token.
 
@@ -155,3 +187,53 @@ async def verify_token_or_pat(
             detail="Invalid or missing authentication credentials",
         )
     return user_info
+
+
+def require_repo_access(
+    owner: str,
+    repo: str,
+    caller_id: str | None,
+    caller_email: str | None,
+    db: Session,
+):
+    """Enforce privacy on repo data endpoints.
+
+    - Public repos are accessible to anyone.
+    - Private repos are accessible only to the owner or accepted invitees.
+    - Unauthorized access always returns 404 (including authenticated users) to avoid leaking existence.
+
+    Returns the `RepoData` row on success.
+    """
+    from models.invitation_models import CollaboratorInvitation
+    from models.repo_models import RepoData
+
+    owner_id = resolve_owner_id(owner, db)
+    owner_keys = tuple(resolve_owner_invitation_keys(owner, db))
+    repo_id = f"{owner_id}/{repo}"
+
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    if repo_data.is_public:
+        return repo_data
+
+    if caller_id and str(repo_data.owner_id) == str(caller_id):
+        return repo_data
+
+    if caller_email:
+        normalized_email = str(caller_email).strip().lower()
+        accepted = (
+            db.query(CollaboratorInvitation)
+            .filter(
+                CollaboratorInvitation.repo_name == repo,
+                CollaboratorInvitation.owner_username.in_(owner_keys),
+                func.lower(CollaboratorInvitation.invitee_email) == normalized_email,
+                CollaboratorInvitation.status == "accepted",
+            )
+            .first()
+        )
+        if accepted:
+            return repo_data
+
+    raise HTTPException(status_code=404, detail="Repository not found")
