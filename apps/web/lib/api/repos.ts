@@ -48,15 +48,6 @@ export async function cloneRepo(owner: string, repoName: string) : Promise<ApiRe
     return {success: true, data:result.data}
 }
 
-export async function forkRepo(owner: string, repoName: string): Promise<ApiResponse<{ fork_name: string; fork_owner: string; message: string }>> {
-    const result = await authFetch<{ fork_name: string; fork_owner: string; message: string }>(
-        `/repos/${owner}/${repoName}/fork`,
-        { method: "POST" },
-    );
-    if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data };
-}
-
 export async function createRepo(name: string, isPrivate: boolean, description: string): Promise<ApiResponse<GiteaRepo>>{
     
     const result = await authFetch<{repo: GiteaRepo}>(
