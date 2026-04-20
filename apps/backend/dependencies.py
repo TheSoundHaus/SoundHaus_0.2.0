@@ -5,16 +5,17 @@ Contains authentication helpers, rate limiters, and constants
 that multiple router modules depend on.
 """
 
-from fastapi import Depends, Header, HTTPException, Request
+from typing import Any
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
 
-from database import get_db
 from config import settings
+from database import get_db
+from fastapi import Depends, Header, HTTPException, Request
 from logging_config import get_logger
-from services.auth_service import get_auth_service, SupabaseAuthService
+from services.auth_service import SupabaseAuthService, get_auth_service
 
 logger = get_logger(__name__)
 
@@ -98,7 +99,7 @@ def resolve_owner_id(owner: str, db: Session) -> str:
 
 
 async def verify_token(
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),
 ) -> str:
     """Extract and verify a JWT token from the Authorization header."""
@@ -123,10 +124,10 @@ async def verify_token(
 
 
 async def verify_token_or_pat(
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),
     db: Session = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Verify either a Supabase JWT token or a Personal Access Token.
 
@@ -155,3 +156,52 @@ async def verify_token_or_pat(
             detail="Invalid or missing authentication credentials",
         )
     return user_info
+
+
+def require_repo_access(
+    owner: str,
+    repo: str,
+    caller_id: str | None,
+    caller_email: str | None,
+    db: Session,
+):
+    """Enforce privacy on repo data endpoints.
+
+    - Public repos are accessible to anyone.
+    - Private repos are accessible only to the owner or accepted invitees.
+    - Unauthorized access always returns 404 (including authenticated users) to avoid leaking existence.
+
+    Returns the `RepoData` row on success.
+    """
+    from models.invitation_models import CollaboratorInvitation
+    from models.repo_models import RepoData
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
+
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    if repo_data.is_public:
+        return repo_data
+
+    if caller_id and str(repo_data.owner_id) == str(caller_id):
+        return repo_data
+
+    if caller_email:
+        normalized_email = str(caller_email).strip().lower()
+        accepted = (
+            db.query(CollaboratorInvitation)
+            .filter(
+                CollaboratorInvitation.repo_name == repo,
+                CollaboratorInvitation.owner_username == str(owner_id),
+                CollaboratorInvitation.invitee_email == normalized_email,
+                CollaboratorInvitation.status == "accepted",
+            )
+            .first()
+        )
+        if accepted:
+            return repo_data
+
+    raise HTTPException(status_code=404, detail="Repository not found")
