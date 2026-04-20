@@ -1374,59 +1374,6 @@ app.whenReady().then(() => {
   });
 });
 
-// ── Invitation IPC Handlers ──────────────────────────────────────────────────
-
-ipcMain.handle('get-pending-invitations', async () => {
-  try {
-    const pat = await getSoundHausCredentials();
-    if (!pat) return { ok: false, reason: 'Not logged in' };
-    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/pending`, {
-      headers: { 'Authorization': `token ${pat}` },
-    });
-    if (!res.ok) return { ok: false, reason: `Server error: ${res.status}` };
-    const data = await res.json();
-    return { ok: true, invitations: data.invitations ?? [] };
-  } catch (e: any) {
-    return { ok: false, reason: e?.message ?? 'Failed to fetch invitations' };
-  }
-});
-
-ipcMain.handle('accept-invitation', async (_event: IpcMainInvokeEvent, invitationId: string) => {
-  try {
-    const pat = await getSoundHausCredentials();
-    if (!pat) return { ok: false, reason: 'Not logged in' };
-    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/${invitationId}/accept`, {
-      method: 'POST',
-      headers: { 'Authorization': `token ${pat}` },
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return { ok: false, reason: body.detail ?? body.message ?? `Server error: ${res.status}` };
-    }
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, reason: e?.message ?? 'Failed to accept invitation' };
-  }
-});
-
-ipcMain.handle('decline-invitation', async (_event: IpcMainInvokeEvent, invitationId: string) => {
-  try {
-    const pat = await getSoundHausCredentials();
-    if (!pat) return { ok: false, reason: 'Not logged in' };
-    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/${invitationId}/decline`, {
-      method: 'POST',
-      headers: { 'Authorization': `token ${pat}` },
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return { ok: false, reason: body.detail ?? body.message ?? `Server error: ${res.status}` };
-    }
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, reason: e?.message ?? 'Failed to decline invitation' };
-  }
-});
-
 ipcMain.handle('check-is-collaboration', async (_event: IpcMainInvokeEvent, repoPath: string) => {
   try {
     if (!repoPath) return { ok: false, reason: 'No project path' };
