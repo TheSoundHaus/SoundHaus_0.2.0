@@ -2,22 +2,21 @@
 Stem separation endpoints – create jobs, poll status, confirm, history.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+
 from sqlalchemy.orm import Session
-from typing import List
 
 from database import get_db
-from dependencies import limiter, verify_token, get_auth, resolve_owner_id
+from dependencies import get_auth, limiter, resolve_owner_id, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
 from models.repo_models import RepoData
-from models.stem_models import SnippetVersion, StemJobStatus
-
 from models.schemas import (
+    SnippetVersionResponse,
     StemJobCreate,
     StemJobStatusResponse,
-    SnippetVersionResponse,
     StemsLatestResponse,
 )
+from models.stem_models import SnippetVersion, StemJobStatus
 
 logger = get_logger(__name__)
 
@@ -224,7 +223,7 @@ async def confirm_stem_job(
 
 # ── Stem history ─────────────────────────────────────────────────────────────
 
-@router.get("/repos/{owner}/{repo}/stems/history", response_model=List[SnippetVersionResponse])
+@router.get("/repos/{owner}/{repo}/stems/history", response_model=list[SnippetVersionResponse])
 async def get_stems_history(
     owner: str,
     repo: str,
