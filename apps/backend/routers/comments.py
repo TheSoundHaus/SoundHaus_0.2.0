@@ -2,21 +2,32 @@
 Snippet comment endpoints — CRUD for time-stamped comments on audio snippets.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from sqlalchemy.orm import Session
-from sqlalchemy import asc
 from pydantic import BaseModel, Field
+from sqlalchemy import asc
+from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import limiter, verify_token, get_auth
+from dependencies import get_auth, limiter, require_repo_access, resolve_owner_id, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
 from models.comment_models import SnippetComment
-from models.repo_models import RepoData
 from models.profile_models import Profile
+from models.repo_models import RepoData
 
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["comments"])
+
+async def _optional_caller(request: Request):
+    authz = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not authz or not authz.startswith("Bearer "):
+        return None, None
+    token = authz.replace("Bearer ", "", 1).strip()
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        return None, None
+    user = user_res.get("user", {}) or {}
+    return user.get("id"), user.get("email")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -54,7 +65,12 @@ async def add_snippet_comment(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = user_res["user"]["id"]
-    repo_id = f"{owner}/{repo}"
+    user_email = user_res["user"].get("email")
+
+    require_repo_access(owner, repo, user_id, user_email, db)
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
 
     # Verify repo exists
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
@@ -117,7 +133,11 @@ async def list_snippet_comments(
     db: Session = Depends(get_db),
 ):
     """List all comments on a repo's audio snippet, sorted by timestamp."""
-    repo_id = f"{owner}/{repo}"
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
 
     # Verify repo exists
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
@@ -169,7 +189,12 @@ async def delete_snippet_comment(
         raise HTTPException(status_code=401, detail="Must be logged in")
 
     user_id = str(user_res["user"]["id"])
-    repo_id = f"{owner}/{repo}"
+    user_email = user_res["user"].get("email")
+
+    require_repo_access(owner, repo, user_id, user_email, db)
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
 
     comment = (
         db.query(SnippetComment)
@@ -180,7 +205,7 @@ async def delete_snippet_comment(
         raise HTTPException(status_code=404, detail="Comment not found")
 
     # Only comment author or repo owner can delete
-    if comment.user_id != user_id and str(owner) != user_id:
+    if comment.user_id != user_id and str(owner_id) != user_id:
         raise HTTPException(status_code=403, detail="Not allowed to delete this comment")
 
     db.delete(comment)
