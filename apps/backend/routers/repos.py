@@ -3,32 +3,37 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from database import get_db
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from config import settings
-from dependencies import limiter, user_limiter, verify_token, verify_token_or_pat, get_auth, resolve_owner_id
+from database import get_db
+from dependencies import (
+    get_auth,
+    limiter,
+    resolve_owner_id,
+    user_limiter,
+    verify_token,
+    verify_token_or_pat,
+)
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from logging_config import get_logger
-from services.repo_service import RepoService
-from services.gitea_service import GiteaAdminService
-from services.webhook_service import webhook_service
-from models.repo_models import RepoData
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
-from models.profile_models import Profile
 from models.invitation_models import CollaboratorInvitation
+from models.profile_models import Profile
+from models.repo_models import RepoData
 from models.schemas import (
     CreateRepoRequest,
+    DeleteFileRequest,
     RegisterRepoRequest,
     UploadFileRequest,
-    DeleteFileRequest,
 )
-from sqlalchemy.exc import IntegrityError
+from services.gitea_service import GiteaAdminService
+from services.repo_service import RepoService
 
 logger = get_logger(__name__)
 
@@ -47,7 +52,7 @@ def _resolve_gitea_username(user_id: str, db: Session) -> str:
     return user_id
 
 
-def _owner_profile_fields(profile: Optional[Profile], gitea_owner: str) -> dict[str, str]:
+def _owner_profile_fields(profile: Profile | None, gitea_owner: str) -> dict[str, str]:
     """SoundHaus username (for /profile links)."""
     if profile is None:
         return {"owner_username": gitea_owner}
@@ -129,6 +134,7 @@ async def create_repo(
         audio_snippet=None,
         clone_count=0,
         owner_id=user_id,
+        is_public=not bool(create_request.private),
     )
     db.add(repo_data)
     db.commit()
@@ -292,16 +298,24 @@ async def patch_repo_settings(
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("message", "Failed to update repo settings"))
 
+    repo_data_changed = False
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == f"{owner_id}/{repo}").first()
+    if repo_data and "private" in settings:
+        repo_data.is_public = not bool(settings.get("private"))
+        repo_data_changed = True
+
     # If the repo was renamed, sync the gitea_id in RepoData
     new_name = settings.get("name")
     if new_name and new_name != repo:
         old_id = f"{owner_id}/{repo}"
         new_id = f"{owner_id}/{new_name}"
-        repo_data = db.query(RepoData).filter(RepoData.gitea_id == old_id).first()
         if repo_data:
             repo_data.gitea_id = new_id
-            db.commit()
+            repo_data_changed = True
             logger.info("repo_renamed_sync", old_id=old_id, new_id=new_id)
+
+    if repo_data_changed:
+        db.commit()
 
     return {"success": True, "repo": res.get("repo")}
 
@@ -462,19 +476,19 @@ async def fork_repo(
 @limiter.limit("60/minute")
 async def get_public_repos(
     request: Request,
-    genres: Optional[str] = None,
+    genres: str | None = None,
     match: str = "any",
     db: Session = Depends(get_db),
 ):
     """Get all publicly published repos with audio snippets (Explore page).
-    
+
     Only repos whose Gitea visibility is public are returned.
     """
     genre_names = []
     if genres is not None:
         genre_names = [g.strip() for g in genres.split(",")]
 
-    query = db.query(RepoData).filter(RepoData.is_public == True)
+    query = db.query(RepoData).filter(RepoData.is_public.is_(True))
 
     if genre_names:
         base = (
@@ -578,7 +592,7 @@ async def get_user_public_repos(
 
     repos = db.query(RepoData).filter(
         RepoData.owner_id == owner_id,
-        RepoData.is_public == True,
+        RepoData.is_public.is_(True),
     ).all()
 
     svc = RepoService()
@@ -640,7 +654,7 @@ async def get_user_public_stats(
 
     pub_filter = [
         RepoData.owner_id == user_id,
-        RepoData.is_public == True,
+        RepoData.is_public.is_(True),
     ]
     total_repos = (
         db.query(func.count(RepoData.gitea_id))
@@ -1150,8 +1164,6 @@ async def upload_thumbnail_image(
     from pathlib import Path
     ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
     storage_path = f"{owner}/{repo}/thumbnail{ext}"
-
-    from services.snippet_service import snippet_service
     supabase = snippet_service.supabase
     bucket = "thumbnails"
 
