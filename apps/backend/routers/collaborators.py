@@ -2,23 +2,23 @@
 Collaborator endpoints – invite, list, pending invitations, accept, decline, remove.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from datetime import datetime, timedelta, timezone
-import uuid
 import secrets
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import limiter, user_limiter, verify_token, get_auth, resolve_owner_id
+from dependencies import get_auth, limiter, resolve_owner_id, user_limiter, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
-from services.repo_service import RepoService
-from services.gitea_service import GiteaAdminService
-from services.profile_service import profile_service
 from models.collaborator_requests import InviteCollaboratorRequest
 from models.invitation_models import CollaboratorInvitation
 from models.profile_models import Profile
+from services.gitea_service import GiteaAdminService
+from services.repo_service import RepoService
 
 logger = get_logger(__name__)
 
@@ -94,8 +94,8 @@ async def invite_collaborator(
             invitee_email=invitee_email,
             permission=permission,
             status="pending",
-            created_at=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            created_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
         )
 
         db.add(invitation)
@@ -114,11 +114,11 @@ async def invite_collaborator(
         raise HTTPException(
             status_code=400,
             detail=f"Failed to add invitation to database: {e}, database constraint violation",
-        )
+        ) from e
     except Exception as e:
         db.rollback()
         logger.error("invite_collaborator", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create invitation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create invitation: {str(e)}") from e
 
 
 # ── List Collaborators ───────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ async def get_pending_invitations(
             .filter(
                 CollaboratorInvitation.invitee_email == email,
                 CollaboratorInvitation.status == "pending",
-                CollaboratorInvitation.expires_at > datetime.now(timezone.utc),
+                CollaboratorInvitation.expires_at > datetime.now(UTC),
             )
             .all()
         )
@@ -202,7 +202,7 @@ async def get_pending_invitations(
         raise
     except Exception as e:
         logger.error("get_pending_invitations", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch invitations")
+        raise HTTPException(status_code=500, detail="Failed to fetch invitations") from e
 
 
 # ── Accept / Decline ─────────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ async def accept_invitation(
         if invitation.status != "pending":
             raise HTTPException(status_code=400, detail=f"Invitation already {invitation.status}")
 
-        if invitation.expires_at < datetime.now(timezone.utc):
+        if invitation.expires_at < datetime.now(UTC):
             raise HTTPException(status_code=400, detail="Invitation has expired")
 
         # Ensure invitee has a Gitea account
@@ -285,7 +285,7 @@ async def accept_invitation(
             raise HTTPException(status_code=400, detail=f"Failed to add collaborator: {result.get('message')}")
 
         invitation.status = "accepted"
-        invitation.responded_at = datetime.now(timezone.utc)
+        invitation.responded_at = datetime.now(UTC)
         db.commit()
 
         return {"success": True, "message": f"You are now a collaborator on {invitation.repo_name}"}
@@ -295,7 +295,7 @@ async def accept_invitation(
     except Exception as e:
         db.rollback()
         logger.error("accept_invitation", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to accept invitation")
+        raise HTTPException(status_code=500, detail="Failed to accept invitation") from e
 
 
 @router.post("/invitations/{invitation_id}/decline")
@@ -325,7 +325,7 @@ async def decline_invitation(
             raise HTTPException(status_code=403, detail="This invitation is not for you")
 
         invitation.status = "declined"
-        invitation.responded_at = datetime.now(timezone.utc)
+        invitation.responded_at = datetime.now(UTC)
         db.commit()
 
         return {"success": True, "message": "Invitation declined"}
@@ -335,7 +335,7 @@ async def decline_invitation(
     except Exception as e:
         db.rollback()
         logger.error("decline_invitation", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to decline invitation")
+        raise HTTPException(status_code=500, detail="Failed to decline invitation") from e
 
 
 # ── Repo Invitations (owner view) ────────────────────────────────────────────
@@ -385,7 +385,7 @@ async def get_repo_invitations(
         raise
     except Exception as e:
         logger.error("get_repo_invitations", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch repo invitations")
+        raise HTTPException(status_code=500, detail="Failed to fetch repo invitations") from e
 
 
 # ── All Invitations (owner sent across all repos) ────────────────────────────
@@ -432,7 +432,7 @@ async def get_sent_invitations(
         raise
     except Exception as e:
         logger.error("get_sent_invitations", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to fetch sent invitations")
+        raise HTTPException(status_code=500, detail="Failed to fetch sent invitations") from e
 
 
 # ── Cancel Invitation ────────────────────────────────────────────────────────
@@ -476,7 +476,7 @@ async def cancel_invitation(
     except Exception as e:
         db.rollback()
         logger.error("cancel_invitation", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to cancel invitation")
+        raise HTTPException(status_code=500, detail="Failed to cancel invitation") from e
 
 
 # ── User Search ──────────────────────────────────────────────────────────────
@@ -538,7 +538,7 @@ async def search_users(
         raise
     except Exception as e:
         logger.error("search_users", error=str(e), exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to search users")
+        raise HTTPException(status_code=500, detail="Failed to search users") from e
 
 
 # ── Remove ───────────────────────────────────────────────────────────────────
