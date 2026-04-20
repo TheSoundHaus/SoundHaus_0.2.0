@@ -19,14 +19,15 @@ Architecture:
 """
 
 import io
+
 import requests
+from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-
-from logging_config import get_logger
 from config import settings
-from dependencies import verify_token
+from database import get_db
+from dependencies import get_auth, require_repo_access, resolve_owner_id
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from logging_config import get_logger
 from models.diff_schemas import WaveformPeaksResponse
 
 logger = get_logger(__name__)
@@ -35,6 +36,17 @@ router = APIRouter(
     prefix="/repos",
     tags=["audio"],
 )
+
+async def _optional_caller(request: Request):
+    authz = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not authz or not authz.startswith("Bearer "):
+        return None, None
+    token = authz.replace("Bearer ", "", 1).strip()
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        return None, None
+    user = user_res.get("user", {}) or {}
+    return user.get("id"), user.get("email")
 
 
 def _fetch_raw_file(owner: str, repo: str, file_path: str, ref: str) -> bytes:
@@ -67,6 +79,7 @@ def _fetch_raw_file(owner: str, repo: str, file_path: str, ref: str) -> bytes:
     ),
 )
 async def get_waveform_peaks(
+    request: Request,
     owner: str,
     repo: str,
     file_path: str = Query(
@@ -83,7 +96,7 @@ async def get_waveform_peaks(
         le=8192,
         description="Number of peak samples to return (higher = more detail)",
     ),
-    token_data: dict = Depends(verify_token),
+    db: Session = Depends(get_db),
 ) -> WaveformPeaksResponse:
     """
     Fetch an audio file from the repo and return its waveform peaks.
@@ -97,6 +110,10 @@ async def get_waveform_peaks(
         resolution=resolution,
     )
 
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+    owner_id = resolve_owner_id(owner, db)
+
     # ── Validate file format ─────────────────────────────────────────
     SUPPORTED_FORMATS = {".wav", ".mp3", ".flac", ".aif", ".aiff", ".ogg"}
     file_ext = "." + file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
@@ -108,12 +125,12 @@ async def get_waveform_peaks(
 
     # ── Fetch raw audio from Gitea ───────────────────────────────────
     try:
-        raw_content = _fetch_raw_file(owner, repo, file_path, ref)
+        raw_content = _fetch_raw_file(owner_id, repo, file_path, ref)
     except HTTPException:
         raise
     except Exception as e:
         logger.error("waveform_fetch_error", error=str(e), owner=owner, repo=repo)
-        raise HTTPException(status_code=502, detail=f"Failed to fetch audio file: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch audio file: {e}") from e
 
     # ── Decode audio and compute peaks ───────────────────────────────
     try:
@@ -163,4 +180,4 @@ async def get_waveform_peaks(
         raise HTTPException(
             status_code=422,
             detail=f"Failed to decode audio file: {e}",
-        )
+        ) from e
