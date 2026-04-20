@@ -3,7 +3,6 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -511,38 +510,12 @@ async def get_public_repos(
     profile_rows = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
     profile_map = {str(p.id): _owner_profile_fields(p, str(p.id)) for p in profile_rows}
 
-    svc = RepoService()
     result = []
-
-    # Parallelize Gitea visibility checks to avoid N+1 sequential HTTP calls
-    def _fetch_gitea(repo_row):
-        owner, repo_name = repo_row.gitea_id.split("/", 1)
-        gitea_info = svc.get_repo(owner, repo_name)
-        return repo_row, gitea_info
-
-    gitea_results = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(_fetch_gitea, r): r for r in all_repos}
-        for future in as_completed(futures):
-            try:
-                repo_row, gitea_info = future.result()
-                gitea_results[repo_row.gitea_id] = gitea_info
-            except Exception as e:
-                repo_row = futures[future]
-                logger.warning("get_public_repos_parallel", gitea_id=repo_row.gitea_id, error=str(e))
 
     for repo in all_repos:
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
             fields = profile_map.get(owner, _owner_profile_fields(None, owner))
-
-            # Check Gitea visibility — skip private repos
-            gitea_info = gitea_results.get(repo.gitea_id, {})
-            if not gitea_info.get("success"):
-                continue
-            gitea_repo = gitea_info.get("repo", {})
-            if gitea_repo.get("private", True):
-                continue
 
             repo_info = {
                 "gitea_id": repo.gitea_id,
@@ -562,9 +535,9 @@ async def get_public_repos(
                 "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
                 "thumbnail_url": repo.thumbnail_url,
                 "thumbnail_type": repo.thumbnail_type,
-                "description": gitea_repo.get("description", ""),
-                "stars": gitea_repo.get("stars_count", 0),
-                "updated_at": gitea_repo.get("updated_at", ""),
+                "description": repo.description or "",
+                "stars": repo.stars_count or 0,
+                "updated_at": repo.last_activity_at.isoformat() if repo.last_activity_at else None,
             }
 
             result.append(repo_info)
@@ -595,13 +568,10 @@ async def get_user_public_repos(
         RepoData.is_public.is_(True),
     ).all()
 
-    svc = RepoService()
     result = []
     for repo in repos:
         try:
             owner, repo_name = repo.gitea_id.split("/", 1)
-            gitea_data = svc.get_repo_contents(owner, repo_name)
-
             repo_info = {
                 "gitea_id": repo.gitea_id,
                 "owner": owner,
@@ -620,14 +590,10 @@ async def get_user_public_repos(
                 "clone_url": f"{settings.gitea_public_url}/{repo.gitea_id}.git",
                 "thumbnail_url": repo.thumbnail_url,
                 "thumbnail_type": repo.thumbnail_type,
+                "description": repo.description or "",
+                "stars": repo.stars_count or 0,
+                "updated_at": repo.last_activity_at.isoformat() if repo.last_activity_at else None,
             }
-
-            if gitea_data.get("success"):
-                contents = gitea_data.get("contents", {})
-                if isinstance(contents, list) and len(contents) > 0:
-                    repo_info["description"] = contents[0].get("repository", {}).get("description", "")
-                    repo_info["stars"] = contents[0].get("repository", {}).get("stars_count", 0)
-                    repo_info["updated_at"] = contents[0].get("repository", {}).get("updated_at", "")
 
             result.append(repo_info)
         except Exception as e:
