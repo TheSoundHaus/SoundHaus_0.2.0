@@ -168,7 +168,7 @@ async def get_latest_stems(
         db.query(SnippetVersion)
         .filter(
             SnippetVersion.repo_gitea_id == repo_data.gitea_id,
-            SnippetVersion.is_confirmed == True,
+            SnippetVersion.is_confirmed.is_(True),
             SnippetVersion.status == StemJobStatus.SUCCEEDED,
         )
         .order_by(SnippetVersion.created_at.desc())
