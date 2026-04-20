@@ -31,6 +31,7 @@ import UserAvatar from "@/components/UserAvatar";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { forkRepoAction } from "@/actions/repos";
+import { acceptInvitationAction, getCollaborationStatusAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { listCollaborators } from "@/lib/api/invitations";
 import { getRepoEvents } from "@/lib/api/webhooks";
@@ -66,7 +67,7 @@ export default function PublicRepoClient({
   initialCommits,
   readme,
 }: Props) {
-  type TabKey = "overview" | "commits" | "events" | "collaborators";
+  type TabKey = "overview" | "commits" | "events";
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const router = useRouter();
   const { user } = useUser();
@@ -101,6 +102,11 @@ export default function PublicRepoClient({
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
 
+  // Collaboration status
+  const [collabStatus, setCollabStatus] = useState<"collaborator" | "pending" | "none" | null>(null);
+  const [collabInvitationId, setCollabInvitationId] = useState<string | null>(null);
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
+
   const handleFork = useCallback(async () => {
     setForking(true);
     setForkError(null);
@@ -112,6 +118,30 @@ export default function PublicRepoClient({
       setForkError(result.error);
     }
   }, [owner, repo, router]);
+
+  // Fetch collaboration status on mount
+  useEffect(() => {
+    if (user && user.username !== owner) {
+      getCollaborationStatusAction(owner, repo).then((res) => {
+        if (res.success) {
+          setCollabStatus(res.data.status);
+          setCollabInvitationId(res.data.invitation_id ?? null);
+        } else {
+          setCollabStatus("none");
+        }
+      });
+    }
+  }, [user, owner, repo]);
+
+  const handleAcceptInvite = useCallback(async () => {
+    if (!collabInvitationId) return;
+    setAcceptingInvite(true);
+    const result = await acceptInvitationAction(collabInvitationId);
+    setAcceptingInvite(false);
+    if (result.success) {
+      setCollabStatus("collaborator");
+    }
+  }, [collabInvitationId]);
 
   const pushes: PushActivity[] = activity?.activity ?? [];
   const genres = stats?.genres ?? [];
@@ -152,7 +182,7 @@ export default function PublicRepoClient({
 
   // Load collaborators on tab switch
   useEffect(() => {
-    if (activeTab === "collaborators" || activeTab === "overview") {
+    if (activeTab === "overview") {
       setCollabLoading(true);
       listCollaborators(owner, repo).then((res) => {
         if (res.success) setCollaborators(res.data ?? []);
@@ -223,7 +253,6 @@ export default function PublicRepoClient({
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
     { key: "events" as const, label: "Timeline", icon: Activity },
-    { key: "collaborators" as const, label: "Collaborators", icon: Users },
   ];
 
   return (
@@ -254,6 +283,37 @@ export default function PublicRepoClient({
             <Download size={16} />
             Clone
           </button>
+          {/* Collaborate button — context-dependent */}
+          {user?.username !== owner && collabStatus !== null && collabStatus !== "collaborator" && (
+            collabStatus === "pending" ? (
+              <button
+                onClick={handleAcceptInvite}
+                disabled={acceptingInvite}
+                className="flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-5 py-2.5 text-sm font-semibold text-green-400 transition-all duration-300 hover:bg-green-500/20 hover:border-green-500/50 disabled:opacity-50"
+              >
+                <UserPlus size={16} />
+                {acceptingInvite ? "Accepting…" : "Accept Invitation to Collab"}
+              </button>
+            ) : (
+              <div className="group relative">
+                <button
+                  className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-400 cursor-default"
+                >
+                  <UserPlus size={16} />
+                  Collaborate
+                </button>
+                <div className="absolute top-full right-0 mt-2 w-72 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none shadow-xl">
+                  Invitation needed to collaborate directly, try remixing instead
+                </div>
+              </div>
+            )
+          )}
+          {user?.username !== owner && collabStatus === "collaborator" && (
+            <span className="flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-5 py-2.5 text-sm font-medium text-green-400">
+              <Users size={16} />
+              Collaborator
+            </span>
+          )}
           {/* Remix button — hide for own repos */}
           {user?.username !== owner && (
             <button
@@ -943,40 +1003,6 @@ export default function PublicRepoClient({
         );
       })()}
 
-      {/* ── Collaborators Tab ──────────────────────────────────────── */}
-      {activeTab === "collaborators" && (
-        <div className="glass-card rounded-lg p-6">
-          <h2 className="mb-6 text-2xl font-semibold flex items-center gap-2">
-            <Users size={20} /> Collaborators
-          </h2>
-          {collabLoading ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-20 rounded-lg bg-zinc-800 animate-pulse" />
-              ))}
-            </div>
-          ) : collaborators.length === 0 ? (
-            <p className="text-zinc-400">No collaborators.</p>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {collaborators.map((c) => (
-                <div
-                  key={c.login}
-                  className="flex items-center gap-4 rounded-lg border border-zinc-800 p-4"
-                >
-                  <UserAvatar src={c.avatar_url} alt={c.username || c.login} name={c.username || c.login} size={40} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-zinc-200 truncate">
-                      {c.username || c.login}
-                    </div>
-                    <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </main>
   );
 }
