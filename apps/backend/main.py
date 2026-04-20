@@ -6,37 +6,38 @@ initialises the database, and mounts all routers.
 The actual endpoint logic lives in the routers/ package.
 """
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+import models.seen_models  # noqa: F401 — ensure UserRepoSeen table is created
 from config import settings
 from database import init_db, test_connection
 from dependencies import limiter
+from fastapi import FastAPI
 from logging_config import get_logger
 from middlewares.security_headers import SecurityHeadersMiddleware
-from services.redis_service import close_redis
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 from routers import (
-    health,
+    audio,
     auth,
-    repos,
     collaborators,
+    comments,
+    commits,
+    dashboard,
     desktop,
     genres,
+    health,
+    repos,
     snippets,
     stems,
     webhooks,
-    commits,
-    audio,
-    comments,
 )
-from routers import dashboard
-import models.seen_models  # noqa: F401 — ensure UserRepoSeen table is created
+from services.redis_service import close_redis
 
 # ── App creation ─────────────────────────────────────────────────────────────
 
