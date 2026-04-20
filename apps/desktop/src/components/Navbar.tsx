@@ -147,6 +147,9 @@ const Navbar = () => {
                     try {
                         const result = await electronAPI.logout()
                         if (result.success) {
+                            setTabs([])
+                            setActiveTabPath(null)
+                            await window.electron?.setLastProjectPath(null)
                             navigate('/')
                         } else {
                             showToast({

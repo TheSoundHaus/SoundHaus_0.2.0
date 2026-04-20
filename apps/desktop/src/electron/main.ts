@@ -1104,6 +1104,9 @@ ipcMain.handle('auto-login', async () => {
       await setGiteaCredentials(data.token);
     }
     if (data.gitea_url) await setAllowedCloneRemote(data.gitea_url);
+    if (typeof data.username === 'string' && data.username.trim()) {
+      recentProjectsManager.setActiveUserId(data.username.trim());
+    }
     return { success: true };
   } catch (err) {
     return { success: false, reason: 'fetch-error', error: String(err) };
@@ -1143,12 +1146,22 @@ ipcMain.handle('manual-login', async (_event: IpcMainInvokeEvent, email: string,
       method: 'GET',
       headers: { Authorization: `token ${pat}` },
     });
+    let accountId: string | undefined;
     if (credRes.ok) {
       const credData = await credRes.json() as Record<string, any>;
       if (credData.token) await setGiteaCredentials(credData.token);
       if (credData.gitea_url) await setAllowedCloneRemote(credData.gitea_url);
+      if (typeof credData.username === 'string' && credData.username.trim()) {
+        accountId = credData.username.trim();
+      }
     } else {
       console.warn('[manual-login] Desktop credentials fetch failed:', credRes.status);
+    }
+    if (!accountId && typeof loginData.user?.id === 'string' && loginData.user.id.trim()) {
+      accountId = loginData.user.id.trim();
+    }
+    if (accountId) {
+      recentProjectsManager.setActiveUserId(accountId);
     }
 
     return { success: true };
@@ -1160,6 +1173,10 @@ ipcMain.handle('manual-login', async (_event: IpcMainInvokeEvent, email: string,
 ipcMain.handle('logout', async () => {
   try {
     await clearCredentials();
+    recentProjectsManager.setActiveUserId(null);
+    lastSelectedProjectPath = null;
+    updateProjectViewMenuEnabled();
+    updateProjectGitMenuEnabled();
     return { success: true };
   } catch (err) {
     console.error('[logout] Failed to clear credentials:', err);
