@@ -3,32 +3,33 @@ Authentication endpoints – signup, login, logout, refresh, user, reset-passwor
 Profile endpoints – get/update profile, upload/delete avatar.
 """
 
+import re
+import secrets
+from typing import Any
+
 from fastapi.responses import JSONResponse
-from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
-from typing import Dict, Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from config import settings
 from database import get_db
-from dependencies import limiter, user_limiter, verify_token, get_auth
+from dependencies import get_auth, limiter, user_limiter, verify_token
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from logging_config import get_logger, log_external_service
+from models.profile_models import Profile
+from models.repo_models import RepoData
+from models.schemas import (
+    ProfileUpdateRequest,
+    RefreshTokenRequest,
+    ResetPasswordRequest,
+    SignInRequest,
+    SignUpRequest,
+    UpdateUserRequest,
+)
 from services.auth_service import SupabaseAuthService
 from services.gitea_service import GiteaAdminService
-from services.repo_service import RepoService
 from services.profile_service import profile_service
-from models.repo_models import RepoData
-from models.profile_models import Profile
-from models.schemas import (
-    SignUpRequest,
-    SignInRequest,
-    UpdateUserRequest,
-    ResetPasswordRequest,
-    RefreshTokenRequest,
-    ProfileUpdateRequest,
-)
-import re
-import secrets
+from services.repo_service import RepoService
 
 _PROFILE_PATH_UUID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -58,7 +59,7 @@ async def signup(
     try:
         profile_service._validate_username(username)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     # Check username uniqueness in our profiles table
     from models.profile_models import Profile
@@ -82,7 +83,7 @@ async def signup(
 
     # Gitea login matches Supabase user id so repo/desktop code paths that pass user.id work unchanged.
     gitea_login = str(supabase_user_id)
-    gitea_result: Dict[str, Any]
+    gitea_result: dict[str, Any]
     try:
         gitea = GiteaAdminService()
         logger.debug("signup", message="gitea service initialized")
@@ -487,7 +488,7 @@ async def get_public_profile(
     is_public = profile.get("is_public", False)
 
     # Return only public-safe fields (exclude email and id)
-    pub_username = profile.get("username") or profile.get("id") or ""
+    pub_username = profile.get("username") or ""
     return {
         "success": True,
         "is_public": is_public,
