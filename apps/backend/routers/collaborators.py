@@ -62,17 +62,6 @@ async def invite_collaborator(
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
 
-        # Invitations are only allowed for private repositories
-        repo_data = repo_check.get("repo", {})
-        if not repo_data.get("private", False):
-            return JSONResponse(
-                {
-                    "success": False,
-                    "message": "Invitations are only available for private repositories. Public repos use forking for collaboration.",
-                },
-                status_code=403,
-            )
-
         invitee_email = body.email
         permission = body.permission
 
@@ -122,6 +111,69 @@ async def invite_collaborator(
 
 
 # ── List Collaborators ───────────────────────────────────────────────────────
+
+
+# ── Collaboration Status ─────────────────────────────────────────────────────
+
+@router.get("/repos/{owner}/{repo_name}/collaboration-status")
+@user_limiter.limit("60/minute")
+async def get_collaboration_status(
+    request: Request,
+    owner: str,
+    repo_name: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Return the current user's collaboration status for a repo.
+
+    Returns one of:
+    - "collaborator" — already has access
+    - "pending" — has a pending invitation (includes invitation_id)
+    - "none" — no invitation exists
+    """
+    try:
+        user_res = await get_auth().get_user(token)
+        if not user_res.get("success"):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        user_id = str(user_res["user"]["id"])
+        email = user_res["user"]["email"]
+        owner_gitea = str(resolve_owner_id(owner, db))
+
+        # Check if user is already a collaborator via Gitea
+        repo_service = RepoService()
+        collab_result = repo_service.list_collaborators(owner_gitea, repo_name, db)
+        if collab_result.get("success"):
+            for c in collab_result.get("collaborators", []):
+                if c.get("login") == user_id:
+                    return {"success": True, "status": "collaborator"}
+
+        # Check for pending invitation
+        invitation = (
+            db.query(CollaboratorInvitation)
+            .filter(
+                CollaboratorInvitation.invitee_email == email,
+                CollaboratorInvitation.repo_name == repo_name,
+                CollaboratorInvitation.owner_username == owner_gitea,
+                CollaboratorInvitation.status == "pending",
+                CollaboratorInvitation.expires_at > datetime.now(UTC),
+            )
+            .first()
+        )
+
+        if invitation:
+            return {"success": True, "status": "pending", "invitation_id": invitation.id}
+
+        return {"success": True, "status": "none"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_collaboration_status", error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to check collaboration status") from e
+
+
+# ── List Collaborators (enriched) ────────────────────────────────────────────
 
 @router.get("/repos/{owner}/{repo_name}/collaborators")
 @user_limiter.limit("60/minute")
@@ -340,10 +392,11 @@ async def decline_invitation(
 
 # ── Repo Invitations (owner view) ────────────────────────────────────────────
 
-@router.get("/repos/{repo_name}/invitations")
+@router.get("/repos/{owner}/{repo_name}/invitations")
 @user_limiter.limit("60/minute")
 async def get_repo_invitations(
     request: Request,
+    owner: str,
     repo_name: str,
     token: str = Depends(verify_token),
     db: Session = Depends(get_db),
@@ -354,13 +407,14 @@ async def get_repo_invitations(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        user_id = user_res["user"]["id"]
+        user_id = str(user_res["user"]["id"])
+        owner_gitea = str(resolve_owner_id(owner, db))
 
         invitations = (
             db.query(CollaboratorInvitation)
             .filter(
                 CollaboratorInvitation.repo_name == repo_name,
-                CollaboratorInvitation.owner_username == user_id,
+                CollaboratorInvitation.owner_username == owner_gitea,
             )
             .order_by(CollaboratorInvitation.created_at.desc())
             .all()

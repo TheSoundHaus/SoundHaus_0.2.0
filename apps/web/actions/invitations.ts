@@ -6,7 +6,9 @@ import {
     inviteCollaborator,
     cancelInvitation,
     removeCollaborator,
+    getCollaborationStatus,
 } from "@/lib/api/invitations";
+import type { CollabStatusResponse } from "@/lib/api/invitations";
 
 export async function acceptInvitationAction(
     invitationId: string,
@@ -70,5 +72,18 @@ export async function removeCollaboratorAction(
         return { success: true };
     } catch (e) {
         return { success: false, error: e instanceof Error ? e.message : "Failed to remove collaborator" };
+    }
+}
+
+export async function getCollaborationStatusAction(
+    owner: string,
+    repoName: string,
+): Promise<{ success: true; data: CollabStatusResponse } | { success: false; error: string }> {
+    try {
+        const result = await getCollaborationStatus(owner, repoName);
+        if (!result.success) return { success: false, error: result.error };
+        return { success: true, data: result.data! };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : "Failed to check collaboration status" };
     }
 }

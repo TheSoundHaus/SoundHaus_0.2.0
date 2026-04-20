@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/context/UserContext";
 import { getPublicRepos } from "@/lib/api/repos";
 import type { PublicRepo } from "@/lib/types/api";
@@ -25,6 +26,7 @@ function ownerLabel(username?: string | null, fallback?: string | null): string 
 
 export default function ExplorePage() {
     const { user, loading } = useUser();
+    const router = useRouter();
     const [sortBy, setSortBy] = useState<"top" | "recent" | "trending">("top");
     const [searchQuery, setSearchQuery] = useState("");
     const [repos, setRepos] = useState<PublicRepo[]>([]);
@@ -351,13 +353,17 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-sm text-zinc-400">
-                                            <Link
-                                                href={`/profile/${repo.owner_username || repo.owner}`}
-                                                onClick={(e) => e.stopPropagation()}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    router.push(`/profile/${repo.owner_username || repo.owner}`);
+                                                }}
                                                 className="font-medium text-zinc-400 hover:text-[#A7C7E7] transition-colors"
                                             >
                                                 {ownerShown}
-                                            </Link>
+                                            </button>
                                             {repo.updated_at && (
                                                 <>
                                                     <span className="mx-2 text-zinc-600">&middot;</span>
@@ -424,13 +430,17 @@ export default function ExplorePage() {
                                             {repo.repo_name}
                                         </h3>
                                         <p className="text-xs text-zinc-500 mt-0.5">
-                                            <Link
-                                                href={`/profile/${repo.owner_username || repo.owner}`}
-                                                onClick={(e) => e.stopPropagation()}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    router.push(`/profile/${repo.owner_username || repo.owner}`);
+                                                }}
                                                 className="hover:text-zinc-300 transition-colors"
                                             >
                                                 {ownerLabel(repo.owner_username, repo.owner)}
-                                            </Link>
+                                            </button>
                                         </p>
                                         <div className="flex items-center gap-1 mt-1">
                                             <svg className="w-3 h-3 text-glass-cyan-500" fill="currentColor" viewBox="0 0 20 20">
