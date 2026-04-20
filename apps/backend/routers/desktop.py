@@ -3,25 +3,25 @@ Desktop app & Personal Access Token endpoints – desktop-login, PAT CRUD,
 and Gitea credential provisioning.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Header
-from sqlalchemy.orm import Session
-from typing import Optional, Dict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from database import get_db
+from sqlalchemy.orm import Session
+
 from config import settings
+from database import get_db
 from dependencies import (
+    get_auth,
     limiter,
     user_limiter,
     verify_token,
     verify_token_or_pat,
-    get_auth,
 )
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from logging_config import get_logger
+from models.schemas import SignInRequest
 from services.auth_service import SupabaseAuthService
 from services.gitea_service import GiteaAdminService
 from services.pat_service import PATService
-from models.schemas import SignInRequest
 
 logger = get_logger(__name__)
 
@@ -80,7 +80,7 @@ async def desktop_login(
             await pat_service.revoke_pat(str(pat.id), user_id, db)
 
     # Step 3: Create new desktop PAT automatically
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     token_name = f"Desktop Auto Token {timestamp}"
 
     pat_result = await pat_service.create_pat(
@@ -143,7 +143,7 @@ async def create_personal_access_token(
 @user_limiter.limit("60/minute")
 async def list_personal_access_tokens(
     request: Request,
-    user_info: Dict = Depends(verify_token_or_pat),
+    user_info: dict = Depends(verify_token_or_pat),
     db: Session = Depends(get_db),
 ):
     """List all PATs for the current user (metadata only)."""
@@ -176,7 +176,7 @@ async def list_personal_access_tokens(
 async def revoke_personal_access_token(
     request: Request,
     token_id: str,
-    user_info: Dict = Depends(verify_token_or_pat),
+    user_info: dict = Depends(verify_token_or_pat),
     db: Session = Depends(get_db),
 ):
     """Revoke (soft-delete) a Personal Access Token."""
@@ -196,9 +196,9 @@ async def revoke_personal_access_token(
 @user_limiter.limit("10/minute")
 async def get_desktop_credentials(
     request: Request,
-    user_info: Dict = Depends(verify_token_or_pat),
-    cached_gitea_token_header: Optional[str] = Header(default=None, alias="X-Cached-Gitea-Token"),
-    cached_gitea_token: Optional[str] = None,
+    user_info: dict = Depends(verify_token_or_pat),
+    cached_gitea_token_header: str | None = Header(default=None, alias="X-Cached-Gitea-Token"),
+    cached_gitea_token: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
@@ -214,7 +214,7 @@ async def get_desktop_credentials(
     cached_token = cached_gitea_token_header or cached_gitea_token
 
     # Create a new Gitea token
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S-%f")
     token_name = f"Desktop Access Token - {timestamp}"
 
     gitea_result = gitea_admin_service.create_or_get_user_token(
