@@ -13,7 +13,7 @@
 //!      add tracks (Ableton assigns sequential integers).
 //!   5. Reassemble XML and gzip-compress.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{Read, Write};
 
 use flate2::read::GzDecoder;
@@ -26,22 +26,22 @@ use flate2::Compression;
 
 /// A track element captured as raw XML bytes together with its identity.
 #[derive(Clone)]
-struct RawTrack {
+pub(crate) struct RawTrack {
     /// The `Id` attribute value from the opening tag (e.g. "5").
-    id: String,
+    pub(crate) id: String,
     /// The complete XML bytes for this track element, from opening to closing tag.
-    raw_bytes: Vec<u8>,
+    pub(crate) raw_bytes: Vec<u8>,
 }
 
 /// The three logical sections of an `.als` file around the `<Tracks>` element.
-struct AlsSections {
+pub(crate) struct AlsSections {
     /// Everything before `<Tracks>` (inclusive of the `<Tracks>` opening tag is
     /// stripped — we re-emit it ourselves so prefix ends right before it).
-    prefix: Vec<u8>,
+    pub(crate) prefix: Vec<u8>,
     /// Individual track elements.
-    tracks: Vec<RawTrack>,
+    pub(crate) tracks: Vec<RawTrack>,
     /// Everything after `</Tracks>` (the closing tag itself is stripped).
-    suffix: Vec<u8>,
+    pub(crate) suffix: Vec<u8>,
 }
 
 // ─────────────────────────────────────────────
@@ -82,7 +82,7 @@ pub fn merge_als(local_bytes: &[u8], remote_bytes: &[u8]) -> Result<Vec<u8>, Str
 // Decompression
 // ─────────────────────────────────────────────
 
-fn decompress_if_needed(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn decompress_if_needed(data: &[u8]) -> Result<Vec<u8>, String> {
     if data.len() >= 2 && data[0] == 0x1f && data[1] == 0x8b {
         let mut decoder = GzDecoder::new(data);
         let mut out = Vec::new();
@@ -103,7 +103,7 @@ fn decompress_if_needed(data: &[u8]) -> Result<Vec<u8>, String> {
 ///
 /// Uses byte-level scanning with `quick_xml` so we capture each track element's
 /// raw bytes verbatim (preserving whitespace, attributes, nested content, etc.).
-fn split_als_sections(xml: &[u8]) -> Result<AlsSections, String> {
+pub(crate) fn split_als_sections(xml: &[u8]) -> Result<AlsSections, String> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
 
@@ -264,7 +264,7 @@ fn skip_subtree(
 /// - For each local track whose ID matches a remote track, replace the remote
 ///   copy with the local one (preserving User B's edits to existing tracks).
 /// - Append any local-only tracks (new tracks User B created) at the end.
-fn merge_tracks(local: Vec<RawTrack>, remote: Vec<RawTrack>) -> Vec<RawTrack> {
+pub(crate) fn merge_tracks(local: Vec<RawTrack>, remote: Vec<RawTrack>) -> Vec<RawTrack> {
     // Same track count and matching Id per slot (including empty-empty): lists agree on
     // structure — use local bytes entirely (equivalent to per-id replacement without
     // HashMap pitfalls for empty ids).
@@ -323,7 +323,7 @@ fn merge_tracks(local: Vec<RawTrack>, remote: Vec<RawTrack>) -> Vec<RawTrack> {
 /// Ableton assigns sequential integer IDs. When two users independently add
 /// tracks, they can end up with the same ID. We keep the first occurrence and
 /// renumber subsequent duplicates to `max_id + 1, max_id + 2, …`.
-fn resolve_track_id_conflicts(tracks: &mut Vec<RawTrack>) {
+pub(crate) fn resolve_track_id_conflicts(tracks: &mut Vec<RawTrack>) {
     let mut seen: HashSet<String> = HashSet::new();
     let mut duplicates: Vec<usize> = Vec::new();
 
@@ -370,7 +370,7 @@ fn resolve_track_id_conflicts(tracks: &mut Vec<RawTrack>) {
 }
 
 /// Find the byte offset of `needle` in `haystack`, or `None`.
-fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || needle.len() > haystack.len() {
         return None;
     }
@@ -395,37 +395,96 @@ fn extract_next_pointee_id(xml: &str) -> Option<u64> {
     rest[..end].parse().ok()
 }
 
-/// Scan merged XML for `<Pointee` … `Id="N"` style references and return the
-/// largest `N` seen. Ableton requires `NextPointeeId` to be strictly greater
-/// than every in-use pointee id — merging local track XML under a remote header
-/// can violate that if the remote header's counter is lower.
-///
-/// We match `<Pointee` (not `NextPointeeId`) so we do not mis-parse the header.
-fn max_pointee_id_in_merged_xml(xml: &str) -> u64 {
+/// Largest numeric `Id="…"` anywhere in the fragment (tracks, devices, Pointees, …).
+/// Ableton uses one global Lom id space — duplicate tracks must clear **all** `Id`s.
+pub(crate) fn max_lom_id_scan(xml: &str) -> u64 {
     let mut max_id = 0u64;
-    let mut search_from = 0;
-    while let Some(rel) = xml[search_from..].find("<Pointee") {
-        let pos = search_from + rel;
-        let window_end = (pos + 800).min(xml.len());
-        let window = &xml[pos..window_end];
-        if let Some(id_rel) = window.find("Id=\"") {
-            let start = pos + id_rel + "Id=\"".len();
-            let rest = &xml[start..];
-            if let Some(end_rel) = rest.find('"') {
-                if let Ok(n) = rest[..end_rel].parse::<u64>() {
-                    max_id = max_id.max(n);
-                }
+    let mut search_from = 0usize;
+    while let Some(rel) = xml[search_from..].find("Id=\"") {
+        let start = search_from + rel + "Id=\"".len();
+        let rest = &xml[start..];
+        if let Some(end_rel) = rest.find('"') {
+            if let Ok(n) = rest[..end_rel].parse::<u64>() {
+                max_id = max_id.max(n);
             }
         }
-        search_from = pos + 9;
+        search_from = search_from.saturating_add(rel).saturating_add(1);
     }
     max_id
+}
+
+/// Duplicate local track XML must not reuse **any** `Id="…"` already taken elsewhere
+/// (Pointee, AutomationTarget, ModulationTarget, …). Ableton uses one global id pool.
+pub(crate) fn remap_all_lom_ids_in_duplicated_track(
+    track: &mut RawTrack,
+    max_id_elsewhere: u64,
+) -> Result<(), String> {
+    let s = std::str::from_utf8(&track.raw_bytes)
+        .map_err(|_| "track XML is not valid UTF-8".to_string())?;
+    let mut ids: BTreeSet<u64> = BTreeSet::new();
+    let mut search_from = 0usize;
+    while let Some(rel) = s[search_from..].find("Id=\"") {
+        let start = search_from + rel + "Id=\"".len();
+        let rest = &s[start..];
+        if let Some(end_rel) = rest.find('"') {
+            if let Ok(n) = rest[..end_rel].parse::<u64>() {
+                ids.insert(n);
+            }
+        }
+        search_from = search_from.saturating_add(rel).saturating_add(1);
+    }
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut next = max_id_elsewhere.saturating_add(1);
+    let mut map: BTreeMap<u64, u64> = BTreeMap::new();
+    for old in ids {
+        map.insert(old, next);
+        next += 1;
+    }
+    let mut buf = s.to_string();
+    let mut keys: Vec<u64> = map.keys().copied().collect();
+    keys.sort_by(|a, b| b.to_string().len().cmp(&a.to_string().len()));
+    for old in keys {
+        let new = map[&old];
+        buf = buf.replace(&format!("Id=\"{}\"", old), &format!("Id=\"{}\"", new));
+    }
+    keys = map.keys().copied().collect();
+    keys.sort_by(|a, b| b.to_string().len().cmp(&a.to_string().len()));
+    for old in keys {
+        let new = map[&old];
+        buf = buf.replace(
+            &format!("PointeeId=\"{}\"", old),
+            &format!("PointeeId=\"{}\"", new),
+        );
+    }
+    track.id = parse_opening_track_id_from_xml(&buf)?;
+    track.raw_bytes = buf.into_bytes();
+    Ok(())
+}
+
+fn parse_opening_track_id_from_xml(xml: &str) -> Result<String, String> {
+    for prefix in [
+        "MidiTrack Id=\"",
+        "AudioTrack Id=\"",
+        "ReturnTrack Id=\"",
+        "GroupTrack Id=\"",
+    ] {
+        if let Some(i) = xml.find(prefix) {
+            let start = i + prefix.len();
+            let rest = &xml[start..];
+            if let Some(end) = rest.find('"') {
+                return Ok(rest[..end].to_string());
+            }
+        }
+    }
+    Err("could not find track opening Id attribute".to_string())
 }
 
 /// After tracks are merged, ensure `<NextPointeeId Value="…"/>` exceeds every
 /// pointee id in the document and is at least as large as both source files'
 /// counters.
-fn patch_next_pointee_id_for_merge(
+pub(crate) fn patch_next_pointee_id_for_merge(
     local_full: &str,
     remote_full: &str,
     merged_xml: &mut Vec<u8>,
@@ -435,12 +494,12 @@ fn patch_next_pointee_id_for_merge(
 
     let merged_utf8 = std::str::from_utf8(merged_xml)
         .map_err(|_| "Merged ALS is not valid UTF-8".to_string())?;
-    let max_pointee = max_pointee_id_in_merged_xml(merged_utf8);
+    let max_lom = max_lom_id_scan(merged_utf8);
 
-    // NextPointeeId must be > max assigned pointee id in the set.
+    // NextPointeeId must exceed every Lom id in the merged document.
     let mut target = l.max(r);
-    if max_pointee > 0 {
-        target = target.max(max_pointee.saturating_add(1));
+    if max_lom > 0 {
+        target = target.max(max_lom.saturating_add(1));
     }
 
     if target == 0 {
@@ -475,7 +534,7 @@ fn patch_next_pointee_id_for_merge(
 // ─────────────────────────────────────────────
 
 /// Reassemble the merged `.als` XML (uncompressed UTF-8 bytes).
-fn reassemble_to_vec(prefix: &[u8], tracks: &[RawTrack], suffix: &[u8]) -> Vec<u8> {
+pub(crate) fn reassemble_to_vec(prefix: &[u8], tracks: &[RawTrack], suffix: &[u8]) -> Vec<u8> {
     let mut xml = Vec::new();
     xml.extend_from_slice(prefix);
     xml.extend_from_slice(b"<Tracks>\n");
@@ -488,7 +547,7 @@ fn reassemble_to_vec(prefix: &[u8], tracks: &[RawTrack], suffix: &[u8]) -> Vec<u
     xml
 }
 
-fn compress_gzip(xml: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn compress_gzip(xml: &[u8]) -> Result<Vec<u8>, String> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(xml)

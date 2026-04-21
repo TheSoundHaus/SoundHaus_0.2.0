@@ -37,6 +37,20 @@ export declare function generateCommitMessage(diffReportJson: string): Promise<s
 export declare function mergeAlsFiles(localAlsPath: string, remoteAlsPath: string): Promise<Buffer>
 
 /**
+ * Three-way merge: BASE (committed pre-pull), LOCAL (WIP backup), REMOTE (post-rebase disk).
+ * `resolutions_json` — optional `{"<trackId>":"remote"|"local"|"duplicate", ...}` after a conflict.
+ */
+export declare function mergeAlsFilesThreeWay(baseAlsPath: string, localAlsPath: string, remoteAlsPath: string, resolutionsJson?: string | undefined | null): Promise<MergeAlsThreeWayResult>
+
+/** Result of [`merge_als_files_three_way`]: merged gzip bytes or structured conflict JSON. */
+export interface MergeAlsThreeWayResult {
+  /** True when `merged` is present; false when `conflict_json` is present. */
+  ok: boolean
+  merged?: Buffer
+  conflictJson?: string
+}
+
+/**
  * Parse a single Ableton Live Set file and serialize it as a Project JSON snapshot.
  * Primary snapshot serialization path: result is written to `.soundhaus/{session}/snapshot.json`.
  */

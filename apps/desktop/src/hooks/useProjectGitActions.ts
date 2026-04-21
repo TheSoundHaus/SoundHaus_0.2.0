@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import gitService from '../services/gitService'
+import type { PullPushResult } from '../types'
 
 export type GitErrorType = 'conflict' | 'network' | 'unknown' | null
 
@@ -45,11 +46,18 @@ export function useProjectGitActions() {
     const [isPushing, setIsPushing] = useState(false)
     const [pullError, setPullError] = useState<GitError | null>(null)
 
-    const runPull = useCallback(async (projectPath: string): Promise<string> => {
+    const runPull = useCallback(async (
+        projectPath: string,
+        opts?: { skipMissingSampleCheck?: boolean },
+    ): Promise<PullPushResult> => {
         setIsPulling(true)
         setPullError(null)
         try {
-            return await gitService.pullRepo(projectPath)
+            const result = await gitService.pullRepo(projectPath, opts)
+            if (!result.ok) {
+                return result
+            }
+            return result
         } catch (error) {
             const parsedError = parseGitError(error)
             setPullError(parsedError)
@@ -68,10 +76,13 @@ export function useProjectGitActions() {
         }
     }, [])
 
-    const runPush = useCallback(async (projectPath: string): Promise<string> => {
+    const runPush = useCallback(async (
+        projectPath: string,
+        opts?: { skipMissingSampleCheck?: boolean },
+    ): Promise<PullPushResult> => {
         setIsPushing(true)
         try {
-            return await gitService.pushRepo(projectPath)
+            return await gitService.pushRepo(projectPath, opts)
         } finally {
             setIsPushing(false)
         }

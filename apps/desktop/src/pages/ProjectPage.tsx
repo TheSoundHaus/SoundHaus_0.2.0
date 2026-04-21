@@ -2,14 +2,21 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
     ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine,
-    Music, AlertTriangle, CheckCircle, ExternalLink, History, GitCommit, Users
+    Music, AlertTriangle, CheckCircle, ExternalLink, History, GitCommit, GitBranch, FolderOpen, Users
 } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import WaveformSpinner from '../components/WaveformSpinner'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
-import type { CommitEntry, NoteDiff } from '../types'
+import type {
+    AlsMergeConflictEntryDTO,
+    CommitEntry,
+    LibrarySampleAdvisoryDTO,
+    NoteDiff,
+    ProjectReadinessDTO,
+} from '../types'
 import electronAPI from '../services/electronAPI';
+import gitService from '../services/gitService';
 import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
 import { useToast } from '../components/ToastProvider'
 import {
@@ -39,6 +46,19 @@ const ProjectPage = () => {
     const [selectedNoteDiff, setSelectedNoteDiff] = useState<NoteDiff | null>(null)
     const [openingAbleton, setOpeningAbleton] = useState(false)
     const [isCollaboration, setIsCollaboration] = useState(false)
+    const [readiness, setReadiness] = useState<ProjectReadinessDTO | null>(null)
+    const [mediaBypass, setMediaBypass] = useState(false)
+    const [sampleGate, setSampleGate] = useState<{
+        action: 'pull' | 'push'
+        message: string
+        issues: { relativePath: string; reason: string }[]
+    } | null>(null)
+    const [alsMergeModal, setAlsMergeModal] = useState<{
+        pendingPath: string
+        conflicts: AlsMergeConflictEntryDTO[]
+        choices: Record<string, string>
+    } | null>(null)
+    const [readinessSamplesRefreshing, setReadinessSamplesRefreshing] = useState(false)
 
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
@@ -92,19 +112,85 @@ const ProjectPage = () => {
         }
     }, [findAls, selectedProject])
 
+    const loadReadiness = useCallback(async () => {
+        if (!selectedProject) return
+        const r = await gitService.getProjectReadiness(selectedProject)
+        setReadiness(r ?? null)
+        if (r?.samples.state === 'ok') {
+            setMediaBypass(false)
+        }
+    }, [selectedProject])
+
+    const handleRefreshSampleReadiness = useCallback(async () => {
+        if (!selectedProject) return
+        setReadinessSamplesRefreshing(true)
+        try {
+            await loadReadiness()
+        } finally {
+            setReadinessSamplesRefreshing(false)
+        }
+    }, [loadReadiness, selectedProject])
+
+    const openAlsMergeFromConflictJson = useCallback((pendingPath: string, conflictJson: string) => {
+        type Report = { conflicts?: AlsMergeConflictEntryDTO[] }
+        let report: Report
+        try {
+            report = JSON.parse(conflictJson) as Report
+        } catch {
+            showToast({
+                type: 'error',
+                title: 'Could not read merge conflict data',
+                detail: 'The conflict report from the merge engine was invalid.',
+            })
+            return
+        }
+        const conflicts = Array.isArray(report.conflicts) ? report.conflicts : []
+        if (conflicts.length === 0) {
+            showToast({
+                type: 'error',
+                title: 'No merge conflicts listed',
+                detail: 'Try pulling again or contact support if this keeps happening.',
+            })
+            return
+        }
+        const choices: Record<string, string> = {}
+        for (const c of conflicts) {
+            if (c.track_id) {
+                choices[c.track_id] = 'remote'
+            }
+        }
+        setAlsMergeModal({ pendingPath, conflicts, choices })
+    }, [showToast])
+
+    const resumeAlsMergeFromDisk = useCallback(async () => {
+        const p = readiness?.alsMergeConflictPendingPath
+        if (!p) return
+        const file = await gitService.getAlsMergePending(p)
+        if (!file?.conflictJson) {
+            showToast({
+                type: 'info',
+                title: 'Merge pending file missing',
+                detail: 'Refreshing project status…',
+            })
+            await loadReadiness()
+            return
+        }
+        openAlsMergeFromConflictJson(p, file.conflictJson)
+    }, [loadReadiness, openAlsMergeFromConflictJson, readiness?.alsMergeConflictPendingPath, showToast])
+
     const handleRefreshChanges = useCallback(async () => {
         if (!selectedProject) return
 
         setRefreshing(true)
-        if (typeof findAls !== 'function') {
-            console.warn('findAls is not available from useElectronIPC')
-            setAlsStruct(null)
-            return
-        }
-
-        findAndParse(selectedProject)
-
         try {
+            if (typeof findAls !== 'function') {
+                console.warn('findAls is not available from useElectronIPC')
+                setAlsStruct(null)
+                return
+            }
+
+            findAndParse(selectedProject)
+
             const alsPath = await findAls(selectedProject)
             if (!alsPath) {
                 setAlsStruct({ ok: false, reason: 'No ALS file found' })
@@ -120,12 +206,94 @@ const ProjectPage = () => {
         }
     }, [findAls, findAndParse, selectedProject])
 
+    const submitAlsMergeResolutions = useCallback(async () => {
+        if (!alsMergeModal) return
+        try {
+            const { hadDuplicate } = await gitService.completeAlsMerge(
+                alsMergeModal.pendingPath,
+                alsMergeModal.choices,
+            )
+            setAlsMergeModal(null)
+            showToast({
+                type: 'success',
+                title: 'ALS merge applied',
+                detail: hadDuplicate
+                    ? 'You duplicated at least one track — tidy clips in Ableton, save, then use Complete merge below.'
+                    : 'Your session file was updated from the merge.',
+            })
+            await handleRefreshChanges()
+            await loadReadiness()
+        } catch (e) {
+            showToast({
+                type: 'error',
+                title: 'Could not finish ALS merge',
+                detail: e instanceof Error ? e.message : String(e),
+            })
+        }
+    }, [alsMergeModal, handleRefreshChanges, loadReadiness, showToast])
+
+    const handleClearMergeCompletePending = useCallback(async () => {
+        if (!selectedProject) return
+        try {
+            await gitService.clearMergePendingFlag(selectedProject)
+            showToast({
+                type: 'success',
+                title: 'Merge marked complete',
+                detail: 'You can commit and push when ready.',
+            })
+            await loadReadiness()
+        } catch (e) {
+            showToast({
+                type: 'error',
+                title: 'Could not clear merge flag',
+                detail: e instanceof Error ? e.message : String(e),
+            })
+        }
+    }, [loadReadiness, selectedProject, showToast])
+
     const handleGitPull = async () => {
         if (!selectedProject) return
         try {
             const result = await runPull(selectedProject)
-            notifyPullSuccess(showToast, result)
-            await handleRefreshChanges()
+            if (!result.ok && result.code === 'MISSING_SAMPLES') {
+                setSampleGate({
+                    action: 'pull',
+                    message: result.message,
+                    issues: result.issues,
+                })
+                return
+            }
+            if (!result.ok && result.code === 'ALS_MERGE_CONFLICT') {
+                openAlsMergeFromConflictJson(result.pendingPath, result.conflictJson)
+                await loadReadiness()
+                return
+            }
+            if (result.ok) {
+                notifyPullSuccess(showToast, result.message)
+                await handleRefreshChanges()
+                await loadReadiness()
+            }
+        } catch (error) {
+            notifyPullError(showToast, error)
+        }
+    }
+
+    const confirmSampleBypassPull = async () => {
+        if (!selectedProject || !sampleGate || sampleGate.action !== 'pull') return
+        setSampleGate(null)
+        try {
+            const result = await runPull(selectedProject, { skipMissingSampleCheck: true })
+            if (!result.ok && result.code === 'ALS_MERGE_CONFLICT') {
+                openAlsMergeFromConflictJson(result.pendingPath, result.conflictJson)
+                await loadReadiness()
+                return
+            }
+            if (result.ok) {
+                setMediaBypass(true)
+                notifyPullSuccess(showToast, result.message)
+                await handleRefreshChanges()
+                await loadReadiness()
+            }
         } catch (error) {
             notifyPullError(showToast, error)
         }
@@ -137,6 +305,7 @@ const ProjectPage = () => {
             const result = await runCommit(selectedProject)
             notifyCommitSuccess(showToast, result)
             setAlsStruct((prev: any) => prev ? { ...prev, diffStatus: 'in-sync', summary: '' } : prev)
+            await loadReadiness()
         } catch (error) {
             notifyCommitError(showToast, error)
         }
@@ -146,8 +315,53 @@ const ProjectPage = () => {
         if (!selectedProject) return
         try {
             const result = await runPush(selectedProject)
-            notifyPushSuccess(showToast, result)
-            await handleRefreshChanges()
+            if (!result.ok && result.code === 'MISSING_SAMPLES') {
+                setSampleGate({
+                    action: 'push',
+                    message: result.message,
+                    issues: result.issues,
+                })
+                return
+            }
+            if (!result.ok && result.code === 'PUSH_BEHIND_REMOTE') {
+                showToast({
+                    type: 'info',
+                    title: 'Pull before pushing',
+                    detail: result.message,
+                })
+                await loadReadiness()
+                return
+            }
+            if (result.ok) {
+                notifyPushSuccess(showToast, result.message)
+                await handleRefreshChanges()
+                await loadReadiness()
+            }
+        } catch (error) {
+            notifyPushError(showToast, error)
+        }
+    }
+
+    const confirmSampleBypassPush = async () => {
+        if (!selectedProject || !sampleGate || sampleGate.action !== 'push') return
+        setSampleGate(null)
+        try {
+            const result = await runPush(selectedProject, { skipMissingSampleCheck: true })
+            if (!result.ok && result.code === 'PUSH_BEHIND_REMOTE') {
+                showToast({
+                    type: 'info',
+                    title: 'Pull before pushing',
+                    detail: result.message,
+                })
+                await loadReadiness()
+                return
+            }
+            if (result.ok) {
+                setMediaBypass(true)
+                notifyPushSuccess(showToast, result.message)
+                await handleRefreshChanges()
+                await loadReadiness()
+            }
         } catch (error) {
             notifyPushError(showToast, error)
         }
@@ -181,6 +395,10 @@ const ProjectPage = () => {
     }, [handleRefreshChanges])
 
     useEffect(() => {
+        void loadReadiness()
+    }, [loadReadiness])
+
+    useEffect(() => {
         handleLoadHistory()
     }, [handleLoadHistory])
 
@@ -210,11 +428,82 @@ const ProjectPage = () => {
             if (!selectedProject) return
             if (customEvent.detail?.projectPath !== selectedProject) return
             void handleRefreshChanges()
+            void loadReadiness()
         }
 
         window.addEventListener('soundhaus:project-refresh-request', onRefreshRequest)
         return () => window.removeEventListener('soundhaus:project-refresh-request', onRefreshRequest)
-    }, [handleRefreshChanges, selectedProject])
+    }, [handleRefreshChanges, loadReadiness, selectedProject])
+
+    const syncStatus = readiness
+        ? (() => {
+            const s = readiness.sync
+            switch (s.state) {
+                case 'no_upstream':
+                    return { tone: 'neutral' as const, text: 'No upstream branch' }
+                case 'unknown':
+                    return { tone: 'neutral' as const, text: 'Sync status unknown' }
+                case 'up_to_date':
+                    return { tone: 'ok' as const, text: 'Up to date with remote' }
+                case 'ahead':
+                    return {
+                        tone: 'ok' as const,
+                        text: `Ahead by ${s.ahead ?? 0} commit(s) — you can push when ready`,
+                    }
+                case 'behind':
+                    return {
+                        tone: 'warn' as const,
+                        text: `Behind remote by ${s.behind ?? 0} commit(s) — pull before pushing`,
+                    }
+                case 'diverged':
+                    return {
+                        tone: 'warn' as const,
+                        text: 'Branch diverged from remote — pull and reconcile',
+                    }
+            }
+        })()
+        : null
+
+    const samplesStatus = readiness
+        ? (() => {
+              const libN = readiness.samples.libraryAdvisoryCount ?? 0
+              if (readiness.samples.state === 'action_needed') {
+                  if (mediaBypass) {
+                      return {
+                          tone: 'warn' as const,
+                          text: 'You continued without fixing sample paths — collaborators may get missing audio',
+                      }
+                  }
+                  return {
+                      tone: 'warn' as const,
+                      text: `Action needed: ${readiness.samples.issueCount} sample reference(s) look missing or external. In Ableton: File → Collect All and Save.`,
+                  }
+              }
+              if (libN > 0) {
+                  return {
+                      tone: 'neutral' as const,
+                      text:
+                          libN === 1
+                              ? 'This set references one Ableton library or pack sound. That is fine on your machine. Collaborators need the same library content, or use File → Collect All and Save in Ableton for a self-contained project.'
+                              : `This set references ${libN} Ableton library or pack sounds. Fine on your machine; collaborators need the same packs, or use Collect All and Save for a portable project.`,
+                  }
+              }
+              return {
+                  tone: 'ok' as const,
+                  text: 'Sample files appear to live inside the project',
+              }
+          })()
+        : null
+
+    const toneClass = (t: 'ok' | 'warn' | 'neutral') =>
+        t === 'ok' ? 'text-success' : t === 'warn' ? 'text-[var(--color-warning)]' : 'text-text-tertiary'
+
+    const sampleIssueReasonLabel = (reason: string) =>
+        reason === 'outside_project'
+            ? 'outside project folder'
+            : reason === 'file_not_found'
+              ? 'file not found'
+              : reason
 
     const projectName = selectedProject?.split(/[\\/]/).pop() || 'Project'
 
@@ -239,6 +528,153 @@ const ProjectPage = () => {
                         <p className="text-xs text-text-tertiary truncate max-w-xs">{selectedProject}</p>
                     </div>
                 </div>
+
+                {/* Sync + media readiness (§5b) */}
+                {readiness?.alsMergeConflictPendingPath && !alsMergeModal && (
+                    <div
+                        className="rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-4 flex flex-wrap items-center justify-between gap-3"
+                        role="status"
+                    >
+                        <div className="min-w-0">
+                            <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">
+                                ALS merge paused
+                            </div>
+                            <p className="text-sm text-text-secondary mt-1">
+                                Pull stopped because clips overlap on at least one track. Choose Remote, Local, or Duplicate
+                                for each track to finish the merge.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => void resumeAlsMergeFromDisk()}
+                            className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium btn-brand cursor-pointer"
+                        >
+                            Resolve…
+                        </button>
+                    </div>
+                )}
+
+                {readiness?.mergeCompletePending && (
+                    <div
+                        className="rounded-xl border border-border-default bg-bg-secondary/80 p-4 flex flex-wrap items-center justify-between gap-3"
+                        role="status"
+                    >
+                        <div className="min-w-0">
+                            <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">
+                                Finish duplicate-track merge
+                            </div>
+                            <p className="text-sm text-text-secondary mt-1">
+                                After you save the project in Ableton, mark this step complete so you can commit and push
+                                cleanly.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => void handleClearMergeCompletePending()}
+                            className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium border border-border-default bg-bg-elevated hover:bg-bg-tertiary/60 cursor-pointer"
+                        >
+                            Complete merge
+                        </button>
+                    </div>
+                )}
+
+                {readiness && syncStatus && samplesStatus && (
+                    <div className="rounded-xl border border-border-default bg-bg-secondary/80 p-4 space-y-3">
+                        <div className="flex items-start gap-3">
+                            <GitBranch className={`w-4 h-4 shrink-0 mt-0.5 ${toneClass(syncStatus.tone)}`} />
+                            <div className="min-w-0">
+                                <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">
+                                    Sync
+                                </div>
+                                <p className={`text-sm mt-0.5 ${toneClass(syncStatus.tone)}`}>
+                                    {syncStatus.text}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-2 min-w-0 w-full">
+                            <div className="flex items-start gap-3">
+                                <FolderOpen className={`w-4 h-4 shrink-0 mt-0.5 ${toneClass(samplesStatus.tone)}`} />
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">
+                                        Samples / media
+                                    </div>
+                                    <p className={`text-sm mt-0.5 ${toneClass(samplesStatus.tone)}`}>
+                                        {samplesStatus.text}
+                                    </p>
+                                </div>
+                                {(readiness.samples.state === 'action_needed' ||
+                                    readiness.samples.libraryAdvisoryCount > 0) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleRefreshSampleReadiness()}
+                                        disabled={readinessSamplesRefreshing}
+                                        className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg mt-0.5 text-text-tertiary hover:text-accent hover:bg-accent/10
+                                                   disabled:opacity-40 disabled:cursor-not-allowed
+                                                   transition-all duration-200 cursor-pointer"
+                                        title="Re-check sample paths (after Collect All and Save in Ableton)"
+                                        aria-label="Refresh sample status"
+                                    >
+                                        <RefreshCw
+                                            className={`w-3.5 h-3.5 ${readinessSamplesRefreshing ? 'animate-spin-slow' : ''}`}
+                                        />
+                                    </button>
+                                )}
+                            </div>
+                            {readiness.samples.issues.length > 0 && (
+                                <details className="group rounded-lg border border-border-subtle bg-bg-primary/50 text-left">
+                                    <summary
+                                        className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary/30 rounded-lg transition-colors
+                                                   [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2"
+                                    >
+                                        <span>
+                                            Paths that need fixing ({readiness.samples.issues.length})
+                                        </span>
+                                        <ChevronRight className="w-3.5 h-3.5 shrink-0 text-text-tertiary group-open:rotate-90 transition-transform" />
+                                    </summary>
+                                    <ul className="px-3 pb-3 pt-0 space-y-2 max-h-48 overflow-y-auto border-t border-border-subtle/80">
+                                        {readiness.samples.issues.map((issue, i) => (
+                                            <li key={`${issue.relativePath}-${issue.reason}-${i}`} className="text-xs">
+                                                <span className="font-mono text-text-primary break-all block">
+                                                    {issue.relativePath}
+                                                </span>
+                                                <span className="text-text-tertiary mt-0.5 block">
+                                                    {sampleIssueReasonLabel(issue.reason)}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            )}
+                            {readiness.samples.libraryAdvisories.length > 0 && (
+                                <details className="group rounded-lg border border-border-subtle bg-bg-primary/50 text-left">
+                                    <summary
+                                        className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-bg-tertiary/30 rounded-lg transition-colors
+                                                   [&::-webkit-details-marker]:hidden flex items-center justify-between gap-2"
+                                    >
+                                        <span>
+                                            Library / pack references ({readiness.samples.libraryAdvisories.length})
+                                        </span>
+                                        <ChevronRight className="w-3.5 h-3.5 shrink-0 text-text-tertiary group-open:rotate-90 transition-transform" />
+                                    </summary>
+                                    <p className="px-3 pt-1 pb-2 text-xs text-text-tertiary border-t border-border-subtle/80">
+                                        These point at Ableton factory or pack content. They do not block sync. Use
+                                        Collect All and Save only if you want audio copied into the project folder for
+                                        collaborators.
+                                    </p>
+                                    <ul className="px-3 pb-3 pt-0 space-y-2 max-h-48 overflow-y-auto">
+                                        {readiness.samples.libraryAdvisories.map((row: LibrarySampleAdvisoryDTO, i: number) => (
+                                            <li key={`${row.relativePath}-${i}`} className="text-xs">
+                                                <span className="font-mono text-text-primary break-all block">
+                                                    {row.relativePath}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* Track Information */}
                 <div className="rounded-xl border border-border-default overflow-hidden">
@@ -524,6 +960,122 @@ const ProjectPage = () => {
                     Push Changes
                 </button>
             </div>
+
+            {alsMergeModal && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="als-merge-title"
+                >
+                    <div className="w-full max-w-lg rounded-xl border border-border-default bg-bg-elevated shadow-xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+                        <h2 id="als-merge-title" className="text-base font-semibold text-text-primary">
+                            Overlapping clip changes
+                        </h2>
+                        <p className="text-sm text-text-secondary leading-relaxed">
+                            For each track, choose whose new clips win, or duplicate the track to keep both versions.
+                        </p>
+                        <ul className="space-y-3">
+                            {alsMergeModal.conflicts.map((c) => (
+                                <li
+                                    key={c.track_id}
+                                    className="rounded-lg border border-border-subtle bg-bg-secondary p-3 space-y-2"
+                                >
+                                    <div className="text-sm font-medium text-text-primary">
+                                        {c.track_name?.trim() || `Track ${c.track_id}`}
+                                    </div>
+                                    <div className="text-xs text-text-tertiary">{c.summary}</div>
+                                    <label className="sr-only" htmlFor={`als-merge-${c.track_id}`}>
+                                        Resolution for track {c.track_id}
+                                    </label>
+                                    <select
+                                        id={`als-merge-${c.track_id}`}
+                                        className="w-full text-sm rounded-lg border border-border-default bg-bg-primary px-3 py-2 text-text-primary"
+                                        value={alsMergeModal.choices[c.track_id] ?? 'remote'}
+                                        onChange={(e) =>
+                                            setAlsMergeModal((m) =>
+                                                m
+                                                    ? {
+                                                          ...m,
+                                                          choices: { ...m.choices, [c.track_id]: e.target.value },
+                                                      }
+                                                    : null,
+                                            )
+                                        }
+                                    >
+                                        <option value="remote">Remote — use collaborators&apos; clips</option>
+                                        <option value="local">Local — keep my clips</option>
+                                        <option value="duplicate">Duplicate track — keep both</option>
+                                    </select>
+                                </li>
+                            ))}
+                        </ul>
+                        <div className="flex flex-wrap gap-2 justify-end pt-1">
+                            <button
+                                type="button"
+                                onClick={() => setAlsMergeModal(null)}
+                                className="px-4 py-2 rounded-lg text-sm font-medium border border-border-default bg-bg-secondary text-text-primary hover:bg-bg-tertiary/60 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void submitAlsMergeResolutions()}
+                                className="px-4 py-2 rounded-lg text-sm font-medium btn-brand cursor-pointer"
+                            >
+                                Apply merge
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {sampleGate && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="sample-gate-title"
+                >
+                    <div className="w-full max-w-md rounded-xl border border-border-default bg-bg-elevated shadow-xl p-5 space-y-4">
+                        <h2 id="sample-gate-title" className="text-base font-semibold text-text-primary">
+                            Sample paths need attention
+                        </h2>
+                        <p className="text-sm text-text-secondary leading-relaxed">{sampleGate.message}</p>
+                        {sampleGate.issues.length > 0 && sampleGate.issues.length <= 8 && (
+                            <ul className="text-xs font-mono text-text-tertiary max-h-32 overflow-y-auto space-y-1 list-disc pl-4">
+                                {sampleGate.issues.map((it, i) => (
+                                    <li key={i}>
+                                        {it.relativePath}
+                                        <span className="text-text-tertiary/70"> ({it.reason})</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        <div className="flex flex-wrap gap-2 justify-end pt-1">
+                            <button
+                                type="button"
+                                onClick={() => setSampleGate(null)}
+                                className="px-4 py-2 rounded-lg text-sm font-medium border border-border-default
+                                           bg-bg-secondary text-text-primary hover:bg-bg-tertiary/60 cursor-pointer"
+                            >
+                                Go back
+                            </button>
+                            <button
+                                type="button"
+                                onClick={
+                                    sampleGate.action === 'pull'
+                                        ? () => void confirmSampleBypassPull()
+                                        : () => void confirmSampleBypassPush()
+                                }
+                                className="px-4 py-2 rounded-lg text-sm font-medium btn-brand cursor-pointer"
+                            >
+                                {sampleGate.action === 'pull' ? 'Continue pull anyway' : 'Push anyway'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

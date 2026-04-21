@@ -1,3 +1,11 @@
+import type {
+  AlsMergePendingFileDTO,
+  LibrarySampleAdvisoryDTO,
+  MissingSampleIssueDTO,
+  ProjectReadinessDTO,
+  PullPushResult,
+} from './index'
+
 export interface ProjectSetupData {
   name: string;
   description: string;
@@ -21,9 +29,29 @@ declare global {
     gitService?: {
       initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
       cloneRepo: (cloneUrl: string, destinationPath: string) => Promise<string>
-      pullRepo: (repoPath: string) => Promise<string>
+      pullRepo: (
+        repoPath: string,
+        opts?: { skipMissingSampleCheck?: boolean },
+      ) => Promise<PullPushResult>
       commitChange: (repoPath: string) => Promise<string>
-      pushRepo: (repoPath: string) => Promise<string>
+      pushRepo: (
+        repoPath: string,
+        opts?: { skipMissingSampleCheck?: boolean },
+      ) => Promise<PullPushResult>
+      getProjectReadiness: (repoPath: string) => Promise<ProjectReadinessDTO>
+      checkMissingSamples: (
+        repoPath: string,
+      ) => Promise<{
+        hasIssues: boolean
+        issues: MissingSampleIssueDTO[]
+        libraryAdvisories: LibrarySampleAdvisoryDTO[]
+      }>
+      completeAlsMerge: (
+        pendingPath: string,
+        resolutions: Record<string, string>,
+      ) => Promise<{ hadDuplicate: boolean }>
+      clearMergePendingFlag: (repoPath: string) => Promise<void>
+      getAlsMergePending: (pendingPath: string) => Promise<AlsMergePendingFileDTO | null>
     }
     patService?: {
       getSoundHausCredentials: () => Promise<string | null>

@@ -14,6 +14,7 @@ mod models;
 mod parser;
 mod diff;
 mod merge;
+mod merge_three_way;
 mod utils;
 
 use napi_derive::napi;
@@ -164,6 +165,71 @@ pub async fn merge_als_files(local_als_path: String, remote_als_path: String) ->
             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("ALS merge failed: {}", e)))?;
 
         Ok(Buffer::from(merged))
+    })
+    .await
+    .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Task panicked: {}", e)))?
+}
+
+/// Result of [`merge_als_files_three_way`]: merged gzip bytes or structured conflict JSON.
+#[napi(object)]
+pub struct MergeAlsThreeWayResult {
+    /// True when `merged` is present; false when `conflict_json` is present.
+    pub ok: bool,
+    pub merged: Option<Buffer>,
+    #[napi(js_name = "conflictJson")]
+    pub conflict_json: Option<String>,
+}
+
+/// Three-way merge: BASE (committed pre-pull), LOCAL (WIP backup), REMOTE (post-rebase disk).
+/// `resolutions_json` — optional `{"<trackId>":"remote"|"local"|"duplicate", ...}` after a conflict.
+#[napi(js_name = "mergeAlsFilesThreeWay")]
+pub async fn merge_als_files_three_way(
+    base_als_path: String,
+    local_als_path: String,
+    remote_als_path: String,
+    resolutions_json: Option<String>,
+) -> napi::Result<MergeAlsThreeWayResult> {
+    tokio::task::spawn_blocking(move || {
+        let base_bytes = std::fs::read(&base_als_path).map_err(|e| {
+            napi::Error::new(
+                napi::Status::GenericFailure,
+                format!("Failed to read base ALS '{}': {}", base_als_path, e),
+            )
+        })?;
+        let local_bytes = std::fs::read(&local_als_path).map_err(|e| {
+            napi::Error::new(
+                napi::Status::GenericFailure,
+                format!("Failed to read local ALS '{}': {}", local_als_path, e),
+            )
+        })?;
+        let remote_bytes = std::fs::read(&remote_als_path).map_err(|e| {
+            napi::Error::new(
+                napi::Status::GenericFailure,
+                format!("Failed to read remote ALS '{}': {}", remote_als_path, e),
+            )
+        })?;
+
+        match merge_three_way::merge_als_three_way_bytes(
+            &base_bytes,
+            &local_bytes,
+            &remote_bytes,
+            resolutions_json.as_deref(),
+        ) {
+            Ok(Ok(gz)) => Ok(MergeAlsThreeWayResult {
+                ok: true,
+                merged: Some(Buffer::from(gz)),
+                conflict_json: None,
+            }),
+            Ok(Err(json)) => Ok(MergeAlsThreeWayResult {
+                ok: false,
+                merged: None,
+                conflict_json: Some(json),
+            }),
+            Err(msg) => Err(napi::Error::new(
+                napi::Status::GenericFailure,
+                format!("Three-way ALS merge failed: {}", msg),
+            )),
+        }
     })
     .await
     .map_err(|e| napi::Error::new(napi::Status::GenericFailure, format!("Task panicked: {}", e)))?

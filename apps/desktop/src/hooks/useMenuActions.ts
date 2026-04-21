@@ -55,12 +55,36 @@ export function useMenuActions() {
                 break;
             case 'project-pull':
                 if (payload?.projectPath && typeof payload.projectPath === 'string') {
-                    runPull(payload.projectPath)
-                        .then(result => {
-                            notifyPullSuccess(showToast, result)
-                            requestProjectRefresh(payload.projectPath)
-                        })
-                        .catch(error => notifyPullError(showToast, error));
+                    const repoPath = payload.projectPath as string;
+                    const attempt = async (skip: boolean) => {
+                        const result = await runPull(
+                            repoPath,
+                            skip ? { skipMissingSampleCheck: true } : undefined,
+                        );
+                        if (!result.ok && result.code === 'MISSING_SAMPLES') {
+                            const proceed = window.confirm(
+                                `${result.message}\n\nIf you continue, collaborators may get broken or missing audio. Continue anyway?`,
+                            );
+                            if (proceed) {
+                                await attempt(true);
+                            }
+                            return;
+                        }
+                        if (!result.ok && result.code === 'ALS_MERGE_CONFLICT') {
+                            showToast({
+                                type: 'warning',
+                                title: 'ALS merge needs your choices',
+                                detail:
+                                    'Open the Project page and use Resolve on the merge banner, or pull from there.',
+                            });
+                            return;
+                        }
+                        if (result.ok) {
+                            notifyPullSuccess(showToast, result.message);
+                            requestProjectRefresh(repoPath);
+                        }
+                    };
+                    void attempt(false).catch((error) => notifyPullError(showToast, error));
                 }
                 break;
             case 'project-commit':
@@ -75,12 +99,35 @@ export function useMenuActions() {
                 break;
             case 'project-push':
                 if (payload?.projectPath && typeof payload.projectPath === 'string') {
-                    runPush(payload.projectPath)
-                        .then(result => {
-                            notifyPushSuccess(showToast, result)
-                            requestProjectRefresh(payload.projectPath)
-                        })
-                        .catch(error => notifyPushError(showToast, error));
+                    const repoPath = payload.projectPath as string;
+                    const attempt = async (skip: boolean) => {
+                        const result = await runPush(
+                            repoPath,
+                            skip ? { skipMissingSampleCheck: true } : undefined,
+                        );
+                        if (!result.ok && result.code === 'MISSING_SAMPLES') {
+                            const proceed = window.confirm(
+                                `${result.message}\n\nIf you continue, collaborators may get broken or missing audio. Push anyway?`,
+                            );
+                            if (proceed) {
+                                await attempt(true);
+                            }
+                            return;
+                        }
+                        if (!result.ok && result.code === 'PUSH_BEHIND_REMOTE') {
+                            showToast({
+                                type: 'warning',
+                                title: 'Pull before pushing',
+                                detail: result.message,
+                            });
+                            return;
+                        }
+                        if (result.ok) {
+                            notifyPushSuccess(showToast, result.message);
+                            requestProjectRefresh(repoPath);
+                        }
+                    };
+                    void attempt(false).catch((error) => notifyPushError(showToast, error));
                 }
                 break;
         }

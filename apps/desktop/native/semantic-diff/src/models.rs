@@ -289,6 +289,9 @@ pub struct SampleReference {
     /// OriginalCrc value — the true identity of the audio content.
     /// If this changes, the sample was replaced even if the filename is the same.
     pub original_crc: String,
+    /// Ableton `RelativePathType` from FileRef: 0 Missing, 1 External, 2 Library, 3 Current Project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relative_path_type: Option<i32>,
 }
 
 // ─────────────────────────────────────────────

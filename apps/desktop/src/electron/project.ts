@@ -2,7 +2,11 @@ import { exec } from 'dugite';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ensureGiteaGitCredentialsApproved } from './giteaGitAuth';
-import { rebase } from './git-rebase';
+import {
+  rebase,
+  completeAlsMergeWithResolutions,
+} from './git-rebase';
+import { checkMissingSampleRefs, findRootAlsFile, SampleCheckBlockedError } from './sampleRefs';
 
 const noGitPromptEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 
@@ -105,12 +109,87 @@ async function untrackLegacyIgnoredPaths(repoPath: string): Promise<void> {
   }
 }
 
-async function pull(repoPath: string) {
+export type PullPushOptions = {
+  skipMissingSampleCheck?: boolean;
+};
+
+/** Pull stopped: three-way ALS merge needs per-track Remote / Local / Duplicate. */
+export class AlsMergeConflictError extends Error {
+  readonly code = 'ALS_MERGE_CONFLICT' as const;
+  readonly conflictJson: string;
+  readonly pendingPath: string;
+
+  constructor(conflictJson: string, pendingPath: string) {
+    super(
+      'Overlapping clip changes need your choice — use Remote, Local, or Duplicate track for each listed track.',
+    );
+    this.conflictJson = conflictJson;
+    this.pendingPath = pendingPath;
+    this.name = 'AlsMergeConflictError';
+  }
+}
+
+/** Push blocked: local branch is behind origin (fetch + rev-list). */
+export class PushBehindRemoteError extends Error {
+  readonly code = 'PUSH_BEHIND_REMOTE' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'PushBehindRemoteError';
+  }
+}
+
+async function fetchAndAssertAheadOfUpstream(repoPath: string): Promise<void> {
+  const up = await exec(['rev-parse', '--abbrev-ref', '@{u}'], repoPath);
+  if (up.exitCode !== 0 || !up.stdout.trim()) {
+    return;
+  }
+  const branchName = up.stdout.trim().replace(/^origin\//, '');
+  const fe = await exec(['fetch', 'origin', branchName], repoPath);
+  if (fe.exitCode !== 0) {
+    console.warn('[Project] Pre-push fetch failed; behind-check skipped:', fe.stderr || fe.stdout);
+    return;
+  }
+  const lr = await exec(['rev-list', '--left-right', '--count', 'HEAD...@{u}'], repoPath);
+  if (lr.exitCode !== 0) {
+    return;
+  }
+  const parts = lr.stdout.trim().split(/\s+/);
+  const behind = parseInt(parts[1] || '0', 10) || 0;
+  if (behind > 0) {
+    throw new PushBehindRemoteError(
+      `You are behind the remote by ${behind} commit(s). Pull the latest changes before pushing.`,
+    );
+  }
+}
+
+async function assertSamplesOkForSync(repoPath: string, opts?: PullPushOptions): Promise<void> {
+  if (opts?.skipMissingSampleCheck) {
+    return;
+  }
+  const als = await findRootAlsFile(repoPath);
+  if (!als) {
+    return;
+  }
+  const { hasIssues, issues } = await checkMissingSampleRefs(repoPath, als);
+  if (hasIssues) {
+    throw new SampleCheckBlockedError(issues);
+  }
+}
+
+async function pull(repoPath: string, opts?: PullPushOptions) {
+  await assertSamplesOkForSync(repoPath, opts);
   console.log(`[Project] Pull requested for: ${repoPath}`);
   const result = await rebase(repoPath);
   if (!result.success) {
     console.error(`[Project] Pull failed: ${result.error}`);
-    throw new Error(result.error);
+    if (result.alsMergeConflict) {
+      throw new AlsMergeConflictError(
+        result.alsMergeConflict.conflictJson,
+        result.alsMergeConflict.pendingPath,
+      );
+    }
+    throw new Error(result.error || 'Pull failed');
   }
   console.log(`[Project] Pull completed successfully`);
   return 'Changes downloaded successfully';
@@ -142,8 +221,9 @@ async function commit(repoPath: string, message?: string) {
   return commitResult.stdout;
 }
 
-async function push(repoPath: string) {
-  await ensureGiteaGitCredentialsApproved(repoPath);
+async function push(repoPath: string, opts?: PullPushOptions) {
+  await assertSamplesOkForSync(repoPath, opts);
+  await fetchAndAssertAheadOfUpstream(repoPath);
   // Ensure there is at least one commit before pushing (new empty repo)
   const headCheck = await exec(['rev-parse', '--verify', 'HEAD'], repoPath);
   if (headCheck.exitCode !== 0) {
@@ -157,4 +237,18 @@ async function push(repoPath: string) {
   return result.stdout;
 }
 
-export { pull, commit, push, ensureSoundHausGitignore, ensureAbletonProjectInfoTracked };
+async function clearMergePendingFlag(repoPath: string): Promise<void> {
+  const mp = path.join(repoPath, '.soundhaus', 'merge-pending.json');
+  await fs.promises.unlink(mp).catch(() => {});
+}
+
+export {
+  pull,
+  commit,
+  push,
+  ensureSoundHausGitignore,
+  ensureAbletonProjectInfoTracked,
+  SampleCheckBlockedError,
+  completeAlsMergeWithResolutions,
+  clearMergePendingFlag,
+};

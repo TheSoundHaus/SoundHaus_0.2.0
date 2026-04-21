@@ -16,9 +16,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 contextBridge.exposeInMainWorld('gitService', {
 	initRepo: (folderPath: string, projectInfo?: any): Promise<string> => ipcRenderer.invoke('init-repo', folderPath, projectInfo),
 	cloneRepo: (cloneUrl: string, destinationPath: string): Promise<string> => ipcRenderer.invoke('clone-repo', cloneUrl, destinationPath),
-	pullRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('pull-repo', repoPath),
+	pullRepo: (repoPath: string, opts?: { skipMissingSampleCheck?: boolean }) =>
+		ipcRenderer.invoke('pull-repo', repoPath, opts),
 	commitChange: (repoPath: string): Promise<string> => ipcRenderer.invoke('commit-changes', repoPath),
-	pushRepo: (repoPath: string): Promise<string> => ipcRenderer.invoke('push-repo', repoPath)
+	pushRepo: (repoPath: string, opts?: { skipMissingSampleCheck?: boolean }) =>
+		ipcRenderer.invoke('push-repo', repoPath, opts),
+	getProjectReadiness: (repoPath: string) => ipcRenderer.invoke('get-project-readiness', repoPath),
+	checkMissingSamples: (repoPath: string) => ipcRenderer.invoke('check-missing-samples', repoPath),
+	completeAlsMerge: (pendingPath: string, resolutions: Record<string, string>) =>
+		ipcRenderer.invoke('complete-als-merge', pendingPath, resolutions),
+	clearMergePendingFlag: (repoPath: string) => ipcRenderer.invoke('clear-merge-pending', repoPath),
+	getAlsMergePending: (pendingPath: string) => ipcRenderer.invoke('get-als-merge-pending', pendingPath),
 });
 
 contextBridge.exposeInMainWorld('patService', {

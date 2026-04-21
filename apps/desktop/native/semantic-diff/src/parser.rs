@@ -992,7 +992,7 @@ fn parse_midi_note_event_start_pending(
     current_midi_key: Option<i32>,
 ) -> Option<PendingMidiNote> {
     // Delegate attribute extraction to parse_midi_note_event_pending
-    let mut pending = parse_midi_note_event_pending(start, current_midi_key)?;
+    let pending = parse_midi_note_event_pending(start, current_midi_key)?;
 
     // Drain stream to matching </MidiNoteEvent> close tag
     let mut depth = 1u32;
@@ -1061,12 +1061,38 @@ fn parse_sample_ref(
     let mut name = String::new();
     let mut relative_path = String::new();
     let mut original_crc = String::new();
+    let mut relative_path_type: Option<i32> = None;
     let mut depth = 1u32;
 
     loop {
         buf.clear();
         match xml.read_event_into(buf) {
-            Ok(Event::Start(ref _e)) => {
+            Ok(Event::Start(ref e)) => {
+                // Ableton often uses `<RelativePath Value="..."></RelativePath>` (Start+End),
+                // not only self-closing `<RelativePath .../>` (Empty). Read Value from Start too.
+                match e.name().as_ref() {
+                    b"Name" => {
+                        if let Some(val) = get_attr_value(e, b"Value") {
+                            name = val;
+                        }
+                    }
+                    b"RelativePath" => {
+                        if let Some(val) = get_attr_value(e, b"Value") {
+                            relative_path = val;
+                        }
+                    }
+                    b"OriginalCrc" => {
+                        if let Some(val) = get_attr_value(e, b"Value") {
+                            original_crc = val;
+                        }
+                    }
+                    b"RelativePathType" => {
+                        if let Some(val) = get_attr_value(e, b"Value") {
+                            relative_path_type = val.parse::<i32>().ok();
+                        }
+                    }
+                    _ => {}
+                }
                 depth += 1;
             }
             Ok(Event::Empty(ref e)) => {
@@ -1085,6 +1111,11 @@ fn parse_sample_ref(
                     b"OriginalCrc" => {
                         if let Some(val) = get_attr_value(e, b"Value") {
                             original_crc = val;
+                        }
+                    }
+                    b"RelativePathType" => {
+                        if let Some(val) = get_attr_value(e, b"Value") {
+                            relative_path_type = val.parse::<i32>().ok();
                         }
                     }
                     _ => {}
@@ -1109,6 +1140,7 @@ fn parse_sample_ref(
             name,
             relative_path,
             original_crc,
+            relative_path_type,
         })
     }
 }

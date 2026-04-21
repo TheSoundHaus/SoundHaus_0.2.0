@@ -5,6 +5,7 @@ import * as path from 'path';
 import { ensureGiteaGitCredentialsApproved } from './giteaGitAuth';
 
 const noGitPromptEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+import { gitShowBinary } from './git-bin';
 
 /** Calls native merge when the rebuilt `.node` includes `mergeAlsFiles` (see native/semantic-diff). */
 async function mergeAlsFilesSafe(localPath: string, remotePath: string): Promise<Buffer> {
@@ -17,13 +18,27 @@ async function mergeAlsFilesSafe(localPath: string, remotePath: string): Promise
   return fn(localPath, remotePath);
 }
 
-interface RebaseResult {
+export interface AlsMergeConflictPayload {
+  conflictJson: string;
+  pendingPath: string;
+}
+
+export interface RebaseResult {
   success: boolean;
   error?: string;
   conflictingFiles?: string[];
+  /** Present when clip-level three-way merge needs user resolution */
+  alsMergeConflict?: AlsMergeConflictPayload;
 }
 
+const BASE_ALS_TEMP = path.join('.git', 'soundhaus-merge-base.als');
+
 const ALS_BACKUP_NAME = 'soundhaus-als-local.als';
+
+/** Index-stage temps during `git rebase` conflicts (cleaned up after continue or pending write). */
+const REBASE_STAGE_BASE = path.join('.git', 'soundhaus-rebase-base.als');
+const REBASE_STAGE_LOCAL = path.join('.git', 'soundhaus-rebase-local.als');
+const REBASE_STAGE_REMOTE = path.join('.git', 'soundhaus-rebase-remote.als');
 
 async function parseConflictingFiles(repoPath: string): Promise<string[]> {
   const { stdout } = await exec(['status', '--porcelain'], repoPath);
@@ -36,6 +51,98 @@ async function parseConflictingFiles(repoPath: string): Promise<string[]> {
     .filter((line) => conflictStatuses.test(line))
     .map((line) => line.substring(3).trim())
     .filter(Boolean);
+}
+
+async function getUnmergedPaths(repoPath: string): Promise<string[]> {
+  const r = await exec(['diff', '--name-only', '--diff-filter=U'], repoPath);
+  if (r.exitCode !== 0) return [];
+  return String(r.stdout || '')
+    .split('\n')
+    .map((l) => l.trim().replace(/\\/g, '/'))
+    .filter(Boolean);
+}
+
+/** Tracked SoundHaus snapshot next to ALS — often conflicts alongside `.als` during rebase. */
+function isSoundhausSnapshotConflictPath(rel: string): boolean {
+  const n = rel.replace(/\\/g, '/');
+  return n.startsWith('.soundhaus/') && n.endsWith('/snapshot.json');
+}
+
+/** Hook runs when the root `.als` conflicts and every other unmerged path is only a snapshot file. */
+function rebaseAlsHookUnmergedOk(unmerged: string[], alsRelNorm: string): boolean {
+  if (!unmerged.includes(alsRelNorm)) return false;
+  for (const p of unmerged) {
+    if (p === alsRelNorm) continue;
+    if (!isSoundhausSnapshotConflictPath(p)) return false;
+  }
+  return true;
+}
+
+/**
+ * During rebase, `--ours` is the upstream (onto). Snapshot JSON is regenerated from HEAD after pull;
+ * taking upstream avoids blocking `rebase --continue` on snapshot merge noise.
+ */
+/**
+ * `rebase --continue` may run `git commit`, which opens `core.editor`. In Electron
+ * that often points at Notepad; Git's MSYS wrapper then fails on Windows paths.
+ * Use embedded Git's `true` on PATH plus `-c core.editor=true`.
+ */
+const NON_INTERACTIVE_GIT_EDITOR_ENV: Record<string, string> = {
+  GIT_EDITOR: 'true',
+  EDITOR: 'true',
+  VISUAL: 'true',
+};
+
+async function execRebaseContinue(repoPath: string) {
+  return exec(
+    ['-c', 'core.editor=true', 'rebase', '--continue'],
+    repoPath,
+    { env: NON_INTERACTIVE_GIT_EDITOR_ENV },
+  );
+}
+
+async function resolveSoundhausSnapshotRebaseConflicts(
+  repoPath: string,
+  alsRelNorm: string,
+): Promise<void> {
+  const unmerged = await getUnmergedPaths(repoPath);
+  for (const p of unmerged) {
+    if (p === alsRelNorm) continue;
+    if (!isSoundhausSnapshotConflictPath(p)) continue;
+    const co = await exec(['checkout', '--ours', '--', p], repoPath);
+    if (co.exitCode !== 0) {
+      throw new Error(co.stderr || co.stdout || `checkout --ours failed for ${p}`);
+    }
+    const ad = await exec(['add', p], repoPath);
+    if (ad.exitCode !== 0) {
+      throw new Error(ad.stderr || ad.stdout || `git add failed for ${p}`);
+    }
+  }
+}
+
+async function isRebaseInProgress(repoPath: string): Promise<boolean> {
+  try {
+    await fs.promises.access(path.join(repoPath, '.git', 'rebase-merge'));
+    return true;
+  } catch {
+    try {
+      await fs.promises.access(path.join(repoPath, '.git', 'rebase-apply'));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function readAlsRebaseResumePending(repoPath: string): Promise<boolean> {
+  const pendingPath = path.join(repoPath, '.soundhaus', 'als-merge-pending.json');
+  try {
+    const raw = await fs.promises.readFile(pendingPath, 'utf8');
+    const j = JSON.parse(raw) as { rebaseResume?: boolean };
+    return j.rebaseResume === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -54,7 +161,13 @@ async function ensureCleanGitState(repoPath: string): Promise<void> {
     // Lock file doesn't exist — normal case, nothing to do.
   }
 
-  await exec(['rebase', '--abort'], repoPath);
+  const skipRebaseAbort =
+    (await isRebaseInProgress(repoPath)) && (await readAlsRebaseResumePending(repoPath));
+  if (skipRebaseAbort) {
+    console.log('[Rebase] Skipping rebase --abort (ALS merge paused during rebase)');
+  } else {
+    await exec(['rebase', '--abort'], repoPath);
+  }
   await exec(['merge', '--abort'], repoPath);
 }
 
@@ -100,44 +213,23 @@ async function deleteBackupIfExists(repoPath: string): Promise<void> {
 }
 
 /**
- * True if any tracked file still has unstaged/staged edits (ignores untracked).
+ * Tracked paths that differ from `HEAD` in the index or working tree (POSIX-style paths).
  */
-async function hasDirtyTrackedFiles(repoPath: string): Promise<boolean> {
-  const { stdout } = await exec(['status', '--porcelain', '--untracked-files=no'], repoPath);
-  return Boolean(String(stdout || '').trim());
-}
-
-/**
- * Stash all remaining tracked modifications so `git rebase` can run.
- * Call this only after the .als has been reset to HEAD (user's .als edits live in the backup file).
- */
-async function stashRemainingTrackedChanges(repoPath: string): Promise<
-  { ok: true; stashed: boolean } | { ok: false; error: string }
-> {
-  if (!(await hasDirtyTrackedFiles(repoPath))) {
-    return { ok: true, stashed: false };
-  }
-
-  const r = await exec(['stash', 'push', '-m', 'soundhaus-pre-pull'], repoPath);
-  if (r.exitCode !== 0) {
-    const detail = (r.stderr || r.stdout || 'git stash push failed').trim();
-    return { ok: false, error: detail };
-  }
-
-  console.log('[Rebase] Stashed other tracked file changes before rebase');
-  return { ok: true, stashed: true };
-}
-
-async function popPrePullStash(repoPath: string): Promise<{ ok: boolean; detail?: string }> {
-  const pop = await exec(['stash', 'pop'], repoPath);
-  if (pop.exitCode !== 0) {
-    return {
-      ok: false,
-      detail: (pop.stderr || pop.stdout || 'stash pop failed').trim(),
-    };
-  }
-  console.log('[Rebase] Restored stashed tracked file changes after pull');
-  return { ok: true };
+async function trackedPathsDifferingFromHead(repoPath: string): Promise<string[]> {
+  const w = await exec(['diff', '--name-only', 'HEAD'], repoPath);
+  const c = await exec(['diff', '--cached', '--name-only', 'HEAD'], repoPath);
+  const out = new Set<string>();
+  const add = (stdout: string) => {
+    for (const line of stdout.split('\n')) {
+      const p = line.trim();
+      if (p) {
+        out.add(p.replace(/\\/g, '/'));
+      }
+    }
+  };
+  add(String(w.stdout || ''));
+  add(String(c.stdout || ''));
+  return [...out];
 }
 
 /**
@@ -162,6 +254,128 @@ function explainRebaseFailure(stderr: string): string {
   return raw;
 }
 
+type MergeAlsThreeWayFn = (
+  base: string,
+  local: string,
+  remote: string,
+  resolutionsJson?: string | null,
+) => Promise<{ ok: boolean; merged?: Buffer; conflictJson?: string }>;
+
+type AlsRebaseHookResult =
+  | { kind: 'not_applicable' }
+  | { kind: 'merged' }
+  | { kind: 'needs_ui'; payload: AlsMergeConflictPayload }
+  | { kind: 'rust_error'; message: string };
+
+async function unlinkRebaseStageTemps(repoPath: string): Promise<void> {
+  for (const rel of [REBASE_STAGE_BASE, REBASE_STAGE_LOCAL, REBASE_STAGE_REMOTE]) {
+    await fs.promises.unlink(path.join(repoPath, rel)).catch(() => {});
+  }
+}
+
+/**
+ * When `git rebase` stops on a conflict in the root `.als` only, run the same
+ * Rust three-way merge used post-rebase. Stage mapping for rebase: :1: = base,
+ * :2: = upstream (onto), :3: = replayed commit — Rust `remote` uses upstream
+ * layout; `local` is the commit being replayed.
+ */
+async function tryRustMergeAlsRebaseConflict(
+  repoPath: string,
+  alsRelNorm: string,
+  alsAbsPath: string,
+  mergeThree: MergeAlsThreeWayFn,
+  pendingExtras: {
+    sessionName: string;
+    dirtyBackupMerge?: { baseCommit: string; alsRelPath: string };
+  },
+): Promise<AlsRebaseHookResult> {
+  const rebaseActive = await isRebaseInProgress(repoPath);
+  if (!rebaseActive) {
+    return { kind: 'not_applicable' };
+  }
+  const unmerged = await getUnmergedPaths(repoPath);
+  const hookableUnmerged = rebaseAlsHookUnmergedOk(unmerged, alsRelNorm);
+  if (!hookableUnmerged) {
+    return { kind: 'not_applicable' };
+  }
+
+  let baseBuf: Buffer;
+  let upstreamBuf: Buffer;
+  let replayedBuf: Buffer;
+  try {
+    baseBuf = await gitShowBinary(repoPath, `:1:${alsRelNorm}`);
+    upstreamBuf = await gitShowBinary(repoPath, `:2:${alsRelNorm}`);
+    replayedBuf = await gitShowBinary(repoPath, `:3:${alsRelNorm}`);
+  } catch (showErr) {
+    return { kind: 'not_applicable' };
+  }
+
+  const baseAbs = path.join(repoPath, REBASE_STAGE_BASE);
+  const localAbs = path.join(repoPath, REBASE_STAGE_LOCAL);
+  const remoteAbs = path.join(repoPath, REBASE_STAGE_REMOTE);
+  await fs.promises.writeFile(baseAbs, baseBuf);
+  await fs.promises.writeFile(localAbs, replayedBuf);
+  await fs.promises.writeFile(remoteAbs, upstreamBuf);
+
+  let tw: { ok: boolean; merged?: Buffer; conflictJson?: string };
+  try {
+    tw = await mergeThree(baseAbs, localAbs, remoteAbs, undefined);
+  } catch (mergeThrow) {
+    throw mergeThrow;
+  }
+  if (!tw.ok && tw.conflictJson) {
+    const pendingDir = path.join(repoPath, '.soundhaus');
+    await fs.promises.mkdir(pendingDir, { recursive: true });
+    const pendingPath = path.join(pendingDir, 'als-merge-pending.json');
+    await fs.promises.writeFile(
+      pendingPath,
+      JSON.stringify(
+        {
+          openedAt: new Date().toISOString(),
+          repoPath,
+          sessionName: pendingExtras.sessionName,
+          basePath: baseAbs,
+          localPath: localAbs,
+          remotePath: remoteAbs,
+          outputPath: alsAbsPath,
+          rebaseResume: true,
+          conflictJson: tw.conflictJson,
+          ...(pendingExtras.dirtyBackupMerge
+            ? { dirtyBackupMerge: pendingExtras.dirtyBackupMerge }
+            : {}),
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    return {
+      kind: 'needs_ui',
+      payload: { conflictJson: tw.conflictJson, pendingPath },
+    };
+  }
+
+  if (!tw.ok || !tw.merged) {
+    await unlinkRebaseStageTemps(repoPath);
+    return {
+      kind: 'rust_error',
+      message: tw.conflictJson || 'Three-way merge returned no data',
+    };
+  }
+
+  await fs.promises.writeFile(alsAbsPath, tw.merged);
+  await unlinkRebaseStageTemps(repoPath);
+  await resolveSoundhausSnapshotRebaseConflicts(repoPath, alsRelNorm);
+  const addR = await exec(['add', alsRelNorm], repoPath);
+  if (addR.exitCode !== 0) {
+    return {
+      kind: 'rust_error',
+      message: addR.stderr || addR.stdout || 'git add failed after ALS rebase merge',
+    };
+  }
+  return { kind: 'merged' };
+}
+
 // ─────────────────────────────────────────────
 // Rebase (fetch + rebase + merge)
 // ─────────────────────────────────────────────
@@ -177,9 +391,35 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
   await ensureCleanGitState(repoPath);
   await ensureGiteaGitCredentialsApproved(repoPath);
 
+  if ((await isRebaseInProgress(repoPath)) && (await readAlsRebaseResumePending(repoPath))) {
+    return {
+      success: false,
+      error: 'Finish resolving the ALS merge before pulling again.',
+    };
+  }
+
   const alsAbsPath = await findAlsFile(repoPath);
   let hasBackup = false;
-  let hadOtherStash = false;
+  let skipBackupCleanup = false;
+  const alsRelNorm = alsAbsPath
+    ? path.relative(repoPath, alsAbsPath).split(path.sep).join('/')
+    : null;
+
+  const differing = await trackedPathsDifferingFromHead(repoPath);
+  const nonAlsDirty = alsRelNorm
+    ? differing.filter((p) => p !== alsRelNorm)
+    : [...differing];
+
+  if (nonAlsDirty.length > 0) {
+    const preview = nonAlsDirty.slice(0, 3).join(', ');
+    const more = nonAlsDirty.length > 3 ? '…' : '';
+    return {
+      success: false,
+      error:
+        `Unable to download changes: You have uncommitted edits to other tracked files (${preview}${more}). ` +
+        'Commit or revert those files, then try again. (SoundHaus no longer stashes snapshot or sample changes during pull.)',
+    };
+  }
 
   // Back up the dirty .als before rebase so we can merge it afterwards.
   if (alsAbsPath) {
@@ -204,24 +444,6 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
       };
     }
   }
-
-  // Stash any *other* tracked edits (e.g. snapshot.json, samples). The .als
-  // is already at HEAD; user's .als edits only exist in the backup file.
-  const stashResult = await stashRemainingTrackedChanges(repoPath);
-  if (stashResult.ok === false) {
-    if (hasBackup && alsAbsPath) {
-      try {
-        await restoreAlsBackup(backupPath(repoPath), alsAbsPath);
-      } catch (e) {
-        console.error('[Rebase] Failed to restore .als after stash error:', e);
-      }
-    }
-    return {
-      success: false,
-      error: `Unable to download changes: Could not stash other local file changes before updating. ${stashResult.error}`,
-    };
-  }
-  hadOtherStash = stashResult.stashed;
 
   try {
     // Detect the tracking branch dynamically instead of hardcoding origin/main
@@ -276,6 +498,16 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
 
     const branchName = remoteBranch.replace(/^origin\//, '');
 
+    // BASE = committed .als at HEAD before fetch/rebase (after any .als checkout).
+    let baseCommit: string | null = null;
+    if (alsRelNorm) {
+      const bc = await exec(['rev-parse', 'HEAD'], repoPath);
+      if (bc.exitCode === 0 && bc.stdout.trim()) {
+        baseCommit = bc.stdout.trim();
+        console.log('[Rebase] BASE commit for three-way ALS merge:', baseCommit.slice(0, 7));
+      }
+    }
+
     // Fetch
     console.log(`[Rebase] Starting fetch from ${remoteBranch} in ${repoPath}`);
     const fetchResult = await exec(['fetch', 'origin', branchName], repoPath, {
@@ -287,18 +519,146 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
     }
     console.log(`[Rebase] Fetch completed successfully`);
 
-    // Rebase
+    // Rebase (with ALS semantic hook when Git stops on root `.als` only)
     console.log(`[Rebase] Starting rebase onto ${remoteBranch}`);
-    const rebaseResult = await exec(['rebase', remoteBranch], repoPath);
-    if (rebaseResult.exitCode !== 0) {
-      const rebaseError = rebaseResult.stderr || rebaseResult.stdout || 'Unknown rebase error';
-      console.error(`[Rebase] Rebase failed: ${rebaseError}`);
-      throw new Error(explainRebaseFailure(rebaseError));
+    let rebaseResult = await exec(['rebase', remoteBranch], repoPath);
+
+    const mergeThreeFn = semanticDiffer.mergeAlsFilesThreeWay as MergeAlsThreeWayFn | undefined;
+
+    while (rebaseResult.exitCode !== 0) {
+      if (!alsRelNorm || !alsAbsPath || typeof mergeThreeFn !== 'function') {
+        const rebaseError = rebaseResult.stderr || rebaseResult.stdout || 'Unknown rebase error';
+        console.error(`[Rebase] Rebase failed: ${rebaseError}`);
+        throw new Error(explainRebaseFailure(rebaseError));
+      }
+
+      const hook = await tryRustMergeAlsRebaseConflict(
+        repoPath,
+        alsRelNorm,
+        alsAbsPath,
+        mergeThreeFn,
+        {
+          sessionName: path.basename(alsAbsPath, '.als'),
+          dirtyBackupMerge:
+            hasBackup && baseCommit ? { baseCommit, alsRelPath: alsRelNorm } : undefined,
+        },
+      );
+
+      if (hook.kind === 'not_applicable') {
+        const rebaseError = rebaseResult.stderr || rebaseResult.stdout || 'Unknown rebase error';
+        console.error(`[Rebase] Rebase failed: ${rebaseError}`);
+        throw new Error(explainRebaseFailure(rebaseError));
+      }
+      if (hook.kind === 'rust_error') {
+        throw new Error(hook.message);
+      }
+      if (hook.kind === 'needs_ui') {
+        skipBackupCleanup = true;
+        return {
+          success: false,
+          alsMergeConflict: hook.payload,
+        };
+      }
+
+      console.log('[Rebase] ALS semantic merge resolved rebase conflict; continuing rebase');
+      rebaseResult = await execRebaseContinue(repoPath);
     }
+
     console.log(`[Rebase] Rebase completed successfully`);
 
-    // Merge the backed-up .als with the rebased .als using the Rust module.
-    if (hasBackup && alsAbsPath) {
+    // Merge the backed-up .als with the rebased .als (three-way when BASE blob is available).
+    if (hasBackup && alsAbsPath && alsRelNorm && baseCommit) {
+      const backup = backupPath(repoPath);
+      const baseTmpAbs = path.join(repoPath, BASE_ALS_TEMP);
+      try {
+        const mergeThree = semanticDiffer.mergeAlsFilesThreeWay as
+          | ((
+              base: string,
+              local: string,
+              remote: string,
+              resolutionsJson?: string | null,
+            ) => Promise<{ ok: boolean; merged?: Buffer; conflictJson?: string }>)
+          | undefined;
+
+        let mergedBuffer: Buffer;
+
+        if (typeof mergeThree === 'function') {
+          let baseWritten = false;
+          try {
+            const baseBuf = await gitShowBinary(repoPath, `${baseCommit}:${alsRelNorm}`);
+            await fs.promises.writeFile(baseTmpAbs, baseBuf);
+            baseWritten = true;
+          } catch (be) {
+            console.warn('[Rebase] Could not load BASE .als blob; falling back to two-way merge:', be);
+          }
+
+          if (baseWritten) {
+            console.log('[Rebase] Three-way ALS merge (BASE + LOCAL backup + REMOTE)');
+            const tw = await mergeThree(baseTmpAbs, backup, alsAbsPath, undefined);
+            if (!tw.ok && tw.conflictJson) {
+              skipBackupCleanup = true;
+              const sessionName = path.basename(alsAbsPath, '.als');
+              const pendingDir = path.join(repoPath, '.soundhaus');
+              await fs.promises.mkdir(pendingDir, { recursive: true });
+              const pendingPath = path.join(pendingDir, 'als-merge-pending.json');
+              await fs.promises.writeFile(
+                pendingPath,
+                JSON.stringify(
+                  {
+                    openedAt: new Date().toISOString(),
+                    repoPath,
+                    sessionName,
+                    basePath: baseTmpAbs,
+                    localPath: backup,
+                    remotePath: alsAbsPath,
+                    conflictJson: tw.conflictJson,
+                  },
+                  null,
+                  2,
+                ),
+                'utf8',
+              );
+              return {
+                success: false,
+                alsMergeConflict: { conflictJson: tw.conflictJson, pendingPath },
+              };
+            }
+            if (!tw.ok || !tw.merged) {
+              throw new Error('Three-way merge returned no data');
+            }
+            mergedBuffer = tw.merged;
+            await fs.promises.unlink(baseTmpAbs).catch(() => {});
+          } else {
+            console.log('[Rebase] Two-way ALS merge (Rust mergeAlsFiles)');
+            mergedBuffer = await mergeAlsFilesSafe(backup, alsAbsPath);
+          }
+        } else {
+          console.log('[Rebase] Two-way ALS merge — rebuild native addon for three-way');
+          mergedBuffer = await mergeAlsFilesSafe(backup, alsAbsPath);
+        }
+
+        await fs.promises.writeFile(alsAbsPath, mergedBuffer);
+        await fs.promises.unlink(backup);
+        console.log('[Rebase] Merge complete — local edits preserved');
+      } catch (mergeError) {
+        const mergeMsg = mergeError instanceof Error ? mergeError.message : String(mergeError);
+        console.error(`[Rebase] ALS merge failed: ${mergeMsg}`);
+
+        try {
+          await restoreAlsBackup(backup, alsAbsPath);
+        } catch (restoreErr) {
+          const restoreMsg = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
+          console.error(`[Rebase] Failed to restore backup after merge failure: ${restoreMsg}`);
+        }
+
+        await fs.promises.unlink(baseTmpAbs).catch(() => {});
+
+        return {
+          success: false,
+          error: `Unable to merge your local project with the downloaded version. Your previous project file was restored. The Rust merge step failed: ${mergeMsg}`,
+        };
+      }
+    } else if (hasBackup && alsAbsPath) {
       const backup = backupPath(repoPath);
       try {
         console.log('[Rebase] Merging local .als edits with downloaded changes (Rust mergeAlsFiles)');
@@ -317,26 +677,9 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
           console.error(`[Rebase] Failed to restore backup after merge failure: ${restoreMsg}`);
         }
 
-        if (hadOtherStash) {
-          const pop = await popPrePullStash(repoPath);
-          if (!pop.ok) {
-            console.warn('[Rebase] stash pop after merge failure:', pop.detail);
-          }
-        }
-
         return {
           success: false,
           error: `Unable to merge your local project with the downloaded version. Your previous project file was restored. The Rust merge step failed: ${mergeMsg}`,
-        };
-      }
-    }
-
-    if (hadOtherStash) {
-      const pop = await popPrePullStash(repoPath);
-      if (!pop.ok) {
-        return {
-          success: false,
-          error: `Download updated the project, but restoring your other local file changes failed (git stash). Your Ableton file may be updated; check git stash. ${pop.detail || ''}`,
         };
       }
     }
@@ -347,13 +690,6 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
     console.log(`[Rebase] Error during pull — cleaning up git state`);
     await ensureCleanGitState(repoPath);
     console.log(`[Rebase] Git state cleaned`);
-
-    if (hadOtherStash) {
-      const pop = await popPrePullStash(repoPath);
-      if (!pop.ok) {
-        console.warn('[Rebase] stash pop after error:', pop.detail);
-      }
-    }
 
     if (hasBackup && alsAbsPath) {
       try {
@@ -382,8 +718,176 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
       error: `Unable to download changes: ${errorMsg}`,
     };
   } finally {
-    await deleteBackupIfExists(repoPath);
+    if (!skipBackupCleanup) {
+      await deleteBackupIfExists(repoPath);
+    }
   }
+}
+
+/** Written when `mergeAlsFilesThreeWay` returns a conflict JSON payload. */
+export type AlsMergePendingFile = {
+  openedAt: string;
+  repoPath: string;
+  sessionName: string;
+  basePath: string;
+  localPath: string;
+  remotePath: string;
+  conflictJson: string;
+  /** When set (rebase hook), merged bytes are written here — `remotePath` may be a stage temp. */
+  outputPath?: string;
+  /** After Apply merge: `git add` + `git rebase --continue` (and optional dirty-backup ALS merge). */
+  rebaseResume?: boolean;
+  /** Pre-pull uncommitted `.als` backup merge after rebase fully completes. */
+  dirtyBackupMerge?: { baseCommit: string; alsRelPath: string };
+};
+
+/**
+ * Apply user per-track choices (`remote` | `local` | `duplicate`) and finish the ALS merge.
+ * Removes the backup, BASE temp, and `als-merge-pending.json`. Writes `merge-pending.json`
+ * when any choice is `duplicate` (Complete merge in UI).
+ */
+export async function completeAlsMergeWithResolutions(
+  pendingPath: string,
+  resolutions: Record<string, string>,
+): Promise<{ hadDuplicate: boolean }> {
+  const raw = await fs.promises.readFile(pendingPath, 'utf8');
+  const p = JSON.parse(raw) as AlsMergePendingFile;
+  const mergeThree = semanticDiffer.mergeAlsFilesThreeWay as MergeAlsThreeWayFn | undefined;
+  if (typeof mergeThree !== 'function') {
+    throw new Error(
+      'mergeAlsFilesThreeWay is missing — rebuild: cd apps/desktop/native/semantic-diff && npm run build',
+    );
+  }
+  const res = await mergeThree(p.basePath, p.localPath, p.remotePath, JSON.stringify(resolutions));
+  if (!res.ok || !res.merged) {
+    throw new Error(res.conflictJson || 'Three-way ALS merge failed after resolution');
+  }
+  const outPath = p.outputPath ?? p.remotePath;
+  await fs.promises.writeFile(outPath, res.merged);
+  await fs.promises.unlink(p.localPath).catch(() => {});
+  await fs.promises.unlink(p.basePath).catch(() => {});
+  if (p.outputPath && p.remotePath !== p.outputPath) {
+    await fs.promises.unlink(p.remotePath).catch(() => {});
+  }
+  await fs.promises.unlink(pendingPath).catch(() => {});
+  const hadDuplicate = Object.values(resolutions).some(
+    (v) => String(v).toLowerCase() === 'duplicate',
+  );
+  if (hadDuplicate) {
+    const mp = path.join(p.repoPath, '.soundhaus', 'merge-pending.json');
+    await fs.promises.mkdir(path.dirname(mp), { recursive: true });
+    await fs.promises.writeFile(
+      mp,
+      JSON.stringify(
+        {
+          openedAt: new Date().toISOString(),
+          repoPath: p.repoPath,
+          sessionName: p.sessionName,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+  }
+
+  if (p.rebaseResume) {
+    const alsRelForAdd = path.relative(p.repoPath, outPath).split(path.sep).join('/');
+    await resolveSoundhausSnapshotRebaseConflicts(p.repoPath, alsRelForAdd);
+    const addR = await exec(['add', alsRelForAdd], p.repoPath);
+    if (addR.exitCode !== 0) {
+      throw new Error(addR.stderr || addR.stdout || 'git add failed after ALS merge');
+    }
+    let cont = await execRebaseContinue(p.repoPath);
+    while (cont.exitCode !== 0 && (await isRebaseInProgress(p.repoPath))) {
+      const hook = await tryRustMergeAlsRebaseConflict(
+        p.repoPath,
+        alsRelForAdd,
+        outPath,
+        mergeThree,
+        {
+          sessionName: p.sessionName,
+          dirtyBackupMerge: p.dirtyBackupMerge,
+        },
+      );
+      if (hook.kind === 'needs_ui') {
+        throw new Error(
+          'Another ALS merge conflict appeared while continuing the rebase. A new pending merge was saved under .soundhaus — refresh the project or reopen the ALS merge UI.',
+        );
+      }
+      if (hook.kind === 'not_applicable' || hook.kind === 'rust_error') {
+        throw new Error(
+          hook.kind === 'rust_error'
+            ? hook.message
+            : cont.stderr || cont.stdout || 'rebase could not continue after ALS merge',
+        );
+      }
+      cont = await execRebaseContinue(p.repoPath);
+    }
+    if (cont.exitCode !== 0) {
+      throw new Error(cont.stderr || cont.stdout || 'rebase --continue failed after ALS merge');
+    }
+  }
+
+  if (p.dirtyBackupMerge && p.rebaseResume) {
+    const backupAbs = backupPath(p.repoPath);
+    try {
+      await fs.promises.access(backupAbs);
+    } catch {
+      return { hadDuplicate };
+    }
+    const { baseCommit, alsRelPath } = p.dirtyBackupMerge;
+    const baseTmpAbs = path.join(p.repoPath, BASE_ALS_TEMP);
+    let baseWritten = false;
+    try {
+      const baseBuf = await gitShowBinary(p.repoPath, `${baseCommit}:${alsRelPath}`);
+      await fs.promises.writeFile(baseTmpAbs, baseBuf);
+      baseWritten = true;
+    } catch (be) {
+      console.warn('[Rebase] Could not load BASE for dirty backup merge:', be);
+    }
+    if (baseWritten) {
+      const tw = await mergeThree(baseTmpAbs, backupAbs, outPath, undefined);
+      if (!tw.ok && tw.conflictJson) {
+        const pendingDir = path.join(p.repoPath, '.soundhaus');
+        await fs.promises.mkdir(pendingDir, { recursive: true });
+        const newPending = path.join(pendingDir, 'als-merge-pending.json');
+        await fs.promises.writeFile(
+          newPending,
+          JSON.stringify(
+            {
+              openedAt: new Date().toISOString(),
+              repoPath: p.repoPath,
+              sessionName: p.sessionName,
+              basePath: baseTmpAbs,
+              localPath: backupAbs,
+              remotePath: outPath,
+              conflictJson: tw.conflictJson,
+            },
+            null,
+            2,
+          ),
+          'utf8',
+        );
+        throw new Error(
+          'Your uncommitted session changes conflict after download. Resolve in the ALS merge UI.',
+        );
+      }
+      if (!tw.ok || !tw.merged) {
+        await fs.promises.unlink(baseTmpAbs).catch(() => {});
+        throw new Error(tw.conflictJson || 'Dirty backup ALS merge failed');
+      }
+      await fs.promises.writeFile(outPath, tw.merged);
+      await fs.promises.unlink(baseTmpAbs).catch(() => {});
+      await fs.promises.unlink(backupAbs).catch(() => {});
+    } else {
+      const mergedBuffer = await mergeAlsFilesSafe(backupAbs, outPath);
+      await fs.promises.writeFile(outPath, mergedBuffer);
+      await fs.promises.unlink(backupAbs).catch(() => {});
+    }
+  }
+
+  return { hadDuplicate };
 }
 
 export { rebase };

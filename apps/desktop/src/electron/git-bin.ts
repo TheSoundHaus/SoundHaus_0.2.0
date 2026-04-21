@@ -1,5 +1,8 @@
-import { execFileSync } from 'child_process';
+import { execFile as execFileCb, execFileSync } from 'child_process';
+import { promisify } from 'util';
 import { resolveGitBinary } from 'dugite';
+
+const execFileAsync = promisify(execFileCb);
 
 function validateBinary(binPath: string): boolean {
   try {
@@ -37,3 +40,15 @@ function resolveGitBin(): string {
 }
 
 export const gitBin = resolveGitBin();
+
+/** `git show <object>` as raw bytes (for binary `.als` blobs). */
+export async function gitShowBinary(repoPath: string, objectSpec: string): Promise<Buffer> {
+  const { stdout } = await execFileAsync(gitBin, ['-C', repoPath, 'show', objectSpec], {
+    encoding: 'buffer',
+    maxBuffer: 80 * 1024 * 1024,
+  });
+  if (!Buffer.isBuffer(stdout)) {
+    throw new Error('git show did not return binary output');
+  }
+  return stdout;
+}

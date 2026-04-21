@@ -63,35 +63,6 @@ function setGiteaCredentials(token: string): Promise<string> {
         try {            
             fs.mkdirSync(soundhausDir, { recursive: true });
 
-            // Clear stale git credential store entries for the Gitea host
-            // so a previous user's cached credentials don't persist
-            try {
-                const gitCredFile = path.join(os.homedir(), '.git-credentials');
-                if (fs.existsSync(gitCredFile)) {
-                    const lines = fs.readFileSync(gitCredFile, 'utf-8').split('\n');
-                    // Read the allowed remote to know which host to clear
-                    let giteaHost = '';
-                    if (fs.existsSync(allowedCloneRemotePath)) {
-                        try {
-                            const remote = fs.readFileSync(allowedCloneRemotePath, 'utf-8').trim();
-                            const parsed = new URL(remote.includes('://') ? remote : `https://${remote}`);
-                            giteaHost = parsed.host;
-                        } catch { /* ignore parse errors */ }
-                    }
-                    if (giteaHost) {
-                        const filtered = lines.filter(line => {
-                            try {
-                                return !line.includes(giteaHost);
-                            } catch { return true; }
-                        });
-                        fs.writeFileSync(gitCredFile, filtered.join('\n'));
-                        console.log('[login] Cleared stale git credentials for', giteaHost);
-                    }
-                }
-            } catch (credErr) {
-                console.warn('[login] Could not clear git credential store (non-fatal):', credErr);
-            }
-
             fs.writeFileSync(giteaCredPath, token);
             
             resolve('Credentials saved successfully');

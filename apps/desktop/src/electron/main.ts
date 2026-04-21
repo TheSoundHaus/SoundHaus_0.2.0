@@ -7,7 +7,19 @@ updateElectronApp({ repo: 'TheSoundHaus/SoundHaus_0.2.0' });
 import { chooseFolder, hasGitFile, init, cloneRepo, validateCloneUrlAgainstAllowedRemote } from './home'
 import { getSoundHausCredentials, setSoundHausCredentials, getGiteaCredentials, setGiteaCredentials, getAllowedCloneRemote, setAllowedCloneRemote, clearCredentials } from "./login"; 
 import { exec as gitExec } from 'dugite';
-import { pull, commit, push } from "./project";
+import {
+  pull,
+  commit,
+  push,
+  SampleCheckBlockedError,
+  AlsMergeConflictError,
+  PushBehindRemoteError,
+  completeAlsMergeWithResolutions,
+  clearMergePendingFlag,
+} from "./project";
+import type { AlsMergePendingFile } from './git-rebase';
+import { getProjectReadiness } from './projectReadiness';
+import { checkMissingSampleRefs, findRootAlsFile } from './sampleRefs';
 import { createProjectSetupDialog } from './dialogs/projectSetupDialog';
 import { createCloneUrlDialog } from './dialogs/cloneUrlDialog';
 import { createAboutDialog } from './dialogs/aboutDialog';
@@ -584,15 +596,70 @@ ipcMain.handle('clone-repo', async(_event: IpcMainInvokeEvent, cloneUrl: string,
   return await cloneRepo(cloneUrl, destinationPath);
 });
 
-ipcMain.handle('pull-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  try {
-    return await pull(repoPath);
-  } finally {
-    // Restore the committed snapshot so the working tree stays clean.
-    // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
-    // uncommitted snapshot.json that causes pull/rebase churn on the next pull.
-    await restoreSnapshotFromHead(repoPath);
+ipcMain.handle(
+  'pull-repo',
+  async (
+    _event: IpcMainInvokeEvent,
+    repoPath: string,
+    opts?: { skipMissingSampleCheck?: boolean },
+  ) => {
+    try {
+      const message = await pull(repoPath, opts);
+      return { ok: true as const, message };
+    } catch (e) {
+      if (e instanceof SampleCheckBlockedError) {
+        return {
+          ok: false as const,
+          code: 'MISSING_SAMPLES' as const,
+          issues: e.issues,
+          message: e.message,
+        };
+      }
+      if (e instanceof AlsMergeConflictError) {
+        return {
+          ok: false as const,
+          code: 'ALS_MERGE_CONFLICT' as const,
+          conflictJson: e.conflictJson,
+          pendingPath: e.pendingPath,
+          message: e.message,
+        };
+      }
+      throw e;
+    } finally {
+      // Restore the committed snapshot so the working tree stays clean.
+      // refreshSnapshot would re-parse the (possibly dirty) ALS and leave an
+      // uncommitted snapshot.json that causes pull/rebase churn on the next pull.
+      await restoreSnapshotFromHead(repoPath);
+    }
+  },
+);
+
+ipcMain.handle(
+  'complete-als-merge',
+  async (
+    _event: IpcMainInvokeEvent,
+    pendingPath: string,
+    resolutions: Record<string, string>,
+  ) => {
+    return completeAlsMergeWithResolutions(pendingPath, resolutions);
+  },
+);
+
+ipcMain.handle('get-als-merge-pending', async (_event: IpcMainInvokeEvent, pendingPath: string) => {
+  const norm = path.normalize(pendingPath);
+  const base = path.basename(norm);
+  if (base !== 'als-merge-pending.json') {
+    throw new Error('Invalid ALS merge pending file');
   }
+  if (!fs.existsSync(norm)) {
+    return null;
+  }
+  const raw = await fs.promises.readFile(norm, 'utf8');
+  return JSON.parse(raw) as AlsMergePendingFile;
+});
+
+ipcMain.handle('clear-merge-pending', async (_event: IpcMainInvokeEvent, repoPath: string) => {
+  await clearMergePendingFlag(repoPath);
 });
 
 ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => {
@@ -663,8 +730,34 @@ ipcMain.handle('commit-changes', async(_event: IpcMainInvokeEvent, repoPath) => 
   return await commit(repoPath, commitMessage);
 })
 
-ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
-  const pushResult = await push(repoPath);
+ipcMain.handle(
+  'push-repo',
+  async (
+    _event: IpcMainInvokeEvent,
+    repoPath: string,
+    opts?: { skipMissingSampleCheck?: boolean },
+  ) => {
+  let pushResult: string;
+  try {
+    pushResult = await push(repoPath, opts);
+  } catch (e) {
+    if (e instanceof SampleCheckBlockedError) {
+      return {
+        ok: false as const,
+        code: 'MISSING_SAMPLES' as const,
+        issues: e.issues,
+        message: e.message,
+      };
+    }
+    if (e instanceof PushBehindRemoteError) {
+      return {
+        ok: false as const,
+        code: 'PUSH_BEHIND_REMOTE' as const,
+        message: e.message,
+      };
+    }
+    throw e;
+  }
 
   // ── Best-effort diff upload after successful push ──
   try {
@@ -811,7 +904,19 @@ ipcMain.handle('push-repo', async(_event: IpcMainInvokeEvent, repoPath) => {
     console.warn('[push-repo] Diff upload skipped:', e?.message || String(e));
   }
 
-  return pushResult;
+  return { ok: true as const, message: pushResult };
+});
+
+ipcMain.handle('get-project-readiness', async (_event: IpcMainInvokeEvent, repoPath: string) => {
+  return getProjectReadiness(repoPath);
+});
+
+ipcMain.handle('check-missing-samples', async (_event: IpcMainInvokeEvent, repoPath: string) => {
+  const als = await findRootAlsFile(repoPath);
+  if (!als) {
+    return { hasIssues: false as const, issues: [] as const };
+  }
+  return checkMissingSampleRefs(repoPath, als);
 });
 
 

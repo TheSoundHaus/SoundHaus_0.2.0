@@ -9,12 +9,96 @@ export interface ElectronAPI {
   getCommitDiff: (repoPath: string, commitHash: string, alsPath: string) => Promise<any>
 }
 
+/** Sample reference flagged by the missing-media heuristic (main process). */
+export type MissingSampleIssueDTO = {
+  relativePath: string
+  reason: 'outside_project' | 'file_not_found'
+}
+
+/** Ableton Core Library / pack reference — informational, does not block sync. */
+export type LibrarySampleAdvisoryDTO = {
+  relativePath: string
+}
+
+/** One conflicting track from native three-way ALS merge (JSON from Rust). */
+export type AlsMergeConflictEntryDTO = {
+  track_id: string
+  track_name?: string
+  conflict_kind: string
+  summary: string
+}
+
+/** Main-process payload written to `.soundhaus/als-merge-pending.json`. */
+export type AlsMergePendingFileDTO = {
+  openedAt: string
+  repoPath: string
+  sessionName: string
+  basePath: string
+  localPath: string
+  remotePath: string
+  conflictJson: string
+  outputPath?: string
+  rebaseResume?: boolean
+  dirtyBackupMerge?: { baseCommit: string; alsRelPath: string }
+}
+
+export type PullPushResult =
+  | { ok: true; message: string }
+  | { ok: false; code: 'MISSING_SAMPLES'; issues: MissingSampleIssueDTO[]; message: string }
+  | {
+      ok: false
+      code: 'ALS_MERGE_CONFLICT'
+      conflictJson: string
+      pendingPath: string
+      message: string
+    }
+  | { ok: false; code: 'PUSH_BEHIND_REMOTE'; message: string }
+
+export type ProjectReadinessDTO = {
+  sync: {
+    state: 'no_upstream' | 'unknown' | 'up_to_date' | 'ahead' | 'behind' | 'diverged'
+    ahead?: number
+    behind?: number
+  }
+  samples: {
+    state: 'ok' | 'action_needed'
+    issueCount: number
+    issues: MissingSampleIssueDTO[]
+    libraryAdvisoryCount: number
+    libraryAdvisories: LibrarySampleAdvisoryDTO[]
+  }
+  /** `.soundhaus/als-merge-pending.json` exists — pull stopped for per-track resolution. */
+  alsMergeConflictPendingPath: string | null
+  /** `.soundhaus/merge-pending.json` — user chose Duplicate; finish in Ableton then clear. */
+  mergeCompletePending: boolean
+}
+
 export interface GitService {
   initRepo: (folderPath: string, projectInfo?: ProjectSetupData) => Promise<string>
   cloneRepo: (cloneUrl: string, destinationPath: string) => Promise<string>
-  pullRepo: (repoPath: string) => Promise<string>
+  pullRepo: (
+    repoPath: string,
+    opts?: { skipMissingSampleCheck?: boolean },
+  ) => Promise<PullPushResult>
   commitChange: (repoPath: string) => Promise<string>
-  pushRepo: (repoPath: string) => Promise<string>
+  pushRepo: (
+    repoPath: string,
+    opts?: { skipMissingSampleCheck?: boolean },
+  ) => Promise<PullPushResult>
+  getProjectReadiness: (repoPath: string) => Promise<ProjectReadinessDTO>
+  checkMissingSamples: (
+    repoPath: string,
+  ) => Promise<{
+    hasIssues: boolean
+    issues: MissingSampleIssueDTO[]
+    libraryAdvisories: LibrarySampleAdvisoryDTO[]
+  }>
+  completeAlsMerge: (
+    pendingPath: string,
+    resolutions: Record<string, string>,
+  ) => Promise<{ hadDuplicate: boolean }>
+  clearMergePendingFlag: (repoPath: string) => Promise<void>
+  getAlsMergePending: (pendingPath: string) => Promise<AlsMergePendingFileDTO | null>
 }
 
 export interface LoginResult {
