@@ -30,9 +30,9 @@ export async function declineInvitation(invitationId: string): Promise<ApiRespon
     return { success: true, data: result.data };
 }
 
-// GET /repos/{repo_name}/invitations — list all invitations sent by owner for a repo
-export async function getRepoInvitations(repoName: string): Promise<ApiResponse<SentInvitation[]>> {
-    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${repoName}/invitations`);
+// GET /repos/{owner}/{repo_name}/invitations — list all invitations sent by owner for a repo
+export async function getRepoInvitations(owner: string, repoName: string): Promise<ApiResponse<SentInvitation[]>> {
+    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${owner}/${repoName}/invitations`);
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data?.invitations ?? [] };
 }

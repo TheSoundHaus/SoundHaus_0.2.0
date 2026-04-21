@@ -19,14 +19,13 @@ Architecture:
 """
 
 import io
+
 import requests
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-
-from logging_config import get_logger
 from config import settings
 from dependencies import verify_token
+from fastapi import APIRouter, Depends, HTTPException, Query
+from logging_config import get_logger
 from models.diff_schemas import WaveformPeaksResponse
 
 logger = get_logger(__name__)

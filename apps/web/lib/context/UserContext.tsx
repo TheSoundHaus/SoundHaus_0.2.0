@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { getProfileAction } from "@/actions/profile";
+import { clearSessionAndRedirectToLogin } from "@/actions/session";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
             if (result.success) {
                 setUser(result.profile);
             } else {
+                const err = (result.error || "").toLowerCase();
+                const sessionDead =
+                    err.includes("401") ||
+                    err.includes("unauthorized") ||
+                    err.includes("invalid or expired") ||
+                    err.includes("missing or invalid");
+                if (sessionDead) {
+                    await clearSessionAndRedirectToLogin();
+                    return;
+                }
                 setError(result.error);
                 setUser(null);
             }

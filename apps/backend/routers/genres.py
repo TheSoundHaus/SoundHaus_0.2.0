@@ -2,17 +2,17 @@
 Genre endpoints – list, create, details, patch, and repo-genre assignment.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
+
 from sqlalchemy.orm import Session
-from typing import Optional
 
 from database import get_db
-from dependencies import limiter, user_limiter, verify_token, get_auth, resolve_owner_id
+from dependencies import get_auth, limiter, resolve_owner_id, user_limiter, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
 from models.genre_models import GenreList
-from models.repo_models import RepoData
-from models.profile_models import Profile
 from models.invitation_models import CollaboratorInvitation
+from models.profile_models import Profile
+from models.repo_models import RepoData
 
 logger = get_logger(__name__)
 
@@ -108,11 +108,11 @@ async def get_genre_details(
 async def patch_genre_data(
     request: Request,
     genre_id: int,
-    genre_name: Optional[str] = None,
-    genre_description: Optional[str] = None,
-    genre_icon: Optional[str] = None,
-    genre_color: Optional[str] = None,
-    display_order: Optional[int] = None,
+    genre_name: str | None = None,
+    genre_description: str | None = None,
+    genre_icon: str | None = None,
+    genre_color: str | None = None,
+    display_order: int | None = None,
     token: str = Depends(verify_token),
     db: Session = Depends(get_db),
 ):

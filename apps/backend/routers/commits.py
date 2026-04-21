@@ -2,18 +2,18 @@
 Commit and diff endpoints — serve commit history and ALS diff data.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, Query
-from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import limiter, verify_token, verify_token_or_pat, resolve_owner_id
+from dependencies import limiter, resolve_owner_id, verify_token_or_pat
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from logging_config import get_logger
 from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
-from models.repo_models import RepoData
 from models.profile_models import Profile
-from sqlalchemy.exc import IntegrityError
+from models.repo_models import RepoData
 
 logger = get_logger(__name__)
 
