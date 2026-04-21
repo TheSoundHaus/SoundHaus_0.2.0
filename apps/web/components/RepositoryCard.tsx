@@ -243,12 +243,12 @@ export default function RepositoryCard({
             </div>
             <div className="absolute inset-x-4 bottom-3 flex items-end justify-center gap-[1px] opacity-20">
               {Array.from({ length: 32 }).map((_, i) => {
-                const h = 15 + Math.sin(i * 0.4 + (stats?.stars ?? 0)) * 28 + Math.cos(i * 0.8) * 18;
+                const h = Math.round(Math.max(15 + Math.sin(i * 0.4 + (stats?.stars ?? 0)) * 28 + Math.cos(i * 0.8) * 18, 8));
                 return (
                   <div
                     key={i}
                     className="flex-1 rounded-t-sm bg-glass-blue-400"
-                    style={{ height: `${Math.max(h, 8)}%` }}
+                    style={{ height: `${h}%` }}
                   />
                 );
               })}

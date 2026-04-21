@@ -86,7 +86,7 @@ async def get_snippet_feed(
 
     base_q = (
         db.query(RepoData)
-        .filter(RepoData.audio_snippet.isnot(None))
+        .filter(RepoData.audio_snippet.isnot(None), RepoData.is_public.is_(True))
         .order_by(RepoData.last_activity_at.desc().nullslast())
     )
 
@@ -162,7 +162,7 @@ async def get_collaborations(
     invites = (
         db.query(CollaboratorInvitation)
         .filter(
-            CollaboratorInvitation.invitee_email == user_email,
+            func.lower(CollaboratorInvitation.invitee_email) == (user_email or "").strip().lower(),
             CollaboratorInvitation.status == "accepted",
         )
         .all()

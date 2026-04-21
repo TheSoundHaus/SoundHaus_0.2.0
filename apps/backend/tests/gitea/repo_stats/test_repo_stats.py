@@ -73,8 +73,8 @@ def main() -> None:
         if not resp_create.json().get("success"):
             fail(f"create_repo success flag is false: {resp_create.json()}")
 
-        # GET /repos/{owner}/{repo}/stats — no auth required
-        resp_stats = client.get(f"/repos/{user_id}/{repo_name}/stats")
+        # GET /repos/{owner}/{repo}/stats — requires auth for private repos
+        resp_stats = client.get(f"/repos/{user_id}/{repo_name}/stats", headers=headers)
         if resp_stats.status_code != 200:
             fail(f"repo_stats failed: {resp_stats.status_code} {resp_stats.text}")
 

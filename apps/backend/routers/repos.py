@@ -653,6 +653,10 @@ async def get_repo_stats(
         except Exception as ex:
             logger.debug("get_repo_stats_viewer_flags", error=str(ex))
 
+    # Privacy gate: private repos are only visible to owner and accepted collaborators
+    if is_private and not viewer_can_clone:
+        raise HTTPException(status_code=404, detail="Repo not found")
+
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
@@ -1173,6 +1177,33 @@ async def get_readme(
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    # Privacy gate: private repos require auth and access
+    if not repo_data.is_public:
+        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+        caller_has_access = False
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            try:
+                user_res = await get_auth().get_user(token)
+                if user_res.get("success"):
+                    uid = str(user_res["user"]["id"])
+                    if uid == str(owner_id):
+                        caller_has_access = True
+                    else:
+                        svc = RepoService()
+                        collabs = svc.list_collaborators(owner_id, repo, db)
+                        if collabs.get("success"):
+                            rp = db.query(Profile).filter(Profile.id == uid).first()
+                            my_ids = {uid, (rp.username or "").strip()} if rp else {uid}
+                            for c in collabs.get("collaborators", []):
+                                if (c.get("login") or "").strip() in my_ids or (c.get("username") or "").strip() in my_ids:
+                                    caller_has_access = True
+                                    break
+            except Exception:
+                pass
+        if not caller_has_access:
+            raise HTTPException(status_code=404, detail="Repo not found")
 
     return {
         "success": True,

@@ -75,8 +75,8 @@ def main() -> None:
         if not resp_create.json().get("success"):
             fail(f"create_repo success flag is false: {resp_create.json()}")
 
-        # GET readme (no auth) — should return empty string initially
-        resp_get = client.get(f"/repos/{user_id}/{repo_name}/readme")
+        # GET readme (with owner auth) — should return empty string initially
+        resp_get = client.get(f"/repos/{user_id}/{repo_name}/readme", headers=headers)
         if resp_get.status_code != 200:
             fail(f"GET readme failed: {resp_get.status_code} {resp_get.text}")
         get_data = resp_get.json()
@@ -100,8 +100,8 @@ def main() -> None:
         if put_data.get("readme_content") != readme_text:
             fail(f"PUT readme content mismatch: expected '{readme_text}', got '{put_data.get('readme_content')}'")
 
-        # GET readme again — verify updated content persists
-        resp_get2 = client.get(f"/repos/{user_id}/{repo_name}/readme")
+        # GET readme again — verify updated content persists (owner auth required)
+        resp_get2 = client.get(f"/repos/{user_id}/{repo_name}/readme", headers=headers)
         if resp_get2.status_code != 200:
             fail(f"GET readme (after update) failed: {resp_get2.status_code} {resp_get2.text}")
         get2_data = resp_get2.json()

@@ -236,11 +236,24 @@ async def get_repo_events(
         .all()
     )
 
+    # Batch-resolve actor UUIDs to human usernames
+    actor_names = {e.actor_username for e in repo_events if e.actor_username}
+    actor_display: dict[str, str] = {}
+    if actor_names:
+        rows = db.query(Profile).filter(Profile.username.in_(actor_names)).all()
+        for p in rows:
+            actor_display[p.username] = p.username
+        unresolved = [u for u in actor_names - set(actor_display.keys()) if _UUID_RE.match(u)]
+        if unresolved:
+            rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
+            for p in rows:
+                actor_display[p.id] = p.username or (p.email.split("@")[0] if p.email else p.id)
+
     all_events = [
         {
             "id": e.id,
             "event_type": e.event_type,
-            "actor": e.actor_username,
+            "actor": actor_display.get(e.actor_username, e.actor_username),
             "detail": None,
             "occurred_at": str(e.occurred_at) if e.occurred_at else None,
         }

@@ -242,6 +242,7 @@ const Navbar = () => {
                                 <UserAvatar
                                     src={user?.avatar_url}
                                     alt={user?.username || "Profile"}
+                                    name={user?.username}
                                     size={32}
                                 />
                             )}

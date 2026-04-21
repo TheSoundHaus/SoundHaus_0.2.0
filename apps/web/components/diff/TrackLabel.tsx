@@ -96,7 +96,7 @@ export function TrackLabel({ track, isHighlighted = false, isExpanded = false, o
     const isDefaultName = !track.trackName || /^\d+[-\s]/.test(track.trackName);
     const displayName = isDefaultName && track.instrument
         ? track.instrument
-        : track.trackName || "Unnamed Track";
+        : track.trackName || `Track ${track.trackId}`;
 
     return (
         <div
