@@ -423,6 +423,7 @@ async def get_public_repos(
                 "owner": owner,
                 "owner_username": fields["owner_username"],
                 "repo_name": repo_name,
+                "is_public": bool(repo.is_public),
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
                 "snippet_metadata": {
@@ -478,6 +479,7 @@ async def get_user_public_repos(
                 "owner": owner,
                 "owner_username": owner_username,
                 "repo_name": repo_name,
+                "is_public": bool(repo.is_public),
                 "clone_count": repo.clone_count,
                 "audio_snippet": repo.audio_snippet,
                 "snippet_metadata": {
@@ -901,15 +903,31 @@ async def fork_repo(
     if not user_check.get("exists"):
         raise HTTPException(status_code=400, detail="Git account not provisioned. Please log in from the desktop app first.")
 
-    # Call Gitea fork API
+    # Call Gitea fork API using the canonical owner/repo segments from DB (matches Gitea).
+    try:
+        gitea_owner_login, gitea_repo_name = source_data.gitea_id.split("/", 1)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Invalid repository record")
+
     svc = RepoService()
-    result = svc.fork_repo(owner_id, repo, user_id)
+    result = svc.fork_repo(gitea_owner_login, gitea_repo_name, user_id)
 
     if not result.get("success"):
         status = result.get("status", 500)
         if status == 409:
             raise HTTPException(status_code=409, detail="You already have a version of this project")
-        raise HTTPException(status_code=status or 500, detail=result.get("message", "Failed to fork"))
+        raw_msg = str(result.get("message", "Failed to fork"))
+        # Gitea often returns "source repository not found" when owner/repo path is wrong;
+        # avoid surfacing raw upstream strings for common transient cases.
+        if status == 404 or "not found" in raw_msg.lower():
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "That project is not available to remix right now. "
+                    "Try refreshing the page — if it keeps happening, the project may have been removed."
+                ),
+            )
+        raise HTTPException(status_code=status or 500, detail=raw_msg)
 
     forked_repo = result.get("repo", {})
     fork_full_name = forked_repo.get("full_name", f"{user_id}/{repo}")
