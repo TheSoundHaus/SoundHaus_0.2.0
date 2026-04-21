@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
     ChevronDown, ChevronRight, RefreshCw, ArrowDownToLine, Save, ArrowUpFromLine,
-    Music, AlertTriangle, CheckCircle, ExternalLink, History, GitCommit, Users
+    Music, AlertTriangle, CheckCircle, ExternalLink, History, GitCommit, Users,
+    CornerUpLeft, Loader2,
 } from 'lucide-react'
 import { useAlsParser } from '../hooks/useAlsParser'
 import useElectronIPC from '../hooks/useElectronIPC'
 import WaveformSpinner from '../components/WaveformSpinner'
 import { useProjectGitActions } from '../hooks/useProjectGitActions'
-import type { CommitEntry, NoteDiff } from '../types'
+import type { CommitEntry, HeadStateOk, NoteDiff } from '../types'
 import electronAPI from '../services/electronAPI';
 import PianoRollCanvas from '../components/diff/PianoRollCanvas.tsx';
 import { useToast } from '../components/ToastProvider'
@@ -40,6 +41,12 @@ const ProjectPage = () => {
     const [openingAbleton, setOpeningAbleton] = useState(false)
     const [isCollaboration, setIsCollaboration] = useState(false)
 
+    const [headState, setHeadState] = useState<HeadStateOk | null>(null)
+    const [headStateLoading, setHeadStateLoading] = useState(false)
+    const [loadVersionBusy, setLoadVersionBusy] = useState(false)
+    const [returnLatestBusy, setReturnLatestBusy] = useState(false)
+    const [showLoadConfirm, setShowLoadConfirm] = useState(false)
+
     const { findAndParse } = useAlsParser()
     const { findAls } = useElectronIPC()
     const { runPull, runCommit, runPush } = useProjectGitActions()
@@ -54,6 +61,32 @@ const ProjectPage = () => {
         adjusted: trackDiffs.reduce((sum, track) => sum + track.adjusted.length, 0),
     }
     const hasNoteChanges = (noteCounts.added + noteCounts.removed + noteCounts.adjusted) > 0
+
+    const loadHeadState = useCallback(async () => {
+        if (!selectedProject) {
+            setHeadState(null)
+            return
+        }
+        setHeadStateLoading(true)
+        try {
+            const result = await electronAPI.getHeadState(selectedProject)
+            if (result.ok) {
+                setHeadState({
+                    headSha: result.headSha,
+                    branchName: result.branchName,
+                    detached: result.detached,
+                    returnTarget: result.returnTarget,
+                    timeTravelStashCount: result.timeTravelStashCount,
+                })
+            } else {
+                setHeadState(null)
+            }
+        } catch {
+            setHeadState(null)
+        } finally {
+            setHeadStateLoading(false)
+        }
+    }, [selectedProject])
 
     const handleLoadHistory = useCallback(async () => {
         if (!selectedProject) return
@@ -126,6 +159,7 @@ const ProjectPage = () => {
             const result = await runPull(selectedProject)
             notifyPullSuccess(showToast, result)
             await handleRefreshChanges()
+            await loadHeadState()
         } catch (error) {
             notifyPullError(showToast, error)
         }
@@ -137,6 +171,7 @@ const ProjectPage = () => {
             const result = await runCommit(selectedProject)
             notifyCommitSuccess(showToast, result)
             setAlsStruct((prev: any) => prev ? { ...prev, diffStatus: 'in-sync', summary: '' } : prev)
+            await loadHeadState()
         } catch (error) {
             notifyCommitError(showToast, error)
         }
@@ -148,8 +183,93 @@ const ProjectPage = () => {
             const result = await runPush(selectedProject)
             notifyPushSuccess(showToast, result)
             await handleRefreshChanges()
+            await loadHeadState()
         } catch (error) {
             notifyPushError(showToast, error)
+        }
+    }
+
+    const handleOpenLoadConfirm = () => {
+        if (!selectedCommit || !selectedProject) return
+        setShowLoadConfirm(true)
+    }
+
+    const handleConfirmLoadVersion = async () => {
+        if (!selectedProject || !selectedCommit) return
+        setLoadVersionBusy(true)
+        try {
+            const result = await electronAPI.checkoutCommit(selectedProject, selectedCommit)
+            if (!result.ok) {
+                showToast({
+                    type: 'error',
+                    title: 'Could not load version',
+                    detail: result.reason,
+                })
+                return
+            }
+            setShowLoadConfirm(false)
+            setHeadState(result.headState)
+            if (result.stashMessage) {
+                showToast({
+                    type: 'success',
+                    title: 'Stashed local changes',
+                    detail: 'They will be restored when you return to latest.',
+                })
+            }
+            showToast({
+                type: 'success',
+                title: 'Loaded version',
+                detail: `Now at ${result.headState.headSha.slice(0, 7)} (detached HEAD)`,
+            })
+            await handleRefreshChanges()
+            await handleLoadHistory()
+        } catch (error) {
+            showToast({
+                type: 'error',
+                title: 'Could not load version',
+                detail: error instanceof Error ? error.message : String(error),
+            })
+        } finally {
+            setLoadVersionBusy(false)
+        }
+    }
+
+    const handleReturnToLatest = async () => {
+        if (!selectedProject) return
+        setReturnLatestBusy(true)
+        try {
+            const result = await electronAPI.returnToLatest(selectedProject)
+            if (!result.ok) {
+                showToast({
+                    type: 'error',
+                    title: 'Could not return to latest',
+                    detail: result.reason,
+                })
+                if (result.stashPopFailed) {
+                    showToast({
+                        type: 'info',
+                        title: 'Stash restore had a problem',
+                        detail: result.stashPopReason ?? '',
+                    })
+                }
+                return
+            }
+            setHeadState(result.headState)
+            showToast({
+                type: 'success',
+                title: 'Returned to latest',
+                detail: `On ${result.headState.branchName ?? 'branch'} @ ${result.headState.headSha.slice(0, 7)}`,
+            })
+            await handleRefreshChanges()
+            await handleLoadHistory()
+        } catch (error) {
+            showToast({
+                type: 'error',
+                title: 'Could not return to latest',
+                detail: error instanceof Error ? error.message : String(error),
+            })
+        } finally {
+            setReturnLatestBusy(false)
         }
     }
 
@@ -183,6 +303,10 @@ const ProjectPage = () => {
     useEffect(() => {
         handleLoadHistory()
     }, [handleLoadHistory])
+
+    useEffect(() => {
+        void loadHeadState()
+    }, [loadHeadState])
 
     // Check if this project is a collaboration
     useEffect(() => {
@@ -218,8 +342,11 @@ const ProjectPage = () => {
 
     const projectName = selectedProject?.split(/[\\/]/).pop() || 'Project'
 
+    const atSelectedCommit =
+        headState && selectedCommit ? headState.headSha === selectedCommit : false
+
     return (
-        <div className="flex w-full h-full min-h-0 min-w-0 bg-bg-primary text-text-primary overflow-hidden animate-fade-in">
+        <div className="flex w-full h-full min-h-0 min-w-0 bg-bg-primary text-text-primary overflow-hidden animate-fade-in relative">
             {/* Main column: single vertical scroll for all content except Actions */}
             <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-5 space-y-3">
                 {/* Project title */}
@@ -239,6 +366,47 @@ const ProjectPage = () => {
                         <p className="text-xs text-text-tertiary truncate max-w-xs">{selectedProject}</p>
                     </div>
                 </div>
+
+                {headState?.detached && headState.returnTarget && (
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-accent/30 bg-accent/10 px-4 py-3">
+                        <div className="min-w-0 space-y-1">
+                            <p className="text-sm font-medium text-text-primary">
+                                Viewing commit{' '}
+                                <span className="font-mono">{headState.headSha.slice(0, 7)}</span>
+                                <span className="text-text-tertiary font-normal"> (detached HEAD)</span>
+                            </p>
+                            <p className="text-xs text-text-tertiary">
+                                Return point:{' '}
+                                <span className="font-mono text-text-secondary">
+                                    {headState.returnTarget.branch}
+                                </span>{' '}
+                                @{' '}
+                                <span className="font-mono">{headState.returnTarget.sha.slice(0, 7)}</span>
+                                {headState.timeTravelStashCount > 0 && (
+                                    <span className="ml-2">
+                                        · {headState.timeTravelStashCount} stash
+                                        {headState.timeTravelStashCount === 1 ? '' : 'es'} will restore on return
+                                    </span>
+                                )}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => void handleReturnToLatest()}
+                            disabled={returnLatestBusy}
+                            className="shrink-0 flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                                       btn-brand disabled:opacity-50 disabled:cursor-not-allowed
+                                       transition-all duration-200 cursor-pointer"
+                        >
+                            {returnLatestBusy ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <CornerUpLeft className="w-4 h-4" />
+                            )}
+                            Return to latest
+                        </button>
+                    </div>
+                )}
 
                 {/* Track Information */}
                 <div className="rounded-xl border border-border-default overflow-hidden">
@@ -411,13 +579,57 @@ const ProjectPage = () => {
                 {/* Selected Commit Details */}
                 {selectedCommit && (
                     <div ref={commitDetailRef} className="rounded-xl border border-border-default overflow-hidden animate-slide-up">
-                        <div className="flex items-center justify-between px-4 py-3 bg-bg-elevated border-b border-border-subtle">
-                            <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-3 bg-bg-elevated border-b border-border-subtle">
+                            <div className="flex items-center gap-2 min-w-0">
                                 <h3 className="text-sm font-semibold text-text-primary">Selected Commit Details</h3>
+                                {headStateLoading && (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-text-tertiary shrink-0" />
+                                )}
                             </div>
-                            <span className="text-xs text-text-tertiary font-mono bg-bg-primary/60 border border-border-subtle px-2 py-1 rounded-full">
-                                {selectedCommit.slice(0, 7)}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-2 justify-end">
+                                <span className="text-xs text-text-tertiary font-mono bg-bg-primary/60 border border-border-subtle px-2 py-1 rounded-full">
+                                    {selectedCommit.slice(0, 7)}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleOpenLoadConfirm}
+                                    disabled={
+                                        loadVersionBusy ||
+                                        !selectedProject ||
+                                        atSelectedCommit
+                                    }
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                                               bg-accent/15 border border-accent/30 text-accent
+                                               hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed
+                                               transition-colors cursor-pointer"
+                                >
+                                    {loadVersionBusy ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <History className="w-3.5 h-3.5" />
+                                    )}
+                                    Load this version
+                                </button>
+                                {headState?.detached && headState.returnTarget && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleReturnToLatest()}
+                                        disabled={returnLatestBusy}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                                                   bg-bg-primary/60 border border-border-default text-text-secondary
+                                                   hover:border-accent/30 hover:text-text-primary
+                                                   disabled:opacity-40 disabled:cursor-not-allowed
+                                                   transition-colors cursor-pointer"
+                                    >
+                                        {returnLatestBusy ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <CornerUpLeft className="w-3.5 h-3.5" />
+                                        )}
+                                        Return to latest
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <div className="p-4 bg-bg-secondary space-y-4">
                             {/* Semantic Summary */}
@@ -524,6 +736,55 @@ const ProjectPage = () => {
                     Push Changes
                 </button>
             </div>
+
+            {showLoadConfirm && selectedCommit && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="load-version-title"
+                >
+                    <div className="w-full max-w-md rounded-xl border border-border-default bg-bg-elevated shadow-xl p-6 space-y-4">
+                        <h2 id="load-version-title" className="text-base font-semibold text-text-primary">
+                            Load this version?
+                        </h2>
+                        <p className="text-sm text-text-secondary leading-relaxed">
+                            Your project folder will switch to commit{' '}
+                            <span className="font-mono text-text-primary">{selectedCommit.slice(0, 7)}</span>
+                            {' '}using a <strong className="text-text-primary">detached HEAD</strong>. You can
+                            return to your branch afterward with &quot;Return to latest&quot;.
+                        </p>
+                        <p className="text-sm text-text-tertiary leading-relaxed">
+                            If you have uncommitted changes, SoundHaus will stash them first and try to restore
+                            them when you return.
+                        </p>
+                        <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowLoadConfirm(false)}
+                                disabled={loadVersionBusy}
+                                className="px-4 py-2.5 rounded-xl text-sm font-medium border border-border-default
+                                           bg-bg-secondary text-text-secondary hover:bg-bg-tertiary/60
+                                           disabled:opacity-50 cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void handleConfirmLoadVersion()}
+                                disabled={loadVersionBusy}
+                                className="px-4 py-2.5 rounded-xl text-sm font-medium btn-brand
+                                           disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                            >
+                                {loadVersionBusy ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : null}
+                                Load version
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

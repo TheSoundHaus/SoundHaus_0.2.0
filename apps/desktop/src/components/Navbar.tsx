@@ -117,7 +117,7 @@ const Navbar = () => {
                         <FolderOpen size={14} />
                         <span className="max-w-32 truncate">{tab.name}</span>
                         {tab.isCollab && (
-                            <Users size={12} className="text-accent shrink-0" title="Collaboration" />
+                            <Users size={12} className="text-accent shrink-0" aria-label="Collaboration" />
                         )}
                         <span
                             onClick={(e) => closeTab(e, tab)}

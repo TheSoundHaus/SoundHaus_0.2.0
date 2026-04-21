@@ -1,3 +1,28 @@
+/** Git HEAD / time-travel state from main process (`get-head-state`). */
+export type HeadStateOk = {
+  headSha: string
+  branchName: string | null
+  detached: boolean
+  returnTarget: { branch: string; sha: string } | null
+  timeTravelStashCount: number
+}
+
+export type HeadStateResult = ({ ok: true } & HeadStateOk) | { ok: false; reason: string }
+
+export type CheckoutCommitResult =
+  | { ok: true; headState: HeadStateOk; stashMessage: string | null }
+  | { ok: false; reason: string }
+
+export type ReturnToLatestResult =
+  | { ok: true; headState: HeadStateOk }
+  | {
+      ok: false
+      reason: string
+      stashPopFailed?: boolean
+      stashPopReason?: string
+      headState?: HeadStateOk
+    }
+
 export interface ElectronAPI {
   chooseFolder: () => Promise<string | null>
   hasGitFile: (folderPath: string) => Promise<boolean>
@@ -7,6 +32,15 @@ export interface ElectronAPI {
   getChanges: (alsPath: string) => Promise<any>
   getCommitHistory: (repoPath: string) => Promise<any[]>
   getCommitDiff: (repoPath: string, commitHash: string, alsPath: string) => Promise<any>
+  getHeadState: (repoPath: string) => Promise<HeadStateResult>
+  checkoutCommit: (repoPath: string, commitSha: string) => Promise<CheckoutCommitResult>
+  returnToLatest: (repoPath: string, opts?: { applyStash?: boolean }) => Promise<ReturnToLatestResult>
+  checkIsCollaboration: (repoPath: string) => Promise<{
+    ok: boolean
+    isCollaboration?: boolean
+    ownerName?: string
+    reason?: string
+  }>
 }
 
 export interface GitService {
@@ -34,6 +68,7 @@ export interface PatService {
   setAllowedCloneRemote: (remote: string) => Promise<string>
   autoLogin: () => Promise<LoginResult>
   manualLogin: (email: string, password: string) => Promise<LoginResult>
+  logout: () => Promise<{ success: boolean }>
 }
 
 export interface GitFileChange {

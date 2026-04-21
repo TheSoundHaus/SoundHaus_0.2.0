@@ -1,3 +1,5 @@
+import type { CheckoutCommitResult, HeadStateResult, ReturnToLatestResult } from '../types'
+
 const electronAPI = {
     isElectron: (): boolean => {
         return typeof window !== 'undefined' && !!window.electronAPI
@@ -65,6 +67,30 @@ const electronAPI = {
             return Promise.resolve(null)
         }
         return window.electronAPI.getCommitDiff(repoPath, commitHash, alsPath)
+    },
+
+    getHeadState: (repoPath: string): Promise<HeadStateResult> => {
+        if (!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve({ ok: false, reason: 'electronAPI not available' })
+        }
+        return window.electronAPI.getHeadState(repoPath)
+    },
+
+    checkoutCommit: (repoPath: string, commitSha: string): Promise<CheckoutCommitResult> => {
+        if (!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve({ ok: false, reason: 'electronAPI not available' })
+        }
+        return window.electronAPI.checkoutCommit(repoPath, commitSha)
+    },
+
+    returnToLatest: (repoPath: string, opts?: { applyStash?: boolean }): Promise<ReturnToLatestResult> => {
+        if (!window.electronAPI) {
+            console.warn('electronAPI not available')
+            return Promise.resolve({ ok: false, reason: 'electronAPI not available' })
+        }
+        return window.electronAPI.returnToLatest(repoPath, opts)
     },
 
     checkIsCollaboration: (repoPath: string): Promise<{ ok: boolean; isCollaboration?: boolean; ownerName?: string; reason?: string }> => {

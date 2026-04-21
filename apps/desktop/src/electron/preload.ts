@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 	getChanges: (alsPath: string): Promise<any> => ipcRenderer.invoke('get-changes', alsPath),
 	getCommitHistory: (repoPath: string): Promise<any[]> => ipcRenderer.invoke('get-commit-history', repoPath),
 	getCommitDiff: (repoPath: string, commitHash: string, alsPath: string): Promise<any> => ipcRenderer.invoke('get-commit-diff', repoPath, commitHash, alsPath),
+	getHeadState: (repoPath: string): Promise<unknown> => ipcRenderer.invoke('get-head-state', repoPath),
+	checkoutCommit: (repoPath: string, commitSha: string): Promise<unknown> =>
+		ipcRenderer.invoke('checkout-commit', repoPath, commitSha),
+	returnToLatest: (repoPath: string, opts?: { applyStash?: boolean }): Promise<unknown> =>
+		ipcRenderer.invoke('return-to-latest', repoPath, opts),
 	checkIsCollaboration: (repoPath: string): Promise<any> => ipcRenderer.invoke('check-is-collaboration', repoPath),
 });
 

@@ -17,6 +17,8 @@ import * as fs from 'fs';
 import * as path from "path";
 import { parseAls, parseXmlFromBuffer, diffFromSnapshot, diffSnapshots, generateCommitMessage } from 'semantic-differ'
 import { changesToProjectDiff } from './diffTransformer'
+import type { TimeTravelState } from './timeTravelPersistence';
+import { loadPersistedTimeTravel, removePersistedTimeTravel, savePersistedTimeTravel } from './timeTravelPersistence';
 
 // Handle Squirrel.Windows install/update/uninstall events and exit immediately.
 // Without this, setup can launch the app at the wrong time and shortcut creation may fail.
@@ -450,6 +452,158 @@ async function restoreSnapshotFromHead(repoPath: string): Promise<void> {
       console.warn('[restoreSnapshotFromHead] Fallback refreshSnapshot also failed:', snap.error);
     }
   }
+}
+
+const timeTravelByRepo = new Map<string, TimeTravelState>();
+
+function timeTravelRepoKey(repoPath: string): string {
+  return path.resolve(repoPath);
+}
+
+async function localBranchExists(repoPath: string, branchName: string): Promise<boolean> {
+  const r = await gitExec(
+    ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
+    repoPath,
+  );
+  return r.exitCode === 0;
+}
+
+/** In-memory cache; falls back to disk after app restart. */
+async function getEffectiveTimeTravelState(repoPath: string): Promise<TimeTravelState | undefined> {
+  const key = timeTravelRepoKey(repoPath);
+  const cached = timeTravelByRepo.get(key);
+  if (cached) {
+    return cached;
+  }
+  const disk = await loadPersistedTimeTravel(key);
+  if (!disk) {
+    return undefined;
+  }
+  timeTravelByRepo.set(key, disk);
+  return disk;
+}
+
+async function clearTimeTravelState(repoPath: string): Promise<void> {
+  const key = timeTravelRepoKey(repoPath);
+  timeTravelByRepo.delete(key);
+  await removePersistedTimeTravel(key);
+}
+
+async function setTimeTravelState(repoPath: string, state: TimeTravelState): Promise<void> {
+  const key = timeTravelRepoKey(repoPath);
+  timeTravelByRepo.set(key, state);
+  await savePersistedTimeTravel(key, state);
+}
+
+async function gitRevParse(repoPath: string, ref: string): Promise<string | null> {
+  const r = await gitExec(['rev-parse', ref], repoPath);
+  if (r.exitCode !== 0) return null;
+  const out = typeof r.stdout === 'string' ? r.stdout : String(r.stdout);
+  const sha = out.trim();
+  return sha.length > 0 ? sha : null;
+}
+
+async function isWorkingTreeDirty(repoPath: string): Promise<boolean> {
+  const r = await gitExec(['status', '--porcelain'], repoPath);
+  if (r.exitCode !== 0) return true;
+  const out = typeof r.stdout === 'string' ? r.stdout : String(r.stdout);
+  return out.trim().length > 0;
+}
+
+async function isDetachedHead(repoPath: string): Promise<boolean> {
+  const r = await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
+  if (r.exitCode !== 0) return true;
+  const out = typeof r.stdout === 'string' ? r.stdout : String(r.stdout);
+  return out.trim() === 'HEAD';
+}
+
+async function getCurrentBranchName(repoPath: string): Promise<string | null> {
+  const r = await gitExec(['symbolic-ref', '-q', '--short', 'HEAD'], repoPath);
+  if (r.exitCode !== 0) return null;
+  const out = typeof r.stdout === 'string' ? r.stdout : String(r.stdout);
+  const name = out.trim();
+  return name.length > 0 ? name : null;
+}
+
+async function verifyCommitSha(repoPath: string, commitSha: string): Promise<{ ok: true; fullSha: string } | { ok: false; reason: string }> {
+  const r = await gitExec(['rev-parse', '--verify', `${commitSha}^{commit}`], repoPath);
+  if (r.exitCode !== 0) {
+    const err = typeof r.stderr === 'string' ? r.stderr : String(r.stderr);
+    return { ok: false, reason: err.trim() || 'Invalid commit' };
+  }
+  const out = typeof r.stdout === 'string' ? r.stdout : String(r.stdout);
+  const fullSha = out.trim();
+  return fullSha.length > 0 ? { ok: true, fullSha } : { ok: false, reason: 'Invalid commit' };
+}
+
+async function findStashRefByMessage(repoPath: string, messageSub: string): Promise<string | null> {
+  const r = await gitExec(['stash', 'list'], repoPath);
+  if (r.exitCode !== 0) return null;
+  const out = typeof r.stdout === 'string' ? r.stdout : String(r.stdout);
+  for (const line of out.split('\n')) {
+    if (line.includes(messageSub)) {
+      const m = line.match(/^(stash@\{\d+\}):/);
+      if (m) return m[1];
+    }
+  }
+  return null;
+}
+
+type HeadStatePayload = {
+  ok: true;
+  headSha: string;
+  branchName: string | null;
+  detached: boolean;
+  returnTarget: { branch: string; sha: string } | null;
+  /** Number of stashes created during time travel (applied on return). */
+  timeTravelStashCount: number;
+};
+
+type HeadStateError = { ok: false; reason: string };
+
+async function buildHeadStatePayload(repoPath: string): Promise<HeadStatePayload | HeadStateError> {
+  const headSha = await gitRevParse(repoPath, 'HEAD');
+  if (!headSha) {
+    return { ok: false, reason: 'No HEAD — is this a git repository?' };
+  }
+  const detached = await isDetachedHead(repoPath);
+  const branchName = detached ? null : await getCurrentBranchName(repoPath);
+
+  if (!detached) {
+    // Drop stale disk/memory when we're on a normal branch, but keep metadata
+    // if the tree is dirty (e.g. stash pop conflicts after "Return to latest")
+    // so return-to-latest can finish after the user resolves files.
+    const maybe = await getEffectiveTimeTravelState(repoPath);
+    if (maybe) {
+      const cur = await getCurrentBranchName(repoPath);
+      const dirty = await isWorkingTreeDirty(repoPath);
+      if (cur && cur !== maybe.returnBranch) {
+        await clearTimeTravelState(repoPath);
+      } else if (cur === maybe.returnBranch && !dirty) {
+        await clearTimeTravelState(repoPath);
+      }
+    }
+  }
+
+  let tt: TimeTravelState | undefined;
+  if (detached) {
+    tt = await getEffectiveTimeTravelState(repoPath);
+    if (tt && !(await localBranchExists(repoPath, tt.returnBranch))) {
+      await clearTimeTravelState(repoPath);
+      tt = undefined;
+    }
+  }
+
+  const returnTarget =
+    detached && tt ? { branch: tt.returnBranch, sha: tt.returnSha } : null;
+  return {
+    ok: true,
+    headSha,
+    branchName,
+    detached,
+    returnTarget,
+    timeTravelStashCount: detached && tt ? tt.stashMessages.length : 0,
+  };
 }
 
 function createWindow() {
@@ -1059,6 +1213,182 @@ ipcMain.handle('get-commit-diff', async (_event: IpcMainInvokeEvent, repoPath: s
     };
   }
 });
+
+ipcMain.handle('get-head-state', async (_event: IpcMainInvokeEvent, repoPath: string) => {
+  if (typeof repoPath !== 'string' || !repoPath) {
+    return { ok: false, reason: 'No project path' };
+  }
+  try {
+    return await buildHeadStatePayload(repoPath);
+  } catch (e: any) {
+    return { ok: false, reason: e?.message ?? String(e) };
+  }
+});
+
+ipcMain.handle(
+  'checkout-commit',
+  async (_event: IpcMainInvokeEvent, repoPath: string, commitSha: string) => {
+    if (typeof repoPath !== 'string' || !repoPath) {
+      return { ok: false, reason: 'No project path' };
+    }
+    if (typeof commitSha !== 'string' || !commitSha.trim()) {
+      return { ok: false, reason: 'No commit specified' };
+    }
+    try {
+      const verified = await verifyCommitSha(repoPath, commitSha.trim());
+      if (!verified.ok) return verified;
+
+      const fullSha = verified.fullSha;
+      const currentHead = await gitRevParse(repoPath, 'HEAD');
+      if (currentHead === fullSha) {
+        const state = await buildHeadStatePayload(repoPath);
+        return state.ok ? { ok: true, headState: state, stashMessage: null as string | null } : state;
+      }
+
+      let stashMessage: string | undefined;
+      if (await isWorkingTreeDirty(repoPath)) {
+        stashMessage = `soundhaus/time-travel:${Date.now()}`;
+        const stashPush = await gitExec(
+          ['stash', 'push', '-u', '-m', stashMessage],
+          repoPath,
+        );
+        if (stashPush.exitCode !== 0) {
+          const err = typeof stashPush.stderr === 'string' ? stashPush.stderr : String(stashPush.stderr);
+          return { ok: false, reason: err.trim() || 'git stash failed' };
+        }
+      }
+
+      // Capture pre-checkout state, but do NOT mutate timeTravelByRepo until
+      // checkout succeeds — otherwise a failed checkout leaves stale return
+      // points and orphans any stash we just made.
+      const wasDetached = await isDetachedHead(repoPath);
+      const priorBranch = wasDetached ? null : await getCurrentBranchName(repoPath);
+      const priorSha = await gitRevParse(repoPath, 'HEAD');
+
+      const co = await gitExec(['checkout', '--detach', fullSha], repoPath);
+      if (co.exitCode !== 0) {
+        // Roll back: restore the stash we just created so the user's work
+        // doesn't silently end up in `git stash list`. Best-effort.
+        if (stashMessage) {
+          const ref = await findStashRefByMessage(repoPath, stashMessage);
+          if (ref) {
+            const pop = await gitExec(['stash', 'pop', ref], repoPath);
+            if (pop.exitCode !== 0) {
+              console.warn('[checkout-commit] Stash rollback failed:', pop.stderr || pop.stdout);
+            }
+          }
+        }
+        const err = typeof co.stderr === 'string' ? co.stderr : String(co.stderr);
+        return { ok: false, reason: err.trim() || 'git checkout failed' };
+      }
+
+      // Checkout succeeded — now it's safe to record return state.
+      if (!wasDetached && priorBranch && priorSha) {
+        await setTimeTravelState(repoPath, {
+          returnBranch: priorBranch,
+          returnSha: priorSha,
+          stashMessages: stashMessage ? [stashMessage] : [],
+        });
+      } else if (wasDetached) {
+        const existing = await getEffectiveTimeTravelState(repoPath);
+        if (existing && stashMessage) {
+          existing.stashMessages.push(stashMessage);
+          await setTimeTravelState(repoPath, existing);
+        }
+        // If !existing && stashMessage: detached without a known return point
+        // (e.g. external git). Stash remains in `git stash list` for manual recovery.
+      }
+
+      await restoreSnapshotFromHead(repoPath);
+
+      const state = await buildHeadStatePayload(repoPath);
+      if (!state.ok) return state;
+      return { ok: true, headState: state, stashMessage: stashMessage ?? null };
+    } catch (e: any) {
+      return { ok: false, reason: e?.message ?? String(e) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'return-to-latest',
+  async (
+    _event: IpcMainInvokeEvent,
+    repoPath: string,
+    opts?: { applyStash?: boolean },
+  ) => {
+    if (typeof repoPath !== 'string' || !repoPath) {
+      return { ok: false, reason: 'No project path' };
+    }
+    const tt = await getEffectiveTimeTravelState(repoPath);
+    if (!tt) {
+      return {
+        ok: false,
+        reason:
+          'No saved return point. Use “Load this version” on a commit while you are on your main branch, or check out a branch in Terminal.',
+      };
+    }
+
+    try {
+      if (await isWorkingTreeDirty(repoPath)) {
+        return {
+          ok: false,
+          reason:
+            'You have uncommitted changes. Save a snapshot (commit) or discard them before returning.',
+        };
+      }
+
+      const checkoutRes = await gitExec(['checkout', tt.returnBranch], repoPath);
+      if (checkoutRes.exitCode !== 0) {
+        const err =
+          typeof checkoutRes.stderr === 'string'
+            ? checkoutRes.stderr
+            : String(checkoutRes.stderr);
+        return {
+          ok: false,
+          reason:
+            err.trim() ||
+            `Could not return to ${tt.returnBranch}. The branch may have been deleted or renamed.`,
+        };
+      }
+
+      // We're back on the branch. Intentionally do NOT `reset --hard` to the
+      // saved sha: if the branch tip moved (e.g. user pulled in another tool),
+      // resetting would silently discard commits. Respect the current tip.
+
+      await restoreSnapshotFromHead(repoPath);
+
+      const applyStash = opts?.applyStash !== false;
+      if (applyStash && tt.stashMessages.length > 0) {
+        for (let i = tt.stashMessages.length - 1; i >= 0; i--) {
+          const msg = tt.stashMessages[i];
+          const ref = await findStashRefByMessage(repoPath, msg);
+          if (!ref) continue;
+          const pop = await gitExec(['stash', 'pop', ref], repoPath);
+          if (pop.exitCode !== 0) {
+            const err =
+              typeof pop.stderr === 'string' ? pop.stderr : String(pop.stderr);
+            const headState = await buildHeadStatePayload(repoPath);
+            return {
+              ok: false,
+              reason: err.trim() || 'git stash pop failed',
+              stashPopFailed: true,
+              stashPopReason: err.trim(),
+              headState: headState.ok ? headState : undefined,
+            };
+          }
+        }
+      }
+
+      await clearTimeTravelState(repoPath);
+      const state = await buildHeadStatePayload(repoPath);
+      if (!state.ok) return state;
+      return { ok: true, headState: state };
+    } catch (e: any) {
+      return { ok: false, reason: e?.message ?? String(e) };
+    }
+  },
+);
 
 ipcMain.handle('get-soundhaus-credentials', async(_event: IpcMainInvokeEvent) => {
   return await getSoundHausCredentials();

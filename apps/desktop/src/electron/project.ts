@@ -144,6 +144,12 @@ async function commit(repoPath: string, message?: string) {
 
 async function push(repoPath: string) {
   await ensureGiteaGitCredentialsApproved(repoPath);
+  const abbrevRef = await exec(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
+  if (abbrevRef.exitCode === 0 && abbrevRef.stdout.trim() === 'HEAD') {
+    throw new Error(
+      "You can't push while time travelling. Return to the latest version on your branch first.",
+    );
+  }
   // Ensure there is at least one commit before pushing (new empty repo)
   const headCheck = await exec(['rev-parse', '--verify', 'HEAD'], repoPath);
   if (headCheck.exitCode !== 0) {

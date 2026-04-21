@@ -16,6 +16,27 @@ declare global {
       getChanges: (alsPath: string) => Promise<any>
       getCommitHistory: (repoPath: string) => Promise<any[]>
       getCommitDiff: (repoPath: string, commitHash: string, alsPath: string) => Promise<any>
+      getHeadState: (repoPath: string) => Promise<import('./index').HeadStateResult>
+      checkoutCommit: (
+        repoPath: string,
+        commitSha: string,
+      ) => Promise<
+        | { ok: true; headState: import('./index').HeadStateOk; stashMessage: string | null }
+        | { ok: false; reason: string }
+      >
+      returnToLatest: (
+        repoPath: string,
+        opts?: { applyStash?: boolean },
+      ) => Promise<
+        | { ok: true; headState: import('./index').HeadStateOk }
+        | {
+            ok: false
+            reason: string
+            stashPopFailed?: boolean
+            stashPopReason?: string
+            headState?: import('./index').HeadStateOk
+          }
+      >
       checkIsCollaboration: (repoPath: string) => Promise<{ ok: boolean; isCollaboration?: boolean; ownerName?: string; reason?: string }>
     }
     gitService?: {

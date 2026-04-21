@@ -72,10 +72,24 @@ export function notifyPushSuccess(showToast: ShowToast, result: string): void {
     })
 }
 
+/** Strip Electron's `Error invoking remote method '<channel>': [Error: ]` IPC prefix. */
+function stripIpcPrefix(message: string): string {
+    return message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
+}
+
 export function notifyPushError(showToast: ShowToast, error: unknown): void {
+    const cleaned = stripIpcPrefix(detailFromUnknown(error))
+    if (cleaned.toLowerCase().includes('time travel')) {
+        showToast({
+            type: 'error',
+            title: "Can't upload while time travelling",
+            detail: 'Return to the latest version on your branch first, then upload.',
+        })
+        return
+    }
     showToast({
         type: 'error',
         title: 'Upload failed',
-        detail: detailFromUnknown(error),
+        detail: cleaned,
     })
 }
