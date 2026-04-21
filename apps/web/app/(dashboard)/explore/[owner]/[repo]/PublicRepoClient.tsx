@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
@@ -10,7 +10,6 @@ import {
   Music,
   Calendar,
   GitBranch,
-  GitFork,
   Activity,
   FileText,
   Clock,
@@ -30,7 +29,7 @@ import CloneModal from "@/components/CloneModal";
 import UserAvatar from "@/components/UserAvatar";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
-import { forkRepoAction, requestCollaborationAction } from "@/actions/repos";
+import { forkRepoAction } from "@/actions/repos";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
@@ -66,7 +65,6 @@ export default function PublicRepoClient({
 }: Props) {
   type TabKey = "overview" | "commits" | "events";
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  const [showActionMenu, setShowActionMenu] = useState(false);
   const router = useRouter();
   const { user } = useUser();
 
@@ -87,9 +85,7 @@ export default function PublicRepoClient({
 
   // Clone/Remix button
   const [showCloneModal, setShowCloneModal] = useState(false);
-  const [collabRequestBusy, setCollabRequestBusy] = useState(false);
-  const [collabRequestNotice, setCollabRequestNotice] = useState<string | null>(null);
-  const remixMenuRef = useRef<HTMLDivElement>(null);
+  const [remixHovered, setRemixHovered] = useState(false);
 
   // Events
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
@@ -155,17 +151,6 @@ export default function PublicRepoClient({
     }
   }, [activeTab, owner, repo]);
 
-  useEffect(() => {
-    if (!showActionMenu) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      if (remixMenuRef.current && !remixMenuRef.current.contains(e.target as Node)) {
-        setShowActionMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, [showActionMenu]);
-
   const handleLoadMore = useCallback(async () => {
     setLoadingMore(true);
     const nextPage = commitPage + 1;
@@ -222,7 +207,6 @@ export default function PublicRepoClient({
   const ownerIsSelf =
     !!user?.username &&
     (user.username === owner || user.username === stats?.owner_username);
-  const canClone = !!stats?.viewer_can_clone;
   const pendingInvite = !!stats?.viewer_pending_invite;
 
   const tabs = [
@@ -250,86 +234,49 @@ export default function PublicRepoClient({
           <h1 className="mb-1 text-3xl font-bold">{repo}</h1>
           <p className="text-sm text-zinc-400">by <Link href={`/profile/${profileSlug}`} className="text-zinc-300 hover:text-glass-blue transition-colors">{ownerLabel}</Link></p>
         </div>
-        <div className="flex max-w-md flex-col items-end gap-2 text-right">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {user && ownerIsSelf && (
+        <div className="flex flex-col items-end gap-2 text-right">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowCloneModal(true)}
+              className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
+            >
+              <Download size={16} />
+              Clone
+            </button>
+            {user && !ownerIsSelf && (
               <button
                 type="button"
-                onClick={() => setShowCloneModal(true)}
-                className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
+                onClick={() => void handleFork()}
+                disabled={forking}
+                onMouseEnter={() => setRemixHovered(true)}
+                onMouseLeave={() => setRemixHovered(false)}
+                className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95 disabled:opacity-50"
+                style={{ minWidth: "120px" }}
               >
-                <Download size={16} />
-                Clone
+                <span className="relative flex w-full items-center justify-center" style={{ height: "20px" }}>
+                  <span
+                    className="absolute inline-flex items-center justify-center"
+                    style={{
+                      transform: remixHovered || forking ? "translateX(26px)" : "translateX(-26px)",
+                      transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  >
+                    <RemixIcon hovered={remixHovered || forking} size={18} />
+                  </span>
+                  <span
+                    className="absolute inline-flex items-center justify-center whitespace-nowrap"
+                    style={{
+                      transform: remixHovered || forking ? "translateX(-14px)" : "translateX(14px)",
+                      transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  >
+                    {forking ? "Remixing…" : "Remix"}
+                  </span>
+                </span>
               </button>
             )}
-            {user && !ownerIsSelf && (
-              <div className="relative" ref={remixMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowActionMenu((p) => !p)}
-                  className="flex items-center gap-2 rounded-lg bg-glass-blue px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90"
-                >
-                  <RemixIcon hovered={showActionMenu} size={18} />
-                  Remix
-                  <ChevronDown size={16} className="opacity-90" />
-                </button>
-                {showActionMenu && (
-                  <div className="absolute right-0 top-full z-20 mt-1 min-w-[220px] rounded-md border border-zinc-700 bg-zinc-900 py-1 text-left shadow-lg">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleFork();
-                        setShowActionMenu(false);
-                      }}
-                      disabled={forking}
-                      className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50"
-                    >
-                      <GitFork size={14} />
-                      {forking ? "Forking…" : "Fork"}
-                    </button>
-                    {stats?.open_to_collab && (
-                      <button
-                        type="button"
-                        disabled={collabRequestBusy}
-                        onClick={async () => {
-                          setCollabRequestBusy(true);
-                          setCollabRequestNotice(null);
-                          const res = await requestCollaborationAction(owner, repo);
-                          setCollabRequestBusy(false);
-                          setShowActionMenu(false);
-                          if (res.success) {
-                            setCollabRequestNotice(res.message);
-                          } else {
-                            setCollabRequestNotice(res.error);
-                          }
-                        }}
-                        className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50"
-                      >
-                        <UserPlus size={14} />
-                        Request invite
-                      </button>
-                    )}
-                    {canClone && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCloneModal(true);
-                          setShowActionMenu(false);
-                        }}
-                        className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                      >
-                        <Download size={14} />
-                        Clone
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
-          {collabRequestNotice && (
-            <p className="text-sm text-zinc-400">{collabRequestNotice}</p>
-          )}
           {pendingInvite && !ownerIsSelf && user && (
             <p className="text-sm text-amber-400/90">
               You have a pending invitation for this project. Accept it from your dashboard notifications.
