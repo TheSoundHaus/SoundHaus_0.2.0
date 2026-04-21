@@ -1104,6 +1104,9 @@ ipcMain.handle('auto-login', async () => {
       await setGiteaCredentials(data.token);
     }
     if (data.gitea_url) await setAllowedCloneRemote(data.gitea_url);
+    if (typeof data.username === 'string' && data.username.trim()) {
+      recentProjectsManager.setActiveUserId(data.username.trim());
+    }
     return { success: true };
   } catch (err) {
     return { success: false, reason: 'fetch-error', error: String(err) };
@@ -1143,12 +1146,22 @@ ipcMain.handle('manual-login', async (_event: IpcMainInvokeEvent, email: string,
       method: 'GET',
       headers: { Authorization: `token ${pat}` },
     });
+    let accountId: string | undefined;
     if (credRes.ok) {
       const credData = await credRes.json() as Record<string, any>;
       if (credData.token) await setGiteaCredentials(credData.token);
       if (credData.gitea_url) await setAllowedCloneRemote(credData.gitea_url);
+      if (typeof credData.username === 'string' && credData.username.trim()) {
+        accountId = credData.username.trim();
+      }
     } else {
       console.warn('[manual-login] Desktop credentials fetch failed:', credRes.status);
+    }
+    if (!accountId && typeof loginData.user?.id === 'string' && loginData.user.id.trim()) {
+      accountId = loginData.user.id.trim();
+    }
+    if (accountId) {
+      recentProjectsManager.setActiveUserId(accountId);
     }
 
     return { success: true };
@@ -1160,6 +1173,10 @@ ipcMain.handle('manual-login', async (_event: IpcMainInvokeEvent, email: string,
 ipcMain.handle('logout', async () => {
   try {
     await clearCredentials();
+    recentProjectsManager.setActiveUserId(null);
+    lastSelectedProjectPath = null;
+    updateProjectViewMenuEnabled();
+    updateProjectGitMenuEnabled();
     return { success: true };
   } catch (err) {
     console.error('[logout] Failed to clear credentials:', err);
@@ -1372,59 +1389,6 @@ app.whenReady().then(() => {
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-});
-
-// ── Invitation IPC Handlers ──────────────────────────────────────────────────
-
-ipcMain.handle('get-pending-invitations', async () => {
-  try {
-    const pat = await getSoundHausCredentials();
-    if (!pat) return { ok: false, reason: 'Not logged in' };
-    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/pending`, {
-      headers: { 'Authorization': `token ${pat}` },
-    });
-    if (!res.ok) return { ok: false, reason: `Server error: ${res.status}` };
-    const data = await res.json();
-    return { ok: true, invitations: data.invitations ?? [] };
-  } catch (e: any) {
-    return { ok: false, reason: e?.message ?? 'Failed to fetch invitations' };
-  }
-});
-
-ipcMain.handle('accept-invitation', async (_event: IpcMainInvokeEvent, invitationId: string) => {
-  try {
-    const pat = await getSoundHausCredentials();
-    if (!pat) return { ok: false, reason: 'Not logged in' };
-    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/${invitationId}/accept`, {
-      method: 'POST',
-      headers: { 'Authorization': `token ${pat}` },
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return { ok: false, reason: body.detail ?? body.message ?? `Server error: ${res.status}` };
-    }
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, reason: e?.message ?? 'Failed to accept invitation' };
-  }
-});
-
-ipcMain.handle('decline-invitation', async (_event: IpcMainInvokeEvent, invitationId: string) => {
-  try {
-    const pat = await getSoundHausCredentials();
-    if (!pat) return { ok: false, reason: 'Not logged in' };
-    const res = await fetch(`${desktopEnv.supabasePublicUrl}/invitations/${invitationId}/decline`, {
-      method: 'POST',
-      headers: { 'Authorization': `token ${pat}` },
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return { ok: false, reason: body.detail ?? body.message ?? `Server error: ${res.status}` };
-    }
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, reason: e?.message ?? 'Failed to decline invitation' };
-  }
 });
 
 ipcMain.handle('check-is-collaboration', async (_event: IpcMainInvokeEvent, repoPath: string) => {

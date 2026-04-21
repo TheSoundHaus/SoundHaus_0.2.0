@@ -132,18 +132,41 @@ function setAllowedCloneRemote(remote: string): Promise<string> {
 
 /** Remove all stored credentials and clear the git credential store for the Gitea host. */
 async function clearCredentials(): Promise<void> {
-    // Wipe the git credential store entries for the Gitea host
+    const gitCredFile = path.join(os.homedir(), '.git-credentials');
+    let giteaHost = '';
+    let giteaProtocol = '';
     try {
-        const gitCredFile = path.join(os.homedir(), '.git-credentials');
-        if (fs.existsSync(gitCredFile) && fs.existsSync(allowedCloneRemotePath)) {
+        if (fs.existsSync(allowedCloneRemotePath)) {
             const remote = fs.readFileSync(allowedCloneRemotePath, 'utf-8').trim();
             const parsed = new URL(remote.includes('://') ? remote : `https://${remote}`);
-            const giteaHost = parsed.host;
-            if (giteaHost) {
-                const lines = fs.readFileSync(gitCredFile, 'utf-8').split('\n');
-                const filtered = lines.filter(l => !l.includes(giteaHost));
-                fs.writeFileSync(gitCredFile, filtered.join('\n'));
+            giteaHost = parsed.host;
+            giteaProtocol = (parsed.protocol || 'https:').replace(/:$/, '') || 'https';
+        }
+    } catch {
+        /* ignore parse errors */
+    }
+
+    // Clear Git Credential Manager / other helpers (not only ~/.git-credentials)
+    if (giteaHost && giteaProtocol) {
+        const protocols = giteaProtocol === 'https' || giteaProtocol === 'http'
+            ? Array.from(new Set([giteaProtocol, giteaProtocol === 'https' ? 'http' : 'https']))
+            : [giteaProtocol];
+        for (const proto of protocols) {
+            try {
+                const stdin = `protocol=${proto}\nhost=${giteaHost}\n`;
+                await gitExec(['credential', 'reject'], os.homedir(), { stdin });
+            } catch (err) {
+                console.warn('[logout] git credential reject failed (non-fatal):', err);
             }
+        }
+    }
+
+    // Wipe the git credential store file entries for the Gitea host
+    try {
+        if (fs.existsSync(gitCredFile) && giteaHost) {
+            const lines = fs.readFileSync(gitCredFile, 'utf-8').split('\n');
+            const filtered = lines.filter(l => !l.includes(giteaHost));
+            fs.writeFileSync(gitCredFile, filtered.join('\n'));
         }
     } catch (err) {
         console.warn('[logout] Could not clear git credential store (non-fatal):', err);
