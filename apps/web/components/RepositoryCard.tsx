@@ -12,6 +12,7 @@ import {
   MoreVertical,
   Trash2,
   Pencil,
+  Play,
 } from "lucide-react";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
 import AudioPlayer from "@/components/AudioPlayer";
@@ -22,6 +23,59 @@ import {
   youtubeThumbnailHq,
   youtubeNoCookieEmbedUrl,
 } from "@/lib/utils/youtube";
+
+function AudioHoverPreview({ src }: { src: string }) {
+  const [hovered, setHovered] = useState(false);
+
+  // Generate stable fake waveform bars from the src string
+  const bars = Array.from({ length: 48 }, (_, i) => {
+    const h = Math.round(Math.max(12 + Math.sin(i * 0.5 + (src.charCodeAt(i % src.length) || 0) * 0.01) * 32 + Math.cos(i * 0.9) * 18, 6));
+    return h;
+  });
+
+  return (
+    <div
+      className="group/audio relative w-full h-[88px] rounded-xl overflow-hidden cursor-pointer"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Background layer — always visible */}
+      <div className="absolute inset-0 bg-gradient-to-br from-zinc-800/90 via-zinc-900 to-zinc-800/70 border border-zinc-700/60 rounded-xl" />
+
+      {/* Decorative waveform bars */}
+      <div className="absolute inset-x-5 bottom-0 top-0 flex items-end gap-[1.5px] pb-3 pt-4 opacity-[0.18] pointer-events-none">
+        {bars.map((h, i) => (
+          <div
+            key={i}
+            className="flex-1 rounded-t-[2px] bg-[#A7C7E7]"
+            style={{ height: `${h}%` }}
+          />
+        ))}
+      </div>
+
+      {/* Idle state: centered play button */}
+      <div
+        className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
+          hovered ? "opacity-0 scale-75 pointer-events-none" : "opacity-100 scale-100"
+        }`}
+      >
+        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgba(167,199,231,0.10)] ring-1 ring-[rgba(167,199,231,0.28)] shadow-[0_0_18px_rgba(167,199,231,0.18)] backdrop-blur-sm transition-all duration-300 group-hover/audio:bg-[rgba(167,199,231,0.16)] group-hover/audio:shadow-[0_0_24px_rgba(167,199,231,0.28)]">
+          <Play size={16} className="ml-0.5 text-[#A7C7E7]" />
+        </div>
+      </div>
+
+      {/* Hover state: full-width audio player */}
+      <div
+        className={`absolute inset-0 flex items-center px-4 bg-zinc-900/90 backdrop-blur-sm rounded-xl transition-all duration-300 ${
+          hovered ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+        onClick={(e) => e.preventDefault()}
+      >
+        <AudioPlayer src={src} compact />
+      </div>
+    </div>
+  );
+}
 
 function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
   const [hovered, setHovered] = useState(false);
@@ -232,8 +286,8 @@ export default function RepositoryCard({
           <YouTubeHoverEmbed url={thumbnailUrl} title={title} />
         </div>
       ) : audioSnippet ? (
-        <div className="mb-4 pr-6">
-          <AudioPlayer src={audioSnippet} compact />
+        <div className="mb-4">
+          <AudioHoverPreview src={audioSnippet} />
         </div>
       ) : (
         <div className="mb-4 pr-6">

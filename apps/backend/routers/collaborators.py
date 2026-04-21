@@ -77,6 +77,11 @@ async def invite_collaborator(
                 status_code=400,
             )
 
+        # Resolve display username so invitees see a human-readable name.
+        # owner_gitea is the Supabase UUID; look up the Profile for the username.
+        owner_profile = db.query(Profile).filter(Profile.id == owner_gitea).first()
+        owner_display_name = owner_profile.username if owner_profile else owner
+
         invitation_id = str(uuid.uuid4())
         invitation_token = secrets.token_urlsafe(32)
 
@@ -85,7 +90,7 @@ async def invite_collaborator(
             invitation_token=invitation_token,
             repo_name=repo_name,
             owner_email=email,
-            owner_username=owner_gitea,
+            owner_username=owner_display_name,
             invitee_email=invitee_email,
             permission=permission,
             status="pending",
