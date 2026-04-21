@@ -26,7 +26,6 @@ from routers import (
     audio,
     auth,
     collaborators,
-    comments,
     commits,
     dashboard,
     desktop,
@@ -131,6 +130,5 @@ app.include_router(stems.router)        # /repos/*/stems/*
 app.include_router(webhooks.router)     # /api/webhooks/*
 app.include_router(commits.router)      # /repos/*/commits/*  ,  /repos/*/diff
 app.include_router(audio.router)        # /repos/*/audio/waveform
-app.include_router(comments.router)     # /repos/*/snippet/comments
 app.include_router(reviews.router)      # /repos/*/reviews/*  ,  /repos/*/collaborators/promote
 app.include_router(dashboard.router)    # /api/dashboard/*  ,  /api/feed/*

@@ -28,8 +28,7 @@ import {
   BookOpen,
   GitFork,
 } from "lucide-react";
-import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
-import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
+import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
 import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
@@ -67,7 +66,6 @@ import type {
   SentInvitation,
   Collaborator,
   SnippetVersion,
-  SnippetComment,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData, DiffStatus } from "@/lib/api/commits";
 
@@ -107,9 +105,6 @@ export default function RepoDetailClient({
 
   // Track current snippet URL (updates after upload without full page reload)
   const [currentSnippetUrl, setCurrentSnippetUrl] = useState(snippet?.url ?? null);
-
-  // Snippet comment state
-  const [snippetComments, setSnippetComments] = useState<SnippetComment[]>([]);
 
   // README editor state
   const [readmeContent, setReadmeContent] = useState("");
@@ -286,19 +281,6 @@ export default function RepoDetailClient({
     document.addEventListener("mousedown", onDocMouseDown);
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [showActionMenu]);
-
-  // Fetch snippet comments
-  useEffect(() => {
-    if (!currentSnippetUrl) return;
-    let cancelled = false;
-    (async () => {
-      const res = await getSnippetComments(owner, repo);
-      if (!cancelled && res.success) {
-        setSnippetComments(res.data);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [owner, repo, currentSnippetUrl]);
 
   // Invite handler
   const handleInvite = useCallback(async (email: string) => {
@@ -673,31 +655,10 @@ export default function RepoDetailClient({
         />
       )}
 
-      {/* Audio Player with Comment Markers */}
+      {/* Audio Player */}
       {currentSnippetUrl && (
         <div className="mb-8" data-snippet-player>
-          <AudioPlayerWithComments
-            src={currentSnippetUrl}
-            duration={snippet?.duration ?? undefined}
-            comments={snippetComments}
-            currentUserId={user?.id}
-            isOwner={canWrite}
-            onAddComment={async (ts, text) => {
-              const res = await addSnippetComment(owner, repo, {
-                timestamp_seconds: ts,
-                comment_text: text,
-              });
-              if (res.success) {
-                setSnippetComments((prev) => [...prev, res.data].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds));
-              }
-            }}
-            onDeleteComment={async (commentId) => {
-              const res = await deleteSnippetComment(owner, repo, commentId);
-              if (res.success) {
-                setSnippetComments((prev) => prev.filter((c) => c.id !== commentId));
-              }
-            }}
-          />
+          <AudioPlayer src={currentSnippetUrl} />
         </div>
       )}
 

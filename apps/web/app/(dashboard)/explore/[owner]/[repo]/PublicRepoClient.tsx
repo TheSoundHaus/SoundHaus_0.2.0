@@ -22,7 +22,7 @@ import {
   UserPlus,
   Send,
 } from "lucide-react";
-import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
+import AudioPlayer from "@/components/AudioPlayer";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
 import { ABComparisonView } from "@/components/diff/ABComparisonView";
 import RemixIcon from "@/components/RemixIcon";
@@ -33,7 +33,6 @@ import { useUser } from "@/lib/context/UserContext";
 import { forkRepoAction, requestCollaborationAction } from "@/actions/repos";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoEvents } from "@/lib/api/webhooks";
-import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
 import type {
   RepoStats,
   RepoActivity,
@@ -41,7 +40,6 @@ import type {
   Snippet,
   PushActivity,
   RepoEvent,
-  SnippetComment,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
 
@@ -96,9 +94,6 @@ export default function PublicRepoClient({
   // Events
   const [repoEvents, setRepoEvents] = useState<RepoEvent[]>(events?.events ?? []);
 
-  // Snippet comments
-  const [snippetComments, setSnippetComments] = useState<SnippetComment[]>([]);
-
   // Fork state
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
@@ -151,14 +146,6 @@ export default function PublicRepoClient({
       return iso ?? "—";
     }
   }
-
-  useEffect(() => {
-    if (snippet?.url) {
-      getSnippetComments(owner, repo).then((res) => {
-        if (res.success) setSnippetComments(res.data ?? []);
-      });
-    }
-  }, [owner, repo, snippet?.url]);
 
   useEffect(() => {
     if (activeTab === "events") {
@@ -453,32 +440,7 @@ export default function PublicRepoClient({
       {/* Audio Player */}
       {snippet?.url && (
         <div className="mb-8">
-          <AudioPlayerWithComments
-            src={snippet.url}
-            duration={snippet.duration ?? undefined}
-            comments={snippetComments}
-            currentUserId={user?.id}
-            isOwner={false}
-            onAddComment={
-              user
-                ? async (timestampSeconds, text) => {
-                    const res = await addSnippetComment(owner, repo, { timestamp_seconds: timestampSeconds, comment_text: text });
-                    if (res.success) {
-                      const res2 = await getSnippetComments(owner, repo);
-                      if (res2.success) setSnippetComments(res2.data ?? []);
-                    }
-                  }
-                : undefined
-            }
-            onDeleteComment={
-              user
-                ? async (commentId) => {
-                    const res = await deleteSnippetComment(owner, repo, commentId);
-                    if (res.success) setSnippetComments((prev) => prev.filter((c) => c.id !== commentId));
-                  }
-                : undefined
-            }
-          />
+          <AudioPlayer src={snippet.url} />
         </div>
       )}
 
