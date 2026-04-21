@@ -16,17 +16,16 @@ import {
   Activity,
   Settings,
   FileText,
+  FileEdit,
   Clock,
   Trash2,
   Save,
   ChevronDown,
   FilePlus,
-  FileEdit,
   Eye,
   Send,
   UserPlus,
   BookOpen,
-  GitFork,
 } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
@@ -46,7 +45,6 @@ import {
   updateVisibilityAction,
   forkRepoAction,
   toggleOpenToCollabAction,
-  requestCollaborationAction,
   listCollaborationRequestsAction,
   dismissCollaborationRequestAction,
 } from "@/actions/repos";
@@ -142,10 +140,7 @@ export default function RepoDetailClient({
 
   // Clone/Remix
   const [showCloneModal, setShowCloneModal] = useState(false);
-  const [showActionMenu, setShowActionMenu] = useState(false);
-  const remixMenuRef = useRef<HTMLDivElement>(null);
-  const [collabRequestBusy, setCollabRequestBusy] = useState(false);
-  const [collabRequestNotice, setCollabRequestNotice] = useState<string | null>(null);
+  const [remixHovered, setRemixHovered] = useState(false);
   const [joinRequests, setJoinRequests] = useState<CollaborationRequestRow[]>([]);
 
   // Fork state
@@ -214,10 +209,7 @@ export default function RepoDetailClient({
         (!!user?.username && (c.username === user.username || c.login === user.username)),
     );
   const canWrite = isOwner || isCollaborator;
-  /** Gitea clone access from accepted invite / collaborator role (server-computed on stats). */
-  const viewerCanCloneFromInvite = !!stats?.viewer_can_clone;
   const pendingInvite = !!stats?.viewer_pending_invite;
-  const isForked = !!stats?.forked_from;
   const [openToCollab, setOpenToCollab] = useState(stats?.open_to_collab ?? false);
 
   const loadCollaboratorsOnly = useCallback(async () => {
@@ -270,17 +262,6 @@ export default function RepoDetailClient({
     await loadCollaboratorsOnly();
     await loadOwnerInvitesAndRequests();
   }, [loadCollaboratorsOnly, loadOwnerInvitesAndRequests]);
-
-  useEffect(() => {
-    if (!showActionMenu) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      if (remixMenuRef.current && !remixMenuRef.current.contains(e.target as Node)) {
-        setShowActionMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, [showActionMenu]);
 
   // Invite handler
   const handleInvite = useCallback(async (email: string) => {
@@ -505,17 +486,6 @@ export default function RepoDetailClient({
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="mb-2 text-4xl font-bold tracking-tight">{repo}</h1>
-          {isForked && stats?.forked_from && (
-            <p className="mb-1 flex items-center gap-1.5 text-xs text-zinc-500">
-              <GitFork size={12} /> Forked from{" "}
-              <Link
-                href={`/repository/${stats.forked_from.replace("/", "/")}`}
-                className="text-zinc-400 hover:text-[#A7C7E7] transition-colors"
-              >
-                {stats.forked_from.split("/").pop()}
-              </Link>
-            </p>
-          )}
           <div className="flex flex-wrap gap-4 text-sm text-zinc-400">
             <span className="flex items-center gap-1">
               <User size={14} />{" "}
@@ -537,85 +507,51 @@ export default function RepoDetailClient({
         </div>
         <div className="flex max-w-md flex-col items-end gap-2">
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {canWrite && (
+            <button
+              type="button"
+              onClick={() => setShowCloneModal(true)}
+              className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
+            >
+              <Download size={16} />
+              Clone
+            </button>
+            {!isPrivate && user && !isOwner && !isCollaborator && (
               <button
                 type="button"
-                onClick={() => setShowCloneModal(true)}
-                className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
+                onClick={() => void handleFork()}
+                disabled={forking}
+                onMouseEnter={() => setRemixHovered(true)}
+                onMouseLeave={() => setRemixHovered(false)}
+                className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95 disabled:opacity-50"
+                style={{ minWidth: "120px" }}
               >
-                <Download size={16} />
-                Clone
+                <span className="relative flex w-full items-center justify-center" style={{ height: "20px" }}>
+                  <span
+                    className="absolute inline-flex items-center justify-center"
+                    style={{
+                      transform: remixHovered || forking ? "translateX(26px)" : "translateX(-26px)",
+                      transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  >
+                    <RemixIcon hovered={remixHovered || forking} size={18} />
+                  </span>
+                  <span
+                    className="absolute inline-flex items-center justify-center whitespace-nowrap"
+                    style={{
+                      transform: remixHovered || forking ? "translateX(-14px)" : "translateX(14px)",
+                      transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  >
+                    {forking ? "Remixing…" : "Remix"}
+                  </span>
+                </span>
               </button>
-            )}
-
-            {!isOwner && !isCollaborator && user && (
-              <div className="relative" ref={remixMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowActionMenu((v) => !v)}
-                  className="flex items-center gap-2 rounded-lg bg-glass-blue px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90"
-                >
-                  <RemixIcon hovered={showActionMenu} size={18} />
-                  Remix
-                  <ChevronDown size={14} className="opacity-90" />
-                </button>
-                {showActionMenu && (
-                  <div className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-zinc-700 bg-zinc-900 py-1 text-left shadow-xl">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleFork();
-                        setShowActionMenu(false);
-                      }}
-                      disabled={forking}
-                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50"
-                    >
-                      <GitFork size={14} />
-                      {forking ? "Forking…" : "Fork"}
-                    </button>
-                    {openToCollab && (
-                      <button
-                        type="button"
-                        disabled={collabRequestBusy}
-                        onClick={async () => {
-                          setCollabRequestBusy(true);
-                          setCollabRequestNotice(null);
-                          const res = await requestCollaborationAction(owner, repo);
-                          setCollabRequestBusy(false);
-                          setShowActionMenu(false);
-                          setCollabRequestNotice(res.success ? res.message : res.error);
-                        }}
-                        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 disabled:opacity-50"
-                      >
-                        <UserPlus size={14} />
-                        Request invite
-                      </button>
-                    )}
-                    {viewerCanCloneFromInvite && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCloneModal(true);
-                          setShowActionMenu(false);
-                        }}
-                        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                      >
-                        <Download size={14} />
-                        Clone
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
             )}
 
             {forkError && (
               <span className="self-center text-xs text-red-400">{forkError}</span>
             )}
           </div>
-          {collabRequestNotice && (
-            <p className="text-right text-sm text-zinc-400">{collabRequestNotice}</p>
-          )}
           {pendingInvite && !isOwner && !isCollaborator && user && (
             <p className="text-right text-sm text-amber-400/90">
               You have a pending invitation for this project.
@@ -1501,8 +1437,8 @@ export default function RepoDetailClient({
                   </p>
                   <p className="text-xs text-zinc-500">
                     {openToCollab
-                      ? "Visitors can ask you for access from Explore or this project page."
-                      : "The Request invite control stays hidden for visitors."}
+                      ? "Experimental collaboration-request flows are enabled for this project."
+                      : "Experimental collaboration-request flows are disabled for this project."}
                   </p>
                 </div>
                 <button
