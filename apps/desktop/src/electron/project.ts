@@ -1,7 +1,10 @@
 import { exec } from 'dugite';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ensureGiteaGitCredentialsApproved } from './giteaGitAuth';
 import { rebase } from './git-rebase';
+
+const noGitPromptEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 
 /** Marker line so we only append our block once and can recognize managed content. */
 const SOUNDHAUS_GITIGNORE_MARKER = '# SoundHaus (managed block — do not remove this line)';
@@ -140,13 +143,14 @@ async function commit(repoPath: string, message?: string) {
 }
 
 async function push(repoPath: string) {
+  await ensureGiteaGitCredentialsApproved(repoPath);
   // Ensure there is at least one commit before pushing (new empty repo)
   const headCheck = await exec(['rev-parse', '--verify', 'HEAD'], repoPath);
   if (headCheck.exitCode !== 0) {
     await exec(['add', '.'], repoPath);
     await exec(['commit', '--allow-empty', '-m', 'Initial snapshot'], repoPath);
   }
-  const result = await exec(['push', '-u', 'origin', 'HEAD'], repoPath);
+  const result = await exec(['push', '-u', 'origin', 'HEAD'], repoPath, { env: noGitPromptEnv });
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || 'git push failed');
   }
