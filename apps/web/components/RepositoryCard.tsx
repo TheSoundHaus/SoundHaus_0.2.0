@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import {
   Star,
   Music,
@@ -13,9 +13,11 @@ import {
   Trash2,
   Pencil,
   Play,
+  Pause,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
-import AudioPlayer from "@/components/AudioPlayer";
 import CloneModal from "@/components/CloneModal";
 import RemixIcon from "@/components/RemixIcon";
 import {
@@ -24,74 +26,143 @@ import {
   youtubeNoCookieEmbedUrl,
 } from "@/lib/utils/youtube";
 
-function AudioHoverPreview({ src }: { src: string }) {
-  const [hovered, setHovered] = useState(false);
+import WaveSurfer from "wavesurfer.js";
 
-  // Generate stable fake waveform bars from the src string
-  const bars = Array.from({ length: 48 }, (_, i) => {
-    const h = Math.round(Math.max(12 + Math.sin(i * 0.5 + (src.charCodeAt(i % src.length) || 0) * 0.01) * 32 + Math.cos(i * 0.9) * 18, 6));
-    return h;
-  });
+class AudioSnippetsManager {
+  static currentSurfer: WaveSurfer | null = null;
+  static surfers = new Set<WaveSurfer>();
+  static isMuted = false;
+  static listeners = new Set<() => void>();
 
-  return (
-    <div
-      className="group/audio relative w-full h-[88px] rounded-xl overflow-hidden cursor-pointer"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {/* Background layer — always visible */}
-      <div className="absolute inset-0 bg-gradient-to-br from-zinc-800/90 via-zinc-900 to-zinc-800/70 border border-zinc-700/60 rounded-xl" />
+  static subscribe(cb: () => void) {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+  static notify() {
+    this.listeners.forEach((cb) => cb());
+  }
 
-      {/* Decorative waveform bars */}
-      <div className="absolute inset-x-5 bottom-0 top-0 flex items-end gap-[1.5px] pb-3 pt-4 opacity-[0.18] pointer-events-none">
-        {bars.map((h, i) => (
-          <div
-            key={i}
-            className="flex-1 rounded-t-[2px] bg-[#A7C7E7]"
-            style={{ height: `${h}%` }}
-          />
-        ))}
-      </div>
+  static register(surfer: WaveSurfer) {
+    this.surfers.add(surfer);
+    surfer.setMuted(this.isMuted);
 
-      {/* Idle state: centered play button */}
-      <div
-        className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-          hovered ? "opacity-0 scale-75 pointer-events-none" : "opacity-100 scale-100"
-        }`}
-      >
-        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[rgba(167,199,231,0.10)] ring-1 ring-[rgba(167,199,231,0.28)] shadow-[0_0_18px_rgba(167,199,231,0.18)] backdrop-blur-sm transition-all duration-300 group-hover/audio:bg-[rgba(167,199,231,0.16)] group-hover/audio:shadow-[0_0_24px_rgba(167,199,231,0.28)]">
-          <Play size={16} className="ml-0.5 text-[#A7C7E7]" />
-        </div>
-      </div>
+    surfer.on("play", () => {
+      if (this.currentSurfer && this.currentSurfer !== surfer) {
+        this.currentSurfer.pause();
+      }
+      this.currentSurfer = surfer;
+      this.notify();
+    });
 
-      {/* Hover state: full-width audio player */}
-      <div
-        className={`absolute inset-0 flex items-center px-4 bg-zinc-900/90 backdrop-blur-sm rounded-xl transition-all duration-300 ${
-          hovered ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={(e) => e.preventDefault()}
-      >
-        <AudioPlayer src={src} compact />
-      </div>
-    </div>
-  );
+    surfer.on("pause", () => {
+      this.notify();
+    });
+
+    surfer.on("finish", () => {
+      surfer.seekTo(0);
+      surfer.pause();
+      this.notify();
+    });
+  }
+
+  static unregister(surfer: WaveSurfer) {
+    this.surfers.delete(surfer);
+    if (this.currentSurfer === surfer) {
+      this.currentSurfer = null;
+    }
+  }
+
+  static toggleMute() {
+    this.isMuted = !this.isMuted;
+    this.surfers.forEach((s) => s.setMuted(this.isMuted));
+    this.notify();
+  }
+
+  static isPlaying(surfer: WaveSurfer | null) {
+    return surfer ? surfer.isPlaying() : false;
+  }
 }
 
-function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
-  const [hovered, setHovered] = useState(false);
+function useAudioSnippet(src?: string | null, shouldLoad?: boolean) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [surfer, setSurfer] = useState<WaveSurfer | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(AudioSnippetsManager.isMuted);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    // Only mount WaveSurfer after the user intention exists, saving massive memory
+    // and rendering overhead when there are 50 clips on the page
+    if (!src || !containerRef.current || !shouldLoad) return;
+
+    setIsLoading(true);
+    setHasError(false);
+
+    // Give the DOM exactly one tick to ensure CSS grid/flex bounds are applied
+    // because WaveSurfer requires a non-zero layout width to draw the peaks.
+    const runLayoutFrame = setTimeout(() => {
+      if (!containerRef.current) return;
+
+      const ws = WaveSurfer.create({
+        container: containerRef.current,
+        url: src,
+        waveColor: "rgba(255, 255, 255, 0.4)",
+        progressColor: "rgba(167, 199, 231, 0.8)", // glass-blue-400 ish
+        height: 32,
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 2,
+        normalize: true,
+        hideScrollbar: true,
+        cursorWidth: 0,
+        interact: false,
+      });
+
+      ws.on("error", (err) => {
+        console.error("WaveSurfer setup error:", err);
+        setHasError(true);
+        setIsLoading(false);
+      });
+
+      ws.on("ready", () => {
+        setIsLoading(false);
+      });
+
+      AudioSnippetsManager.register(ws);
+      setSurfer(ws);
+
+      const update = () => {
+        setIsPlaying(AudioSnippetsManager.isPlaying(ws));
+        setIsMuted(AudioSnippetsManager.isMuted);
+      };
+
+      const unsubscribe = AudioSnippetsManager.subscribe(update);
+      update();
+
+      return () => {
+        unsubscribe();
+        AudioSnippetsManager.unregister(ws);
+        ws.destroy();
+      };
+    }, 50);
+
+    return () => clearTimeout(runLayoutFrame);
+  }, [src, shouldLoad]);
+
+  return { containerRef, surfer, isPlaying, isMuted, isLoading, hasError };
+}
+
+function YouTubeEmbed({ url, title, hovered }: { url: string; title: string, hovered: boolean }) {
   const videoId = extractYouTubeVideoId(url);
   if (!videoId) return null;
 
   return (
-    <div
-      className="relative w-full h-40 rounded-xl overflow-hidden cursor-pointer"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
+    <div className="absolute inset-0 w-full h-full bg-zinc-900">
       {hovered ? (
         <iframe
           src={youtubeNoCookieEmbedUrl(videoId, true)}
-          className="absolute inset-0 w-full h-full"
+          className="w-full h-full"
           allow="autoplay"
           title={title}
         />
@@ -101,6 +172,156 @@ function YouTubeHoverEmbed({ url, title }: { url: string; title: string }) {
           alt={title}
           className="w-full h-full object-cover"
         />
+      )}
+    </div>
+  );
+}
+
+function MediaPreview({
+  title,
+  thumbnailUrl,
+  thumbnailType,
+  audioSnippet,
+  stars = 0,
+}: {
+  title: string;
+  thumbnailUrl?: string | null;
+  thumbnailType?: "image" | "youtube" | null;
+  audioSnippet?: string | null;
+  stars?: number;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [hasHoveredOnce, setHasHoveredOnce] = useState(false);
+
+  useEffect(() => {
+    if (hovered && !hasHoveredOnce) {
+      setHasHoveredOnce(true);
+    }
+  }, [hovered, hasHoveredOnce]);
+
+  const { containerRef, surfer, isPlaying, isMuted, isLoading, hasError } = useAudioSnippet(audioSnippet, hasHoveredOnce);
+
+  const handlePlayPause = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!surfer || isLoading || hasError) return;
+    if (isPlaying) {
+      surfer.pause();
+    } else {
+      surfer.play();
+    }
+  };
+
+  const handleMuteToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    AudioSnippetsManager.toggleMute();
+  };
+
+  const hasImage = thumbnailUrl && thumbnailType === "image";
+  const hasYoutube = thumbnailUrl && thumbnailType === "youtube";
+
+  return (
+    <div
+      className="group/media relative w-full h-40 mb-4 rounded-xl overflow-hidden cursor-pointer border border-zinc-700/60 bg-gradient-to-br from-zinc-800 via-zinc-800/80 to-zinc-900"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={audioSnippet ? handlePlayPause : undefined}
+    >
+      {/* 1. Underlying Media / Background */}
+      {hasYoutube && !audioSnippet ? (
+        <YouTubeEmbed url={thumbnailUrl} title={title} hovered={hovered} />
+      ) : hasImage ? (
+        <img
+          src={thumbnailUrl}
+          alt={`${title} thumbnail`}
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover/media:scale-[1.02]"
+        />
+      ) : (
+        /* Placeholder styling reused */
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-zinc-600">
+          <Music size={32} className="opacity-40" />
+          {/* Default wave bars if no audio snippet just to look nice like before */}
+          {!audioSnippet && (
+             <div className="absolute inset-x-4 bottom-3 flex items-end justify-center gap-[1px] opacity-20">
+              {Array.from({ length: 32 }).map((_, i) => {
+                const h = Math.round(Math.max(15 + Math.sin(i * 0.4 + stars) * 28 + Math.cos(i * 0.8) * 18, 8));
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-t-sm bg-glass-blue-400"
+                    style={{ height: `${h}%` }}
+                  />
+                );
+              })}
+             </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. Play Button Layer (only if snippet present) */}
+      {audioSnippet && (
+        <div
+          className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-all duration-300 ${
+            hovered || isPlaying ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          <div
+            className={`pointer-events-auto flex items-center justify-center drop-shadow-md text-white transition-all duration-300 hover:scale-110 active:scale-95 ${
+              hovered ? "scale-100" : "scale-90"
+            } ${isLoading ? "opacity-50 cursor-wait" : ""}`}
+          >
+            {isPlaying ? (
+              <Pause fill="currentColor" size={24} className="" strokeWidth={0} />
+            ) : (
+              <Play fill="currentColor" size={24} className="ml-1" strokeWidth={0} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3. Waveform Overlay (only fully visible when hovering) */}
+      {audioSnippet && (
+        <div
+          className={`absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t from-zinc-950/90 via-zinc-900/60 to-transparent flex items-end px-4 pb-3 gap-3 transition-all duration-300 ${
+            hovered ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-4 opacity-0 pointer-events-none"
+          }`}
+          onClick={() => {
+            // Prevent clicks in the overlay from pausing/playing unless clicking specifically overlay background?
+            // Actually instructions say: "anywhere on the thumbnail should pause or play". 
+            // We just stop propagation for the mute button specifically.
+          }}
+        >
+          {/* Actual WaveSurfer instance wrapper */}
+          <div 
+            className="flex-1 w-full min-w-0 block h-8 relative z-10" 
+            ref={containerRef} 
+          />
+          
+          {/* Fallback styling for loading or CORS error state */}
+          {(isLoading || hasError) && (
+            <div className="absolute left-4 right-12 bottom-3 flex items-end justify-center gap-[1px] opacity-20 pointer-events-none z-0">
+              {Array.from({ length: 32 }).map((_, i) => {
+                const h = Math.round(Math.max(15 + Math.sin(i * 0.4 + stars) * 28 + Math.cos(i * 0.8) * 18, 8));
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-t-sm bg-glass-blue-400"
+                    style={{ height: `${h}%` }}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* Mute Button */}
+          <button
+            onClick={handleMuteToggle}
+            className="text-zinc-400 hover:text-white transition-colors p-1"
+          >
+            {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -272,44 +493,14 @@ export default function RepositoryCard({
         </div>
       )}
 
-      {/* Thumbnail / Audio snippet */}
-      {thumbnailUrl && thumbnailType === "image" ? (
-        <div className="mb-4 pr-6 overflow-hidden rounded-xl">
-          <img
-            src={thumbnailUrl}
-            alt={`${title} thumbnail`}
-            className="w-full h-40 object-cover rounded-xl border border-zinc-700 transition-transform duration-700 group-hover:scale-[1.02]"
-          />
-        </div>
-      ) : thumbnailUrl && thumbnailType === "youtube" ? (
-        <div className="mb-4 pr-6">
-          <YouTubeHoverEmbed url={thumbnailUrl} title={title} />
-        </div>
-      ) : audioSnippet ? (
-        <div className="mb-4">
-          <AudioHoverPreview src={audioSnippet} />
-        </div>
-      ) : (
-        <div className="mb-4 pr-6">
-          <div className="relative h-32 overflow-hidden rounded-xl bg-gradient-to-br from-zinc-800 via-zinc-800/80 to-zinc-900 border border-zinc-700">
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-zinc-600">
-              <Music size={20} className="opacity-40" />
-            </div>
-            <div className="absolute inset-x-4 bottom-3 flex items-end justify-center gap-[1px] opacity-20">
-              {Array.from({ length: 32 }).map((_, i) => {
-                const h = Math.round(Math.max(15 + Math.sin(i * 0.4 + (stats?.stars ?? 0)) * 28 + Math.cos(i * 0.8) * 18, 8));
-                return (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-t-sm bg-glass-blue-400"
-                    style={{ height: `${h}%` }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Media Preview (Thumbnails & Audio Playback) */}
+      <MediaPreview
+        title={title}
+        thumbnailUrl={thumbnailUrl}
+        thumbnailType={thumbnailType}
+        audioSnippet={audioSnippet}
+        stars={stats?.stars}
+      />
 
       {/* Rename input */}
       {showRenameInput ? (

@@ -25,7 +25,10 @@ import {
   Eye,
   Send,
   UserPlus,
+  UserMinus,
   BookOpen,
+  Search,
+  X,
 } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
@@ -44,14 +47,10 @@ import {
   deleteRepoAction,
   updateVisibilityAction,
   forkRepoAction,
-  toggleOpenToCollabAction,
-  listCollaborationRequestsAction,
-  dismissCollaborationRequestAction,
 } from "@/actions/repos";
-import type { CollaborationRequestRow } from "@/lib/api/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff, getDiffStatus } from "@/lib/api/commits";
-import { getRepoInvitations, listCollaborators } from "@/lib/api/invitations";
+import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
 import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
   RepoStats,
@@ -64,6 +63,7 @@ import type {
   SentInvitation,
   Collaborator,
   SnippetVersion,
+  UserSearchResult,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData, DiffStatus } from "@/lib/api/commits";
 
@@ -95,7 +95,7 @@ export default function RepoDetailClient({
   ownerSpotify,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "commits" | "events" | "about" | "settings"
+    "overview" | "commits" | "events" | "about" | "collaborators" | "settings"
   >("overview");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -141,7 +141,6 @@ export default function RepoDetailClient({
   // Clone/Remix
   const [showCloneModal, setShowCloneModal] = useState(false);
   const [remixHovered, setRemixHovered] = useState(false);
-  const [joinRequests, setJoinRequests] = useState<CollaborationRequestRow[]>([]);
 
   // Fork state
   const [forking, setForking] = useState(false);
@@ -198,6 +197,11 @@ export default function RepoDetailClient({
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [collabError, setCollabError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
+  const [invitePermission, setInvitePermission] = useState<"write" | "admin">("write");
 
   // Derive the current user's role relative to this repo
   const isOwner = !!(user?.id && stats?.owner_id && user.id === stats.owner_id);
@@ -208,38 +212,40 @@ export default function RepoDetailClient({
         c.login === user?.id ||
         (!!user?.username && (c.username === user.username || c.login === user.username)),
     );
-  const canWrite = isOwner || isCollaborator;
+  const isAdminCollab =
+    !isOwner &&
+    !!user?.username &&
+    collaborators.some((c) => c.username === user.username && c.permission === "admin");
+  const canEdit = isOwner || isAdminCollab;
   const pendingInvite = !!stats?.viewer_pending_invite;
-  const [openToCollab, setOpenToCollab] = useState(stats?.open_to_collab ?? false);
 
-  const loadCollaboratorsOnly = useCallback(async () => {
-    const collabRes = await listCollaborators(owner, repo);
-    if (collabRes.success) setCollaborators(collabRes.data ?? []);
-    else setCollabError(collabRes.error);
-  }, [owner, repo]);
-
-  const loadOwnerInvitesAndRequests = useCallback(async () => {
-    if (!isOwner) return;
+  const loadCollaboratorsData = useCallback(async () => {
     setCollabLoading(true);
     setCollabError(null);
-    const [invRes, reqRes] = await Promise.all([
-      getRepoInvitations(owner, repo),
-      listCollaborationRequestsAction(owner, repo),
-    ]);
-    if (invRes.success) setRepoInvitations(invRes.data ?? []);
-    else setCollabError(invRes.error);
-    if (reqRes.success) setJoinRequests(reqRes.requests ?? []);
-    else if (!reqRes.success) setCollabError(reqRes.error);
+    const collabRes = await listCollaborators(owner, repo);
+    const collabs = collabRes.success ? collabRes.data ?? [] : [];
+    if (collabRes.success) setCollaborators(collabs);
+    else setCollabError(collabRes.error);
+
+    const adminCollab =
+      !isOwner &&
+      !!user?.username &&
+      collabs.some((c) => c.username === user.username && c.permission === "admin");
+    const canFetchInvites = isOwner || adminCollab;
+
+    if (canFetchInvites && isPrivate) {
+      const invRes = await getRepoInvitations(owner, repo);
+      if (invRes.success) setRepoInvitations(invRes.data ?? []);
+      else setCollabError(invRes.error);
+    } else {
+      setRepoInvitations([]);
+    }
     setCollabLoading(false);
-  }, [isOwner, owner, repo]);
+  }, [owner, repo, isPrivate, isOwner, user?.username]);
 
   useEffect(() => {
-    loadCollaboratorsOnly();
-  }, [loadCollaboratorsOnly]);
-
-  useEffect(() => {
-    if (activeTab === "settings" && isOwner) {
-      loadOwnerInvitesAndRequests();
+    if (activeTab === "collaborators" || activeTab === "overview" || activeTab === "settings") {
+      void loadCollaboratorsData();
     }
     if (activeTab === "events") {
       refreshEvents();
@@ -256,53 +262,77 @@ export default function RepoDetailClient({
         })
         .finally(() => setReadmeLoading(false));
     }
-  }, [activeTab, loadOwnerInvitesAndRequests, refreshEvents, owner, repo, isOwner]);
+  }, [activeTab, loadCollaboratorsData, refreshEvents, owner, repo]);
 
-  const refreshCollabState = useCallback(async () => {
-    await loadCollaboratorsOnly();
-    await loadOwnerInvitesAndRequests();
-  }, [loadCollaboratorsOnly, loadOwnerInvitesAndRequests]);
+  useEffect(() => {
+    if (searchQuery.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void (async () => {
+        setSearchLoading(true);
+        const res = await searchUsers(searchQuery);
+        if (res.success) setSearchResults(res.data ?? []);
+        setSearchLoading(false);
+      })();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Invite handler
-  const handleInvite = useCallback(async (email: string) => {
-    setInviteError(null);
-    setInviteSuccess(null);
-    startTransition(async () => {
-      const result = await inviteCollaboratorAction(owner, repo, email, "write");
-      if (result.success) {
-        setInviteSuccess(`Invitation sent to ${email}`);
-        refreshCollabState();
-      } else {
-        setInviteError(result.error);
-      }
-    });
-  }, [owner, repo, refreshCollabState]);
+  const handleInvite = useCallback(
+    async (email: string) => {
+      setInviteError(null);
+      setInviteSuccess(null);
+      startTransition(async () => {
+        const result = await inviteCollaboratorAction(owner, repo, email, invitePermission);
+        if (result.success) {
+          setInviteSuccess(
+            `Invitation sent to ${email} as ${invitePermission === "admin" ? "Admin" : "Contributor"}`,
+          );
+          setSearchQuery("");
+          setSearchResults([]);
+          await loadCollaboratorsData();
+        } else {
+          setInviteError(result.error);
+        }
+      });
+    },
+    [owner, repo, invitePermission, loadCollaboratorsData],
+  );
 
   // Cancel invite handler
-  const handleCancelInvite = useCallback(async (invitationId: string) => {
-    setInviteError(null);
-    startTransition(async () => {
-      const result = await cancelInvitationAction(invitationId);
-      if (result.success) {
-        refreshCollabState();
-      } else {
-        setCollabError(result.error);
-      }
-    });
-  }, [refreshCollabState]);
+  const handleCancelInvite = useCallback(
+    async (invitationId: string) => {
+      setInviteError(null);
+      startTransition(async () => {
+        const result = await cancelInvitationAction(invitationId);
+        if (result.success) {
+          await loadCollaboratorsData();
+        } else {
+          setCollabError(result.error);
+        }
+      });
+    },
+    [loadCollaboratorsData],
+  );
 
   // Remove collaborator handler
-  const handleRemoveCollaborator = useCallback(async (username: string) => {
-    if (!confirm(`Remove ${username} from this project?`)) return;
-    startTransition(async () => {
-      const result = await removeCollaboratorAction(owner, repo, username);
-      if (result.success) {
-        loadCollaboratorsOnly();
-      } else {
-        setCollabError(result.error);
-      }
-    });
-  }, [owner, repo, loadCollaboratorsOnly]);
+  const handleRemoveCollaborator = useCallback(
+    async (username: string) => {
+      if (!confirm(`Remove ${username} from this project?`)) return;
+      startTransition(async () => {
+        const result = await removeCollaboratorAction(owner, repo, username);
+        if (result.success) {
+          await loadCollaboratorsData();
+        } else {
+          setCollabError(result.error);
+        }
+      });
+    },
+    [owner, repo, loadCollaboratorsData],
+  );
 
   // Fork handler — creates a copy of the project in the user's namespace
   const handleFork = useCallback(async () => {
@@ -468,6 +498,7 @@ export default function RepoDetailClient({
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
     { key: "about" as const, label: "About", icon: BookOpen },
     { key: "events" as const, label: "Timeline", icon: Activity },
+    ...(user ? [{ key: "collaborators" as const, label: "Collaborators", icon: Users }] : []),
     ...(isOwner ? [{ key: "settings" as const, label: "Settings", icon: Settings }] : []),
   ];
 
@@ -552,7 +583,7 @@ export default function RepoDetailClient({
               <span className="self-center text-xs text-red-400">{forkError}</span>
             )}
           </div>
-          {pendingInvite && !isOwner && !isCollaborator && user && (
+          {pendingInvite && isPrivate && !isOwner && !isCollaborator && user && (
             <p className="text-right text-sm text-amber-400/90">
               You have a pending invitation for this project.
             </p>
@@ -719,6 +750,40 @@ export default function RepoDetailClient({
                 </div>
               )}
             </div>
+
+            {(isOwner || isCollaborator) && (
+              <div className="glass-card rounded-lg p-6">
+                <h2 className="mb-4 text-xl font-semibold">Snippet &amp; stems</h2>
+                <SnippetUploader
+                  owner={owner}
+                  repo={repo}
+                  existingUrl={snippet?.url ?? null}
+                  existingMetadata={
+                    snippet
+                      ? {
+                          duration: snippet.duration,
+                          file_size: snippet.file_size,
+                          format: snippet.format,
+                          sample_rate: snippet.sample_rate,
+                          channels: snippet.channels,
+                        }
+                      : null
+                  }
+                  onUpdate={(newUrl) => {
+                    setCurrentSnippetUrl(newUrl);
+                    router.refresh();
+                  }}
+                  middleContent={
+                    <StemPlayer
+                      owner={owner}
+                      repo={repo}
+                      snippetUrl={currentSnippetUrl}
+                      initialStems={initialStems}
+                    />
+                  }
+                />
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}
@@ -773,7 +838,7 @@ export default function RepoDetailClient({
                   {stats.recent_clones.map((c, i) => (
                     <div key={i} className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2 text-zinc-300">
-                        <User size={14} /> User
+                        <User size={14} /> {c.username || "Someone"}
                       </span>
                       <span className="text-zinc-400">{timeAgo(c.cloned_at)}</span>
                     </div>
@@ -1036,6 +1101,315 @@ export default function RepoDetailClient({
                   </button>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Collaborators Tab (integration layout + SoundHaus invite APIs) ── */}
+      {activeTab === "collaborators" && user && (
+        <div className="space-y-8">
+          {collabError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {collabError}
+            </div>
+          )}
+          {inviteError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {inviteError}
+            </div>
+          )}
+          {inviteSuccess && (
+            <div className="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+              {inviteSuccess}
+            </div>
+          )}
+
+          {canEdit && !isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
+                <Users size={18} /> Public project
+              </h2>
+              <p className="text-sm text-zinc-400">
+                Invitations are only available for private repositories. For public projects, others can remix
+                from Explore.
+              </p>
+            </div>
+          )}
+
+          {canEdit && isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+                <UserPlus size={18} /> Invite collaborators
+              </h2>
+              <div className="relative">
+                <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
+                  <Search size={16} className="shrink-0 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by email or username…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSearchResults([]);
+                      }}
+                    >
+                      <X size={14} className="text-zinc-400 hover:text-zinc-300" />
+                    </button>
+                  )}
+                </div>
+
+                {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
+                  <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-lg">
+                    {searchLoading ? (
+                      <div className="px-4 py-3 text-sm text-zinc-400">Searching…</div>
+                    ) : (
+                      searchResults.map((u) => (
+                        <div
+                          key={u.username || u.email}
+                          className="flex items-center justify-between px-4 py-2 transition-colors hover:bg-zinc-800"
+                        >
+                          <div className="flex items-center gap-3">
+                            <UserAvatar src={u.avatar_url} alt={u.username} name={u.username} size={20} />
+                            <div>
+                              <div className="text-sm font-medium text-zinc-200">{u.username}</div>
+                              {u.email && <div className="text-xs text-zinc-400">{u.email}</div>}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleInvite(u.invite_email || u.email)}
+                            disabled={isPending}
+                            className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
+                          >
+                            <Send size={11} /> Invite
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 flex items-center gap-3">
+                <span className="text-xs text-zinc-400">Invite as:</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("write")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "write"
+                        ? "border-glass-cyan-500 bg-glass-cyan-500/10 text-glass-cyan-500"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Contributor
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("admin")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "admin"
+                        ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Admin
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {canEdit && isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+                <Clock size={18} /> Pending invitations
+              </h2>
+              {collabLoading ? (
+                <p className="text-sm text-zinc-400">Loading…</p>
+              ) : repoInvitations.filter((i) => i.status === "pending").length === 0 ? (
+                <p className="text-sm text-zinc-400">No pending invitations.</p>
+              ) : (
+                <div className="space-y-3">
+                  {repoInvitations
+                    .filter((i) => i.status === "pending")
+                    .map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-yellow-500/10 text-yellow-500">
+                            <Send size={14} />
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-zinc-200">{inv.invitee_email}</div>
+                            <div className="text-xs text-zinc-400">
+                              Sent {timeAgo(inv.created_at)} · {inv.permission} access
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleCancelInvite(inv.id)}
+                          disabled={isPending}
+                          className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          <X size={11} /> Cancel
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+              <Users size={18} /> Active collaborators
+            </h2>
+            {collabLoading ? (
+              <p className="text-sm text-zinc-400">Loading…</p>
+            ) : collaborators.length === 0 ? (
+              <p className="text-sm text-zinc-400">
+                {!isPrivate
+                  ? "No push activity yet — contributors will appear after the first push."
+                  : canEdit
+                    ? "No collaborators yet. Invite someone above."
+                    : "No collaborators on this project yet."}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {collaborators.map((c) => {
+                  const isExpanded = expandedCollab === c.login;
+                  return (
+                    <div
+                      key={c.login}
+                      className="overflow-hidden rounded-md border border-zinc-700/50 bg-zinc-800/30"
+                    >
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCollab(isExpanded ? null : c.login)}
+                          className="group flex items-center gap-3 text-left"
+                        >
+                          <UserAvatar
+                            src={c.avatar_url || null}
+                            alt={c.username}
+                            name={c.username}
+                            size={40}
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-bold text-white">{c.username}</span>
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  c.permission === "admin"
+                                    ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                                    : "border-glass-cyan-500/30 bg-glass-cyan-500/10 text-glass-cyan-500"
+                                }`}
+                              >
+                                {c.permission === "admin" ? "Admin" : "Contributor"}
+                              </span>
+                            </div>
+                            {c.email ? (
+                              <div className="text-sm text-zinc-400">{c.email}</div>
+                            ) : null}
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveCollaborator(c.login)}
+                            disabled={isPending}
+                            className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                          >
+                            <UserMinus size={11} /> Remove
+                          </button>
+                        )}
+                      </div>
+                      {isExpanded && (
+                        <div className="space-y-3 border-t border-zinc-700/50 bg-zinc-900/40 px-5 py-4">
+                          {c.bio ? (
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-zinc-400">Bio</div>
+                              <p className="text-sm leading-relaxed text-zinc-300">{c.bio}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs italic text-zinc-400">No bio provided.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {canEdit &&
+            isPrivate &&
+            repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-4 text-xl font-semibold">Invitation history</h2>
+              <div className="space-y-3">
+                {repoInvitations
+                  .filter((i) => i.status !== "pending")
+                  .map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                            inv.status === "accepted"
+                              ? "bg-green-500/10 text-green-500"
+                              : inv.status === "expired"
+                                ? "bg-yellow-500/10 text-yellow-500"
+                                : "bg-red-500/10 text-red-500"
+                          }`}
+                        >
+                          <User size={14} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-zinc-200">{inv.invitee_email}</div>
+                          <div className="text-xs text-zinc-400">
+                            {inv.status === "accepted"
+                              ? "Accepted"
+                              : inv.status === "expired"
+                                ? "Expired"
+                                : "Declined"}{" "}
+                            {inv.responded_at ? timeAgo(inv.responded_at) : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          inv.status === "accepted"
+                            ? "bg-green-500/10 text-green-400"
+                            : inv.status === "expired"
+                              ? "bg-yellow-500/10 text-yellow-400"
+                              : "bg-red-500/10 text-red-400"
+                        }`}
+                      >
+                        {inv.status}
+                      </span>
+                    </div>
+                  ))}
+              </div>
             </div>
           )}
         </div>
@@ -1349,21 +1723,6 @@ export default function RepoDetailClient({
               {settingsError}
             </div>
           )}
-          {inviteSuccess && (
-            <div className="mb-4 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-              {inviteSuccess}
-            </div>
-          )}
-          {inviteError && (
-            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {inviteError}
-            </div>
-          )}
-          {collabError && (
-            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {collabError}
-            </div>
-          )}
 
           <div className="space-y-6">
             {/* 1. Genre Selector */}
@@ -1424,143 +1783,6 @@ export default function RepoDetailClient({
                 </button>
               </div>
             </div>
-
-            {/* 2.7. Open to invite requests */}
-            <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                <Users size={14} /> Invite requests
-              </h3>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-zinc-200">
-                    {openToCollab ? "Open to invite requests" : "Not open to invite requests"}
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    {openToCollab
-                      ? "Experimental collaboration-request flows are enabled for this project."
-                      : "Experimental collaboration-request flows are disabled for this project."}
-                  </p>
-                </div>
-                <button
-                  disabled={isPending}
-                  onClick={() => {
-                    const newVal = !openToCollab;
-                    startTransition(async () => {
-                      setSettingsError(null);
-                      const result = await toggleOpenToCollabAction(owner, repo, newVal);
-                      if (result.success) {
-                        setOpenToCollab(newVal);
-                      } else {
-                        setSettingsError(result.error ?? "Failed to update collaboration setting.");
-                      }
-                    });
-                  }}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    openToCollab ? "bg-glass-blue-500" : "bg-zinc-600"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                      openToCollab ? "translate-x-6" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
-            {isPrivate && collaborators.length > 0 && (
-              <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
-                <h3 className="mb-2 text-sm font-semibold text-zinc-200">Collaborators</h3>
-                <ul className="space-y-2">
-                  {collaborators.map((c) => (
-                    <li
-                      key={c.login}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-700/60 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-300"
-                    >
-                      <span>{c.username || c.login}</span>
-                      <button
-                        type="button"
-                        className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800"
-                        onClick={() => handleRemoveCollaborator(c.login)}
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {repoInvitations.some((i) => i.status === "pending") && (
-              <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
-                <h3 className="mb-2 text-sm font-semibold text-zinc-200">Invitations you sent</h3>
-                <ul className="space-y-2">
-                  {repoInvitations
-                    .filter((i) => i.status === "pending")
-                    .map((inv) => (
-                      <li
-                        key={inv.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-700/60 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-300"
-                      >
-                        <span>{inv.invitee_email}</span>
-                        <button
-                          type="button"
-                          className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800"
-                          onClick={() => handleCancelInvite(inv.id)}
-                        >
-                          Cancel
-                        </button>
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            )}
-
-            {openToCollab && (
-              <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
-                <h3 className="mb-2 text-sm font-semibold text-zinc-200">Pending access requests</h3>
-                {collabLoading ? (
-                  <p className="text-xs text-zinc-500">Loading…</p>
-                ) : joinRequests.length === 0 ? (
-                  <p className="text-xs text-zinc-500">No pending requests.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {joinRequests.map((r) => (
-                      <li
-                        key={r.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-700/60 bg-zinc-900/40 px-3 py-2 text-sm"
-                      >
-                        <span className="text-zinc-300">
-                          {r.requester_username || r.requester_id}
-                          <span className="ml-2 text-xs text-zinc-500">{r.requester_email}</span>
-                        </span>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="rounded border border-zinc-600 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800"
-                            onClick={() => {
-                              startTransition(async () => {
-                                const res = await dismissCollaborationRequestAction(owner, repo, r.id);
-                                if (res.success) await loadOwnerInvitesAndRequests();
-                              });
-                            }}
-                          >
-                            Dismiss
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded bg-glass-blue-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-glass-blue-500"
-                            onClick={() => handleInvite(r.requester_email)}
-                          >
-                            Invite
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
 
             {/* 3. README / About Editor */}
             <div className="rounded-lg border border-zinc-700/50 bg-zinc-800/30 p-4">
@@ -1668,37 +1890,7 @@ export default function RepoDetailClient({
               )}
             </div>
 
-            {/* 4. Snippet History → 5. Stem Separation (middleContent) → 6. Replace Snippet drop zone */}
-            <SnippetUploader
-              owner={owner}
-              repo={repo}
-              existingUrl={snippet?.url ?? null}
-              existingMetadata={
-                snippet
-                  ? {
-                      duration: snippet.duration,
-                      file_size: snippet.file_size,
-                      format: snippet.format,
-                      sample_rate: snippet.sample_rate,
-                      channels: snippet.channels,
-                    }
-                  : null
-              }
-              onUpdate={(newUrl) => {
-                setCurrentSnippetUrl(newUrl);
-                router.refresh();
-              }}
-              middleContent={
-                <StemPlayer
-                  owner={owner}
-                  repo={repo}
-                  snippetUrl={currentSnippetUrl}
-                  initialStems={initialStems}
-                />
-              }
-            />
-
-            {/* 6. Delete project — owner only */}
+            {/* Delete project — owner only */}
             {isOwner && (
             <div className="flex justify-end pt-4 border-t border-zinc-800">
               <button

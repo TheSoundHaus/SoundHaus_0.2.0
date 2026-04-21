@@ -74,6 +74,7 @@ export interface PublicRepo {
   owner: string;                 // Supabase UUID (used in API routes)
   owner_username?: string;       // Human-readable SoundHaus username
   repo_name: string;
+  is_public: boolean;
   clone_count: number;
   clone_url: string;
   audio_snippet: string | null;  // CDN URL to audio file, null if no snippet
@@ -96,6 +97,8 @@ export interface GenreRef {
 // Recent clone entry used in repo stats
 export interface RecentClone {
   user_id: string;
+  /** Resolved SoundHaus username when available (never a raw UUID for display). */
+  username?: string | null;
   cloned_at: string;             // ISO timestamp string
 }
 

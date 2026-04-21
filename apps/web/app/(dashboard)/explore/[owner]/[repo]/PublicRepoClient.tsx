@@ -242,7 +242,7 @@ export default function PublicRepoClient({
               className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
             >
               <Download size={16} />
-              Clone
+              Download
             </button>
             {user && !ownerIsSelf && (
               <button
@@ -277,7 +277,7 @@ export default function PublicRepoClient({
               </button>
             )}
           </div>
-          {pendingInvite && !ownerIsSelf && user && (
+          {pendingInvite && stats?.private && !ownerIsSelf && user && (
             <p className="text-sm text-amber-400/90">
               You have a pending invitation for this project. Accept it from your dashboard notifications.
             </p>

@@ -85,8 +85,7 @@ export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
         {/* Body */}
         <div className="px-5 py-5">
           <p className="mb-3 text-sm text-muted-300">
-            Copy this link and paste it into <strong>Clone Project</strong> in the SoundHaus
-            Desktop app.
+            Copy this link and paste it into Clone Project in the SoundHaus Desktop app.
           </p>
 
           {/* URL input + copy button */}
