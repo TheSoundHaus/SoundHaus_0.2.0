@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi.responses import JSONResponse
+from sqlalchemy import func as sql_func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,10 @@ from services.repo_service import RepoService
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["collaborators"])
+
+
+def _norm_email(value: str | None) -> str:
+    return (value or "").strip().lower()
 
 
 # ── Invite ───────────────────────────────────────────────────────────────────
@@ -48,7 +53,8 @@ async def invite_collaborator(
             return JSONResponse({"success": False, "message": "Unauthorized"}, status_code=401)
 
         user_id = str(user_res["user"]["id"])
-        email = user_res["user"]["email"]
+        email = user_res["user"].get("email") or ""
+
         owner_gitea = str(resolve_owner_id(owner, db))
 
         if owner_gitea != user_id:
@@ -62,7 +68,7 @@ async def invite_collaborator(
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
 
-        invitee_email = body.email
+        invitee_email = _norm_email(body.email)
         permission = body.permission
 
         if permission not in ("read", "write", "admin"):
@@ -213,12 +219,14 @@ async def get_pending_invitations(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        email = user_res["user"]["email"]
+        email = _norm_email(user_res["user"].get("email"))
+        if not email:
+            return {"success": True, "invitations": []}
 
         invitations = (
             db.query(CollaboratorInvitation)
             .filter(
-                CollaboratorInvitation.invitee_email == email,
+                sql_func.lower(CollaboratorInvitation.invitee_email) == email,
                 CollaboratorInvitation.status == "pending",
                 CollaboratorInvitation.expires_at > datetime.now(UTC),
             )
@@ -273,8 +281,10 @@ async def accept_invitation(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        user_id = user_res["user"]["id"]
-        email = user_res["user"]["email"]
+        user_id = str(user_res["user"]["id"])
+        email = _norm_email(user_res["user"].get("email"))
+        if not email:
+            raise HTTPException(status_code=400, detail="Your account must have an email to accept this invitation")
 
         invitation = db.query(CollaboratorInvitation).filter(
             CollaboratorInvitation.id == invitation_id
@@ -283,7 +293,7 @@ async def accept_invitation(
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")
 
-        if invitation.invitee_email != email:
+        if _norm_email(invitation.invitee_email) != email:
             raise HTTPException(status_code=403, detail="This invitation is not for you")
 
         if invitation.status != "pending":
@@ -292,16 +302,27 @@ async def accept_invitation(
         if invitation.expires_at < datetime.now(UTC):
             raise HTTPException(status_code=400, detail="Invitation has expired")
 
-        # Ensure invitee has a Gitea account
+        # Ensure invitee has a Gitea account — login may be Profile.username or legacy Supabase UUID
         gitea = GiteaAdminService()
-        invitee_username = user_id
+        invitee_profile = db.query(Profile).filter(Profile.id == user_id).first()
+        preferred_login = (
+            (invitee_profile.username or "").strip() or user_id
+            if invitee_profile
+            else user_id
+        )
 
+        invitee_username = preferred_login
         user_check = gitea.get_user_by_username(invitee_username)
+        if not user_check.get("exists") and invitee_username != user_id:
+            user_check = gitea.get_user_by_username(user_id)
+            if user_check.get("exists"):
+                invitee_username = user_id
+
         if not user_check.get("exists"):
             logger.info("accept_invitation", action="creating_gitea_user", username=invitee_username)
             create_result = gitea.create_user(
                 username=invitee_username,
-                email=email,
+                email=email or (invitee_profile.email if invitee_profile else ""),
                 password=secrets.token_urlsafe(32),
             )
             if not create_result.get("success"):
@@ -364,7 +385,7 @@ async def decline_invitation(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        email = user_res["user"]["email"]
+        email = _norm_email(user_res["user"].get("email"))
 
         invitation = db.query(CollaboratorInvitation).filter(
             CollaboratorInvitation.id == invitation_id
@@ -373,7 +394,7 @@ async def decline_invitation(
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")
 
-        if invitation.invitee_email != email:
+        if _norm_email(invitation.invitee_email) != email:
             raise HTTPException(status_code=403, detail="This invitation is not for you")
 
         invitation.status = "declined"
@@ -407,14 +428,19 @@ async def get_repo_invitations(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        user_id = str(user_res["user"]["id"])
-        owner_gitea = str(resolve_owner_id(owner, db))
+        user_id = user_res["user"]["id"]
+        owner_id = resolve_owner_id(owner, db)
+        if str(user_id) != str(owner_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the repository owner can list invitations for this repo",
+            )
 
         invitations = (
             db.query(CollaboratorInvitation)
             .filter(
                 CollaboratorInvitation.repo_name == repo_name,
-                CollaboratorInvitation.owner_username == owner_gitea,
+                CollaboratorInvitation.owner_username == owner_id,
             )
             .order_by(CollaboratorInvitation.created_at.desc())
             .all()

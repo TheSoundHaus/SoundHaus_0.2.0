@@ -48,15 +48,6 @@ export async function cloneRepo(owner: string, repoName: string) : Promise<ApiRe
     return {success: true, data:result.data}
 }
 
-export async function forkRepo(owner: string, repoName: string): Promise<ApiResponse<{ fork_name: string; fork_owner: string; message: string }>> {
-    const result = await authFetch<{ fork_name: string; fork_owner: string; message: string }>(
-        `/repos/${owner}/${repoName}/fork`,
-        { method: "POST" },
-    );
-    if (!result.success) return { success: false, error: result.error };
-    return { success: true, data: result.data };
-}
-
 export async function createRepo(name: string, isPrivate: boolean, description: string): Promise<ApiResponse<GiteaRepo>>{
     
     const result = await authFetch<{repo: GiteaRepo}>(
@@ -100,6 +91,81 @@ export async function unstarRepo(owner: string, repo: string): Promise<ApiRespon
     const result = await authFetch<{ message: string }>(`/repos/${owner}/${repo}/star`, { method: "DELETE" });
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data };
+}
+
+// POST /repos/{owner}/{repo}/fork — fork a public repo into the current user's namespace
+export async function forkRepo(
+    owner: string,
+    repo: string,
+): Promise<ApiResponse<{ message: string; fork: { full_name: string; name: string; owner: string; clone_url: string; forked_from: string } }>> {
+    const result = await authFetch<{ message: string; fork: { full_name: string; name: string; owner: string; clone_url: string; forked_from: string } }>(
+        `/repos/${owner}/${repo}/fork`,
+        { method: "POST" },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}
+
+// PATCH /repos/{owner}/{repo}/open-to-collab — toggle collaboration requests
+export async function toggleOpenToCollab(
+    owner: string,
+    repo: string,
+    openToCollab: boolean,
+): Promise<ApiResponse<{ open_to_collab: boolean }>> {
+    const result = await authFetch<{ open_to_collab: boolean }>(
+        `/repos/${owner}/${repo}/open-to-collab`,
+        {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ open_to_collab: openToCollab }),
+        },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data };
+}
+
+export interface CollaborationRequestRow {
+    id: string;
+    requester_id: string;
+    requester_email: string;
+    requester_username: string | null;
+    created_at: string | null;
+}
+
+export async function requestCollaboration(
+    owner: string,
+    repo: string,
+): Promise<ApiResponse<{ message: string }>> {
+    const result = await authFetch<{ message: string }>(
+        `/repos/${owner}/${repo}/collaboration-request`,
+        { method: "POST" },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
+
+export async function listCollaborationRequests(
+    owner: string,
+    repo: string,
+): Promise<ApiResponse<{ requests: CollaborationRequestRow[] }>> {
+    const result = await authFetch<{ requests: CollaborationRequestRow[] }>(
+        `/repos/${owner}/${repo}/collaboration-requests`,
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
+}
+
+export async function dismissCollaborationRequest(
+    owner: string,
+    repo: string,
+    requestId: string,
+): Promise<ApiResponse<{ message: string }>> {
+    const result = await authFetch<{ message: string }>(
+        `/repos/${owner}/${repo}/collaboration-requests/${requestId}`,
+        { method: "DELETE" },
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true, data: result.data! };
 }
 
 // DELETE /repos/{owner}/{repo} — delete a repo

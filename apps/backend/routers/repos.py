@@ -3,6 +3,9 @@ Repository CRUD endpoints – list, create, contents, upload, settings, clone,
 delete-file, public repos, and repo stats.
 """
 
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -22,7 +25,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from logging_config import get_logger
 from models.clone_models import CloneEvent
 from models.genre_models import GenreList
-from models.invitation_models import CollaboratorInvitation
+from models.invitation_models import CollaborationRequest, CollaboratorInvitation
 from models.profile_models import Profile
 from models.repo_models import RepoData
 from models.schemas import (
@@ -35,6 +38,10 @@ from services.gitea_service import GiteaAdminService
 from services.repo_service import RepoService
 
 logger = get_logger(__name__)
+
+
+def _norm_email(value: str | None) -> str:
+    return (value or "").strip().lower()
 
 router = APIRouter(tags=["repos"])
 
@@ -363,112 +370,6 @@ async def record_clone_event(
     }
 
 
-# ── Fork ─────────────────────────────────────────────────────────────────────
-
-@router.post("/repos/{owner}/{repo}/fork")
-@limiter.limit("10/minute")
-async def fork_repo(
-    request: Request,
-    owner: str,
-    repo: str,
-    token: str = Depends(verify_token),
-    db: Session = Depends(get_db),
-):
-    """Fork a public repository into the current user's namespace."""
-    user_res = await get_auth().get_user(token)
-    if not user_res.get("success"):
-        raise HTTPException(status_code=401, detail="Must be logged in to fork")
-
-    user_id = user_res["user"]["id"]
-    profile = db.query(Profile).filter(Profile.id == user_id).first()
-    if not profile:
-        raise HTTPException(status_code=404, detail="User profile not found")
-
-    # Resolve source repo
-    repo_service = RepoService()
-    source = repo_service.get_repo(owner, repo)
-    if not source.get("success"):
-        raise HTTPException(status_code=404, detail="Source repository not found")
-
-    source_data = source.get("repo", {})
-    if source_data.get("private", True):
-        raise HTTPException(status_code=403, detail="Only public repositories can be forked")
-
-    # Cannot fork your own repo
-    owner_id = resolve_owner_id(owner, db)
-    if owner_id == user_id:
-        raise HTTPException(status_code=400, detail="Cannot fork your own repository")
-
-    # Gitea user login is the Supabase UUID
-    gitea_login = _resolve_gitea_username(user_id, db)
-
-    result = repo_service.fork_repo(
-        source_owner=owner,
-        source_repo=repo,
-        fork_owner=gitea_login,
-    )
-    if not result.get("success"):
-        logger.warning(
-            "fork_repo_endpoint_failed",
-            source_owner=owner,
-            source_repo=repo,
-            fork_owner=gitea_login,
-            user_id=user_id,
-            status=result.get("status"),
-            message=result.get("message"),
-        )
-        raise HTTPException(
-            status_code=result.get("status", 500),
-            detail=result.get("message", "Failed to fork repository"),
-        )
-
-    # Register fork in RepoData so it appears in user's repo list
-    forked_repo = result["repo"]
-    fork_name = forked_repo.get("name", repo)
-    fork_repo_id = f"{gitea_login}/{fork_name}"
-
-    existing = db.query(RepoData).filter(RepoData.gitea_id == fork_repo_id).first()
-    if not existing:
-        new_repo_data = RepoData(
-            gitea_id=fork_repo_id,
-            owner_id=user_id,
-            is_public=True,
-        )
-        db.add(new_repo_data)
-        db.commit()
-
-    # Protect the forked repo's default branch (no direct push, 1 approval)
-    default_branch = forked_repo.get("default_branch", "main")
-    repo_service.set_branch_protection(gitea_login, fork_name, branch=default_branch)
-
-    # Create webhook for the forked repo so pushes are tracked
-    try:
-        repo_service._create_repo_webhook(gitea_login, fork_name, db)
-    except Exception as e:
-        logger.warning("fork_webhook_creation_failed", error=str(e))
-
-    # Record a RepositoryEvent so the fork shows in the timeline
-    try:
-        from models.webhook_models import RepositoryEvent
-        fork_event = RepositoryEvent(
-            repo_id=fork_repo_id,
-            event_type="repository_forked",
-            actor_username=gitea_login,
-        )
-        db.add(fork_event)
-        db.commit()
-    except Exception as e:
-        logger.warning("fork_event_creation_failed", error=str(e))
-        db.rollback()
-
-    return {
-        "success": True,
-        "message": f"Repository forked as {profile.username}/{fork_name}",
-        "fork_name": fork_name,
-        "fork_owner": profile.username,
-    }
-
-
 # ── Public / Stats ───────────────────────────────────────────────────────────
 
 @router.get("/repos/public")
@@ -710,23 +611,335 @@ async def get_repo_stats(
     owner_profile = db.query(Profile).filter(Profile.id == owner_id).first()
     olab = _owner_profile_fields(owner_profile, owner_id)
 
+    viewer_can_clone = False
+    viewer_pending_invite = False
+    auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+        try:
+            user_res = await get_auth().get_user(token)
+            if user_res.get("success"):
+                uid = str(user_res["user"]["id"])
+                email_n = _norm_email(user_res["user"].get("email"))
+                if uid == str(owner_id):
+                    viewer_can_clone = True
+                else:
+                    collabs = svc.list_collaborators(owner_id, repo, db)
+                    if collabs.get("success"):
+                        my_ids = {uid}
+                        rp = db.query(Profile).filter(Profile.id == uid).first()
+                        if rp and rp.username:
+                            my_ids.add(rp.username.strip())
+                        for c in collabs.get("collaborators", []):
+                            login = (c.get("login") or "").strip()
+                            uname = (c.get("username") or "").strip()
+                            if login in my_ids or (rp and rp.username and uname == rp.username):
+                                viewer_can_clone = True
+                                break
+                    if not viewer_can_clone and email_n:
+                        now = datetime.now(UTC)
+                        pend = (
+                            db.query(CollaboratorInvitation)
+                            .filter(
+                                CollaboratorInvitation.repo_name == repo,
+                                CollaboratorInvitation.owner_username == owner_id,
+                                func.lower(CollaboratorInvitation.invitee_email) == email_n,
+                                CollaboratorInvitation.status == "pending",
+                                CollaboratorInvitation.expires_at > now,
+                            )
+                            .first()
+                        )
+                        viewer_pending_invite = pend is not None
+        except Exception as ex:
+            logger.debug("get_repo_stats_viewer_flags", error=str(ex))
+
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
         "owner_username": olab["owner_username"],
         "description": description,
         "private": is_private,
+        "owner_id": owner_id,
         "clone_url": f"{settings.gitea_public_url}/{owner_id}/{repo}.git",
         "clone_count": repo_data.clone_count,
         "audio_snippet": repo_data.audio_snippet,
         "thumbnail_url": repo_data.thumbnail_url,
         "thumbnail_type": repo_data.thumbnail_type,
+        "forked_from": repo_data.forked_from,
+        "open_to_collab": repo_data.open_to_collab,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
         "recent_clones": [
             {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
             for c in recent_clones
         ],
         "fork_parent": fork_parent,
+        "viewer_can_clone": viewer_can_clone,
+        "viewer_pending_invite": viewer_pending_invite,
+    }
+
+
+# ── Collaboration Requests Toggle ────────────────────────────────────────────
+
+@router.patch("/repos/{owner}/{repo}/open-to-collab")
+@user_limiter.limit("10/minute")
+async def toggle_open_to_collab(
+    request: Request,
+    owner: str,
+    repo: str,
+    body: dict,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Toggle whether this repo accepts collaboration requests. Owner only."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
+
+    if str(user_id) != str(owner_id):
+        raise HTTPException(status_code=403, detail="Only the repo owner can change this setting")
+
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    repo_data.open_to_collab = bool(body.get("open_to_collab", False))
+    db.commit()
+
+    return {"success": True, "open_to_collab": repo_data.open_to_collab}
+
+
+@router.post("/repos/{owner}/{repo}/collaboration-request")
+@user_limiter.limit("10/minute")
+async def create_collaboration_request(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Logged-in user asks the owner for an invite. Requires open_to_collab."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = str(user_res["user"]["id"])
+    email = _norm_email(user_res["user"].get("email"))
+    if not email:
+        raise HTTPException(status_code=400, detail="Your account needs an email address to request access")
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    if not repo_data.open_to_collab:
+        raise HTTPException(status_code=403, detail="This project is not accepting collaboration requests")
+
+    if user_id == str(owner_id):
+        raise HTTPException(status_code=400, detail="You already own this project")
+
+    svc = RepoService()
+    collabs = svc.list_collaborators(owner_id, repo, db)
+    if collabs.get("success"):
+        rp = db.query(Profile).filter(Profile.id == user_id).first()
+        my_ids = {user_id}
+        if rp and rp.username:
+            my_ids.add(rp.username.strip())
+        for c in collabs.get("collaborators", []):
+            login = (c.get("login") or "").strip()
+            uname = (c.get("username") or "").strip()
+            if login in my_ids or (rp and rp.username and uname == rp.username):
+                raise HTTPException(status_code=400, detail="You are already a collaborator")
+
+    existing = (
+        db.query(CollaborationRequest)
+        .filter(
+            CollaborationRequest.owner_id == owner_id,
+            CollaborationRequest.repo_name == repo,
+            CollaborationRequest.requester_id == user_id,
+            CollaborationRequest.status == "pending",
+        )
+        .first()
+    )
+    if existing:
+        return {"success": True, "message": "You already have a pending request for this project"}
+
+    row = CollaborationRequest(
+        id=str(uuid.uuid4()),
+        owner_id=owner_id,
+        repo_name=repo,
+        requester_id=user_id,
+        requester_email=email,
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    return {"success": True, "message": "Request sent to the project owner"}
+
+
+@router.get("/repos/{owner}/{repo}/collaboration-requests")
+@user_limiter.limit("60/minute")
+async def list_collaboration_requests(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Owner-only: pending collaboration requests for this repo."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = str(user_res["user"]["id"])
+    owner_id = resolve_owner_id(owner, db)
+    if user_id != str(owner_id):
+        raise HTTPException(status_code=403, detail="Only the repository owner can view requests")
+
+    rows = (
+        db.query(CollaborationRequest)
+        .filter(
+            CollaborationRequest.owner_id == owner_id,
+            CollaborationRequest.repo_name == repo,
+            CollaborationRequest.status == "pending",
+        )
+        .order_by(CollaborationRequest.created_at.desc())
+        .all()
+    )
+    out = []
+    for r in rows:
+        prof = db.query(Profile).filter(Profile.id == r.requester_id).first()
+        out.append(
+            {
+                "id": r.id,
+                "requester_id": r.requester_id,
+                "requester_email": r.requester_email,
+                "requester_username": prof.username if prof and prof.username else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+        )
+    return {"success": True, "requests": out}
+
+
+@router.delete("/repos/{owner}/{repo}/collaboration-requests/{request_id}")
+@user_limiter.limit("20/minute")
+async def dismiss_collaboration_request(
+    request: Request,
+    owner: str,
+    repo: str,
+    request_id: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Owner dismisses a pending collaboration request."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = str(user_res["user"]["id"])
+    owner_id = resolve_owner_id(owner, db)
+    if user_id != str(owner_id):
+        raise HTTPException(status_code=403, detail="Only the repository owner can dismiss requests")
+
+    row = (
+        db.query(CollaborationRequest)
+        .filter(
+            CollaborationRequest.id == request_id,
+            CollaborationRequest.owner_id == owner_id,
+            CollaborationRequest.repo_name == repo,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Request not found")
+    row.status = "dismissed"
+    db.commit()
+    return {"success": True, "message": "Request dismissed"}
+
+
+# ── Fork ─────────────────────────────────────────────────────────────────────
+
+@router.post("/repos/{owner}/{repo}/fork")
+@user_limiter.limit("10/minute")
+async def fork_repo(
+    request: Request,
+    owner: str,
+    repo: str,
+    token: str = Depends(verify_token),
+    db: Session = Depends(get_db),
+):
+    """Fork a public repository into the authenticated user's namespace."""
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        raise HTTPException(status_code=401, detail="Must be logged in to fork")
+
+    user_id = user_res["user"]["id"]
+    owner_id = resolve_owner_id(owner, db)
+    source_repo_id = f"{owner_id}/{repo}"
+
+    # Verify the source repo exists in SoundHaus
+    source_data = db.query(RepoData).filter(RepoData.gitea_id == source_repo_id).first()
+    if not source_data:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    # Cannot fork your own repo
+    if str(user_id) == str(owner_id):
+        raise HTTPException(status_code=400, detail="Cannot fork your own project")
+
+    # Ensure the forking user has a Gitea account
+    gitea = GiteaAdminService()
+    user_check = gitea.get_user_by_username(user_id)
+    if not user_check.get("exists"):
+        raise HTTPException(status_code=400, detail="Git account not provisioned. Please log in from the desktop app first.")
+
+    # Call Gitea fork API
+    svc = RepoService()
+    result = svc.fork_repo(owner_id, repo, user_id)
+
+    if not result.get("success"):
+        status = result.get("status", 500)
+        if status == 409:
+            raise HTTPException(status_code=409, detail="You already have a version of this project")
+        raise HTTPException(status_code=status or 500, detail=result.get("message", "Failed to fork"))
+
+    forked_repo = result.get("repo", {})
+    fork_full_name = forked_repo.get("full_name", f"{user_id}/{repo}")
+
+    # Create a RepoData entry for the fork
+    try:
+        fork_data = RepoData(
+            gitea_id=fork_full_name,
+            owner_id=user_id,
+            forked_from=source_repo_id,
+            clone_count=0,
+            total_commits=0,
+            is_public=source_data.is_public,
+        )
+        db.add(fork_data)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Fork RepoData already exists — not an error
+
+    # Resolve forking user's display name
+    fork_profile = db.query(Profile).filter(Profile.id == user_id).first()
+    fork_username = fork_profile.username if fork_profile else user_id
+
+    return {
+        "success": True,
+        "message": f"Created your version of {repo}",
+        "fork": {
+            "full_name": fork_full_name,
+            "name": forked_repo.get("name", repo),
+            "owner": fork_username,
+            "clone_url": forked_repo.get("clone_url", f"{settings.gitea_public_url}/{fork_full_name}.git"),
+            "forked_from": source_repo_id,
+        },
     }
 
 
@@ -1130,6 +1343,7 @@ async def upload_thumbnail_image(
     from pathlib import Path
     ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
     storage_path = f"{owner}/{repo}/thumbnail{ext}"
+
     supabase = snippet_service.supabase
     bucket = "thumbnails"
 

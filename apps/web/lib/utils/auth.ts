@@ -122,7 +122,7 @@ export async function authenticatedFetch(
     headers['Content-Type'] = 'application/json'
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  let response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers,
   })
@@ -137,11 +137,15 @@ export async function authenticatedFetch(
       }
       if (!isFormData) retryHeaders['Content-Type'] = 'application/json'
 
-      return fetch(`${API_BASE_URL}${endpoint}`, {
+      response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
         headers: retryHeaders,
       })
+    } else {
+      await clearAuthCookies()
     }
+  } else if (response.status === 401 && !token) {
+    await clearAuthCookies()
   }
 
   return response
