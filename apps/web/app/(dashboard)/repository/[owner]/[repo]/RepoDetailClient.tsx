@@ -32,7 +32,6 @@ import {
 } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
-import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import ThumbnailSettings from "@/components/ThumbnailSettings";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
@@ -62,7 +61,6 @@ import type {
   Genre,
   SentInvitation,
   Collaborator,
-  SnippetVersion,
   UserSearchResult,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData, DiffStatus } from "@/lib/api/commits";
@@ -76,7 +74,6 @@ interface RepoDetailClientProps {
   snippet: Snippet | null;
   allGenres: Genre[];
   initialCommits: CommitListResponse | null;
-  initialStems: SnippetVersion | null;
   ownerYoutube: string | null;
   ownerSpotify: string | null;
 }
@@ -90,7 +87,6 @@ export default function RepoDetailClient({
   snippet,
   allGenres,
   initialCommits,
-  initialStems,
   ownerYoutube,
   ownerSpotify,
 }: RepoDetailClientProps) {
@@ -753,7 +749,7 @@ export default function RepoDetailClient({
 
             {(isOwner || isCollaborator) && (
               <div className="glass-card rounded-lg p-6">
-                <h2 className="mb-4 text-xl font-semibold">Snippet &amp; stems</h2>
+                <h2 className="mb-4 text-xl font-semibold">Snippet</h2>
                 <SnippetUploader
                   owner={owner}
                   repo={repo}
@@ -773,14 +769,6 @@ export default function RepoDetailClient({
                     setCurrentSnippetUrl(newUrl);
                     router.refresh();
                   }}
-                  middleContent={
-                    <StemPlayer
-                      owner={owner}
-                      repo={repo}
-                      snippetUrl={currentSnippetUrl}
-                      initialStems={initialStems}
-                    />
-                  }
                 />
               </div>
             )}

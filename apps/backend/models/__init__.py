@@ -13,11 +13,10 @@ from models.webhook_models import WebhookConfig, WebhookDelivery, PushEvent, Rep
 from models.commit_models import CommitDetail
 from models.diff_models import AlsDiff
 from models.snippet_models import SnippetHistory
-from models.stem_models import SnippetVersion, StemFile
 from models.profile_models import Profile
 from models.review_models import ReviewSession, ReviewAnnotation
 
 __all__ = ["RepoData", "CloneEvent", "GenreList", "repo_genres", "PersonalAccessToken", 
            "CollaboratorInvitation", "WebhookConfig", "WebhookDelivery", "PushEvent", "RepositoryEvent",
-           "CommitDetail", "AlsDiff", "SnippetHistory", "SnippetVersion", "StemFile", "Profile",
+           "CommitDetail", "AlsDiff", "SnippetHistory", "Profile",
            "ReviewSession", "ReviewAnnotation"]
