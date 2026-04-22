@@ -2,15 +2,14 @@
 Dashboard endpoints — heatmap, snippet feed, and collaboration panel data.
 """
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, and_, text
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import limiter, verify_token
+from dependencies import get_auth, limiter, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from logging_config import get_logger
 from models.invitation_models import CollaboratorInvitation
 from models.profile_models import Profile
@@ -18,7 +17,6 @@ from models.repo_models import RepoData
 from models.seen_models import UserRepoSeen
 from models.webhook_models import PushEvent
 from services.auth_service import SupabaseAuthService
-from dependencies import get_auth
 
 logger = get_logger(__name__)
 
@@ -47,7 +45,7 @@ async def get_activity_heatmap(
         raise HTTPException(status_code=401, detail="Unauthorized")
     user_id = user_res["user"]["id"]
 
-    since = datetime.now(timezone.utc) - timedelta(days=364)
+    since = datetime.now(UTC) - timedelta(days=364)
 
     rows = (
         db.query(
@@ -88,7 +86,7 @@ async def get_snippet_feed(
 
     base_q = (
         db.query(RepoData)
-        .filter(RepoData.audio_snippet.isnot(None))
+        .filter(RepoData.audio_snippet.isnot(None), RepoData.is_public.is_(True))
         .order_by(RepoData.last_activity_at.desc().nullslast())
     )
 
@@ -164,7 +162,7 @@ async def get_collaborations(
     invites = (
         db.query(CollaboratorInvitation)
         .filter(
-            CollaboratorInvitation.invitee_email == user_email,
+            func.lower(CollaboratorInvitation.invitee_email) == (user_email or "").strip().lower(),
             CollaboratorInvitation.status == "accepted",
         )
         .all()
@@ -248,7 +246,7 @@ async def mark_collaboration_seen(
         UserRepoSeen.repo_id == repo_id,
     ).first()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if seen:
         seen.last_seen_at = now
     else:

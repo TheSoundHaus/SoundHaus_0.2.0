@@ -145,9 +145,10 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
 
     // Pre-populate from report.project.tracks so we have metadata
     const projectTracks = report.project?.tracks ?? [];
-    for (const t of projectTracks) {
+    for (let i = 0; i < projectTracks.length; i++) {
+        const t = projectTracks[i];
         // Rust serializes effective_name / user_name, not label
-        const trackName = t.user_name || t.effective_name || 'Unnamed Track';
+        const trackName = t.effective_name || t.user_name || `Track ${i + 1}`;
         // Extract instrument from the first device in the chain
         const firstDevice = t.device_chain?.devices?.[0];
         const instrument = firstDevice?.name || firstDevice?.class_name || undefined;
@@ -166,13 +167,13 @@ export function changesToProjectDiff(report: RustReport, summary?: string): Proj
         if (!track) {
             track = {
                 trackId: id,
-                trackName: name || 'Unnamed Track',
+                trackName: name || `Track ${id}`,
                 trackType: mapTrackType(type),
                 changeType: 'modified',
             };
             trackMap.set(id, track);
-        } else if (name && track.trackName === 'Unnamed Track') {
-            // Update stale fallback name if we now have a real name
+        } else if (name && track.trackName.startsWith('Track ')) {
+            // Update fallback name if we now have a real name
             track.trackName = name;
         }
         return track;

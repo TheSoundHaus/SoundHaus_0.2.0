@@ -2,28 +2,41 @@
 Webhook endpoints – receive Gitea events, list deliveries, activity feed, repo events.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from sqlalchemy.orm import Session, selectinload
-from typing import Optional
 import json as _json
 import re as _re
+
+from sqlalchemy.orm import Session, selectinload
 from starlette.requests import ClientDisconnect
 
-_UUID_RE = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.I)
-
 from database import get_db
-from dependencies import limiter, verify_token, resolve_owner_id
+from dependencies import get_auth, limiter, require_repo_access, resolve_owner_id, verify_token
+from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
-from services.webhook_service import webhook_service
-from models.webhook_models import WebhookDelivery, PushEvent, RepositoryEvent
-from models.commit_models import CommitDetail
 from models.invitation_models import CollaboratorInvitation
-from models.snippet_models import SnippetHistory
 from models.profile_models import Profile
+from models.snippet_models import SnippetHistory
+from models.webhook_models import PushEvent, RepositoryEvent, WebhookDelivery
+from services.webhook_service import webhook_service
+
+_UUID_RE = _re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    _re.I,
+)
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
+
+async def _optional_caller(request: Request):
+    authz = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not authz or not authz.startswith("Bearer "):
+        return None, None
+    token = authz.replace("Bearer ", "", 1).strip()
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        return None, None
+    user = user_res.get("user", {}) or {}
+    return user.get("id"), user.get("email")
 
 
 # ── Gitea Receiver ───────────────────────────────────────────────────────────
@@ -62,7 +75,7 @@ async def receive_gitea_webhook(
         payload = _json.loads(body)
     except Exception as e:
         logger.error("webhook_invalid_json", error=str(e))
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
 
     # Process event
     result = webhook_service.process_event(event_type, delivery_id, payload, db)
@@ -75,9 +88,9 @@ async def receive_gitea_webhook(
 @limiter.limit("30/minute")
 async def list_webhook_deliveries(
     request: Request,
-    repo: Optional[str] = None,
-    event_type: Optional[str] = None,
-    status: Optional[str] = None,
+    repo: str | None = None,
+    event_type: str | None = None,
+    status: str | None = None,
     limit: int = 50,
     token: str = Depends(verify_token),
     db: Session = Depends(get_db),
@@ -128,6 +141,9 @@ async def get_repo_activity(
     DESKTOP TEAM: Primary endpoint for showing repo activity.
     Poll every 30 seconds while viewing a repo page.
     """
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
@@ -205,6 +221,9 @@ async def get_repo_events(
 
     DESKTOP TEAM: Use alongside /activity for a complete repo timeline.
     """
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
 
@@ -217,11 +236,24 @@ async def get_repo_events(
         .all()
     )
 
+    # Batch-resolve actor UUIDs to human usernames
+    actor_names = {e.actor_username for e in repo_events if e.actor_username}
+    actor_display: dict[str, str] = {}
+    if actor_names:
+        rows = db.query(Profile).filter(Profile.username.in_(actor_names)).all()
+        for p in rows:
+            actor_display[p.username] = p.username
+        unresolved = [u for u in actor_names - set(actor_display.keys()) if _UUID_RE.match(u)]
+        if unresolved:
+            rows = db.query(Profile).filter(Profile.id.in_(unresolved)).all()
+            for p in rows:
+                actor_display[p.id] = p.username or (p.email.split("@")[0] if p.email else p.id)
+
     all_events = [
         {
             "id": e.id,
             "event_type": e.event_type,
-            "actor": e.actor_username,
+            "actor": actor_display.get(e.actor_username, e.actor_username),
             "detail": None,
             "occurred_at": str(e.occurred_at) if e.occurred_at else None,
         }

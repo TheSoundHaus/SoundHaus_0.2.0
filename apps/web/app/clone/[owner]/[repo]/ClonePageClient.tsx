@@ -150,7 +150,7 @@ export default function ClonePageClient({
                                     </li>
                                     <li className="flex gap-2">
                                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-glass-blue-400/20 text-glass-blue-400 text-xs font-bold flex items-center justify-center">3</span>
-                                        <span>Click <strong className="text-white">Clone Project</strong> and paste the URL</span>
+                                        <span>Copy this link and paste it into Clone Project in the SoundHaus Desktop app</span>
                                     </li>
                                 </ol>
                             </div>
