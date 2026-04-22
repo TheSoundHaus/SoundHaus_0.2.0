@@ -4,7 +4,6 @@ delete-file, public repos, and repo stats.
 """
 
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 
 from sqlalchemy import func
@@ -17,6 +16,7 @@ from dependencies import (
     get_auth,
     limiter,
     resolve_owner_id,
+    resolve_owner_invitation_keys,
     user_limiter,
     verify_token,
     verify_token_or_pat,
@@ -186,6 +186,7 @@ async def register_repo(
         audio_snippet=None,
         clone_count=0,
         owner_id=user_id,
+        is_public=not bool(register_request.private),
     )
     try:
         db.add(repo_data)
@@ -308,6 +309,8 @@ async def patch_repo_settings(
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == f"{owner_id}/{repo}").first()
     if repo_data and "private" in settings:
         repo_data.is_public = not bool(settings.get("private"))
+        if repo_data.is_public and repo_data.open_to_collab:
+            repo_data.open_to_collab = False
         repo_data_changed = True
 
     # If the repo was renamed, sync the gitea_id in RepoData
@@ -589,14 +592,13 @@ async def get_repo_stats(
     # Fetch description, privacy, and fork parent from Gitea
     svc = RepoService()
     description = ""
-    is_private = True
+    is_private = not bool(repo_data.is_public)
     fork_parent = None
     try:
         gitea_info = svc.get_repo(owner_id, repo)
         if gitea_info.get("success"):
             repo_obj = gitea_info.get("repo", {})
             description = repo_obj.get("description", "")
-            is_private = repo_obj.get("private", True)
             parent = repo_obj.get("parent")
             if parent:
                 parent_owner_id = parent.get("owner", {}).get("login", "")
@@ -615,6 +617,7 @@ async def get_repo_stats(
 
     viewer_can_clone = False
     viewer_pending_invite = False
+    owner_keys = tuple(resolve_owner_invitation_keys(owner_id, db))
     auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header[7:].strip()
@@ -638,13 +641,13 @@ async def get_repo_stats(
                             if login in my_ids or (rp and rp.username and uname == rp.username):
                                 viewer_can_clone = True
                                 break
-                    if not viewer_can_clone and email_n:
+                    if not viewer_can_clone and email_n and not repo_data.is_public:
                         now = datetime.now(UTC)
                         pend = (
                             db.query(CollaboratorInvitation)
                             .filter(
                                 CollaboratorInvitation.repo_name == repo,
-                                CollaboratorInvitation.owner_username == owner_id,
+                                CollaboratorInvitation.owner_username.in_(owner_keys),
                                 func.lower(CollaboratorInvitation.invitee_email) == email_n,
                                 CollaboratorInvitation.status == "pending",
                                 CollaboratorInvitation.expires_at > now,
@@ -658,6 +661,12 @@ async def get_repo_stats(
     # Privacy gate: private repos are only visible to owner and accepted collaborators
     if is_private and not viewer_can_clone:
         raise HTTPException(status_code=404, detail="Repo not found")
+
+    clone_user_ids = [str(clone.user_id) for clone in recent_clones]
+    clone_profile_map: dict[str, Profile] = {}
+    if clone_user_ids:
+        clone_profiles = db.query(Profile).filter(Profile.id.in_(clone_user_ids)).all()
+        clone_profile_map = {str(profile.id): profile for profile in clone_profiles}
 
     return {
         "success": True,
@@ -675,7 +684,15 @@ async def get_repo_stats(
         "open_to_collab": repo_data.open_to_collab,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
         "recent_clones": [
-            {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
+            {
+                "user_id": c.user_id,
+                "username": (
+                    clone_profile_map[str(c.user_id)].username
+                    if str(c.user_id) in clone_profile_map and clone_profile_map[str(c.user_id)].username
+                    else None
+                ),
+                "cloned_at": c.cloned_at.isoformat(),
+            }
             for c in recent_clones
         ],
         "fork_parent": fork_parent,
@@ -712,6 +729,17 @@ async def toggle_open_to_collab(
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repository not found")
 
+    if repo_data.is_public:
+        if bool(body.get("open_to_collab", False)):
+            raise HTTPException(
+                status_code=403,
+                detail="Invite requests are not available for public repositories",
+            )
+        if repo_data.open_to_collab:
+            repo_data.open_to_collab = False
+            db.commit()
+        return {"success": True, "open_to_collab": False}
+
     repo_data.open_to_collab = bool(body.get("open_to_collab", False))
     db.commit()
 
@@ -742,6 +770,12 @@ async def create_collaboration_request(
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repository not found")
+
+    if repo_data.is_public:
+        raise HTTPException(
+            status_code=403,
+            detail="Public repositories do not use collaboration requests",
+        )
 
     if not repo_data.open_to_collab:
         raise HTTPException(status_code=403, detail="This project is not accepting collaboration requests")

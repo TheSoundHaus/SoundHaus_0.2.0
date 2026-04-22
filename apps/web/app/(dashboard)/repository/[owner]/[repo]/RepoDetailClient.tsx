@@ -223,11 +223,7 @@ export default function RepoDetailClient({
     if (collabRes.success) setCollaborators(collabs);
     else setCollabError(collabRes.error);
 
-    const adminCollab =
-      !isOwner &&
-      !!user?.username &&
-      collabs.some((c) => c.username === user.username && c.permission === "admin");
-    const canFetchInvites = isOwner || adminCollab;
+    const canFetchInvites = isOwner;
 
     if (canFetchInvites && isPrivate) {
       const invRes = await getRepoInvitations(owner, repo);
@@ -1113,7 +1109,7 @@ export default function RepoDetailClient({
             </div>
           )}
 
-          {canEdit && !isPrivate && (
+          {isOwner && !isPrivate && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
                 <Users size={18} /> Public project
@@ -1125,7 +1121,7 @@ export default function RepoDetailClient({
             </div>
           )}
 
-          {canEdit && isPrivate && (
+          {isOwner && isPrivate && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
                 <UserPlus size={18} /> Invite collaborators
@@ -1216,7 +1212,7 @@ export default function RepoDetailClient({
             </div>
           )}
 
-          {canEdit && isPrivate && (
+          {isOwner && isPrivate && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
                 <Clock size={18} /> Pending invitations
@@ -1347,7 +1343,7 @@ export default function RepoDetailClient({
             )}
           </div>
 
-          {canEdit &&
+          {isOwner &&
             isPrivate &&
             repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
             <div className="glass-card rounded-lg p-6">

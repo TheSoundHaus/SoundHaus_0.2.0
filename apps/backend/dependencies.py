@@ -9,6 +9,7 @@ from typing import Any
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -98,6 +99,36 @@ def resolve_owner_id(owner: str, db: Session) -> str:
     return owner
 
 
+def resolve_owner_invitation_keys(owner: str, db: Session) -> set[str]:
+    """Return all identifier forms that may have been stored for invitation ownership.
+
+    Historical rows may store either the repo owner's UUID or SoundHaus username
+    in ``CollaboratorInvitation.owner_username``. This helper returns both forms
+    so callers can query safely during the transition.
+    """
+    from models.profile_models import Profile
+
+    owner_id = resolve_owner_id(owner, db)
+    keys = {str(owner_id), str(owner)}
+    profile = (
+        db.query(Profile)
+        .filter((Profile.id == owner_id) | (Profile.username == owner) | (Profile.id == owner))
+        .first()
+    )
+    if profile and profile.username:
+        keys.add(profile.username)
+    return {key for key in keys if key}
+
+
+def load_repo_data(owner: str, repo_name: str, db: Session):
+    """Return the RepoData row for ``owner``/``repo_name`` URL segments, or ``None``."""
+    from models.repo_models import RepoData
+
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo_name}"
+    return db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+
+
 async def verify_token(
     authorization: str | None = Header(None),
     auth_service: SupabaseAuthService = Depends(get_auth),
@@ -177,6 +208,7 @@ def require_repo_access(
     from models.repo_models import RepoData
 
     owner_id = resolve_owner_id(owner, db)
+    owner_keys = tuple(resolve_owner_invitation_keys(owner, db))
     repo_id = f"{owner_id}/{repo}"
 
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
@@ -195,8 +227,8 @@ def require_repo_access(
             db.query(CollaboratorInvitation)
             .filter(
                 CollaboratorInvitation.repo_name == repo,
-                CollaboratorInvitation.owner_username == str(owner_id),
-                CollaboratorInvitation.invitee_email == normalized_email,
+                CollaboratorInvitation.owner_username.in_(owner_keys),
+                func.lower(CollaboratorInvitation.invitee_email) == normalized_email,
                 CollaboratorInvitation.status == "accepted",
             )
             .first()

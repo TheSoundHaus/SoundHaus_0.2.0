@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
+  Users,
   GitCommit,
   Download,
   Music,
@@ -30,6 +31,7 @@ import UserAvatar from "@/components/UserAvatar";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { forkRepoAction } from "@/actions/repos";
+import { listCollaborators } from "@/lib/api/invitations";
 import { getCommits, getCommitDiff } from "@/lib/api/commits";
 import { getRepoEvents } from "@/lib/api/webhooks";
 import type {
@@ -39,6 +41,7 @@ import type {
   Snippet,
   PushActivity,
   RepoEvent,
+  Collaborator,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
 
@@ -63,10 +66,13 @@ export default function PublicRepoClient({
   initialCommits,
   readme,
 }: Props) {
-  type TabKey = "overview" | "commits" | "events";
+  type TabKey = "overview" | "commits" | "collaborators" | "events";
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const router = useRouter();
   const { user } = useUser();
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [collabLoading, setCollabLoading] = useState(false);
+  const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
 
   // Commits
   const [commits, setCommits] = useState<CommitSummary[]>(initialCommits?.commits ?? []);
@@ -144,6 +150,14 @@ export default function PublicRepoClient({
   }
 
   useEffect(() => {
+    if (activeTab === "collaborators") {
+      setCollabLoading(true);
+      listCollaborators(owner, repo)
+        .then((res) => {
+          if (res.success) setCollaborators(res.data ?? []);
+        })
+        .finally(() => setCollabLoading(false));
+    }
     if (activeTab === "events") {
       getRepoEvents(owner, repo).then((res) => {
         if (res.success) setRepoEvents(res.data?.events ?? []);
@@ -212,6 +226,7 @@ export default function PublicRepoClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
+    { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "events" as const, label: "Timeline", icon: Activity },
   ];
 
@@ -721,6 +736,84 @@ export default function PublicRepoClient({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === "collaborators" && (
+        <div className="space-y-6">
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
+              <Users size={18} /> Public collaborators
+            </h2>
+            <p className="text-sm text-zinc-400">
+              This list is built from people who have actually pushed changes to this public project.
+            </p>
+          </div>
+
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+              <Users size={18} /> Contributors
+            </h2>
+            {collabLoading ? (
+              <p className="text-sm text-zinc-400">Loading…</p>
+            ) : collaborators.length === 0 ? (
+              <p className="text-sm text-zinc-400">No contributors yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {collaborators.map((collaborator) => {
+                  const isExpanded = expandedCollab === collaborator.login;
+                  return (
+                    <div
+                      key={collaborator.login}
+                      className="overflow-hidden rounded-md border border-zinc-700/50 bg-zinc-800/30"
+                    >
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCollab(isExpanded ? null : collaborator.login)}
+                          className="group flex items-center gap-3 text-left"
+                        >
+                          <UserAvatar
+                            src={collaborator.avatar_url || null}
+                            alt={collaborator.username}
+                            name={collaborator.username}
+                            size={40}
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-bold text-white">{collaborator.username}</span>
+                              <span className="rounded-full border border-glass-cyan-500/30 bg-glass-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-glass-cyan-500">
+                                Contributor
+                              </span>
+                            </div>
+                            {collaborator.email ? (
+                              <div className="text-sm text-zinc-400">{collaborator.email}</div>
+                            ) : null}
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div className="space-y-3 border-t border-zinc-700/50 bg-zinc-900/40 px-5 py-4">
+                          {collaborator.bio ? (
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-zinc-400">Bio</div>
+                              <p className="text-sm leading-relaxed text-zinc-300">{collaborator.bio}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs italic text-zinc-400">No bio provided.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

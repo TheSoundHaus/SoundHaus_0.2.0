@@ -166,7 +166,7 @@ const Navbar = () => {
                         </button>
 
                         {isOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-80 z-50 glass-card rounded-xl bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 shadow-2xl shadow-black/40 overflow-hidden">
+                            <div className="absolute right-0 top-full mt-2 w-80 z-50 rounded-xl bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 shadow-2xl shadow-black/40 overflow-hidden">
                                 <div className="px-4 py-3 border-b border-zinc-700/50 flex items-center justify-between">
                                     <h3 className="text-sm font-semibold text-zinc-100">Notifications</h3>
                                     <span className="text-xs text-zinc-500">{invitations.length} total</span>
@@ -180,7 +180,7 @@ const Navbar = () => {
                                                 {invitations.map((inv) => (
                                                     <div
                                                         key={inv.id}
-                                                        className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3 transition-all duration-200 hover:bg-white/[0.05]"
+                                                        className="rounded-lg border border-zinc-700 bg-zinc-800 p-3 transition-colors duration-200 hover:bg-zinc-800/80"
                                                     >
                                                         <p className="text-sm text-zinc-200 leading-snug">
                                                             <span className="font-medium text-zinc-100">{inv.owner_username}</span>
@@ -188,7 +188,7 @@ const Navbar = () => {
                                                             <span className="font-medium text-glass-blue-400">{inv.repo_name}</span>
                                                         </p>
                                                         <div className="mt-1.5 flex items-center gap-2">
-                                                            <span className="inline-flex items-center rounded-full bg-zinc-700/60 px-2 py-0.5 text-[10px] font-medium text-zinc-300 uppercase tracking-wide">
+                                                            <span className="inline-flex items-center rounded-full bg-zinc-700 px-2 py-0.5 text-[10px] font-medium text-zinc-300 uppercase tracking-wide">
                                                                 {inv.permission}
                                                             </span>
                                                             <span className="text-[11px] text-zinc-500">{timeAgo(inv.created_at)}</span>

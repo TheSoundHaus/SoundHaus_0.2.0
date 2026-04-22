@@ -2,6 +2,7 @@
 Collaborator endpoints – invite, list, pending invitations, accept, decline, remove.
 """
 
+import re
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -12,12 +13,22 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import get_auth, limiter, resolve_owner_id, user_limiter, verify_token
+from dependencies import (
+    get_auth,
+    limiter,
+    load_repo_data,
+    resolve_owner_id,
+    resolve_owner_invitation_keys,
+    user_limiter,
+    verify_token,
+)
 from fastapi import APIRouter, Depends, HTTPException, Request
 from logging_config import get_logger
 from models.collaborator_requests import InviteCollaboratorRequest
 from models.invitation_models import CollaboratorInvitation
 from models.profile_models import Profile
+from models.repo_models import RepoData
+from models.webhook_models import PushEvent
 from services.gitea_service import GiteaAdminService
 from services.repo_service import RepoService
 
@@ -25,9 +36,83 @@ logger = get_logger(__name__)
 
 router = APIRouter(tags=["collaborators"])
 
+_PUSH_AUTHOR_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
 
 def _norm_email(value: str | None) -> str:
     return (value or "").strip().lower()
+
+
+def _looks_like_uuid(value: str | None) -> bool:
+    return bool(value and _PUSH_AUTHOR_UUID_RE.match(value.strip()))
+
+
+def _load_invitation_repo_data(
+    db: Session, invitation: CollaboratorInvitation
+) -> RepoData | None:
+    owner_id = resolve_owner_id(str(invitation.owner_username), db)
+    repo_id = f"{owner_id}/{invitation.repo_name}"
+    return db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+
+
+def _contributors_from_push_history(db: Session, repo_id: str, owner_id: str) -> list[dict]:
+    """Return distinct public-repo contributors derived from push history."""
+    rows = (
+        db.query(PushEvent.pusher_id, PushEvent.pusher_username)
+        .filter(PushEvent.repo_id == repo_id)
+        .distinct()
+        .all()
+    )
+    contributors: list[dict] = []
+    seen: set[str] = set()
+    for pusher_id, pusher_username in rows:
+        contributor_id = (pusher_id or "").strip()
+        if not contributor_id or contributor_id == str(owner_id) or contributor_id in seen:
+            continue
+        seen.add(contributor_id)
+        profile = db.query(Profile).filter(Profile.id == contributor_id).first()
+        username = (
+            (profile.username.strip() if profile and profile.username else "")
+            or (pusher_username or "").strip()
+        )
+        if not username or _PUSH_AUTHOR_UUID_RE.match(username):
+            username = "SoundHaus user"
+        contributors.append(
+            {
+                "login": contributor_id,
+                "username": username,
+                "email": (profile.email if profile else "") or "",
+                "avatar_url": (profile.avatar_url if profile else "") or "",
+                "bio": None,
+                "permission": "contributor",
+            }
+        )
+    return contributors
+
+
+def _invitation_repo_is_public(db: Session, invitation: CollaboratorInvitation) -> bool:
+    row = _load_invitation_repo_data(db, invitation)
+    if not row:
+        return False
+
+    if not row.is_public:
+        return False
+
+    repo_service = RepoService()
+    repo_result = repo_service.get_repo(str(row.owner_id), invitation.repo_name)
+    if not repo_result.get("success"):
+        return bool(row.is_public)
+
+    repo_obj = repo_result.get("repo", {})
+    actual_is_public = not bool(repo_obj.get("private", False))
+    if actual_is_public != bool(row.is_public):
+        row.is_public = actual_is_public
+        db.commit()
+        db.refresh(row)
+    return actual_is_public
 
 
 # ── Invite ───────────────────────────────────────────────────────────────────
@@ -55,8 +140,11 @@ async def invite_collaborator(
         user_id = str(user_res["user"]["id"])
         email = user_res["user"].get("email") or ""
 
-        owner_gitea = str(resolve_owner_id(owner, db))
+        repo_row = load_repo_data(owner, repo_name, db)
+        if not repo_row:
+            return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
 
+        owner_gitea = str(repo_row.owner_id)
         if owner_gitea != user_id:
             return JSONResponse(
                 {"success": False, "message": "Only the repository owner can send invitations"},
@@ -67,6 +155,18 @@ async def invite_collaborator(
         repo_check = repo_service.get_repo(owner_gitea, repo_name)
         if not repo_check.get("success"):
             return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
+
+        if repo_row.is_public and _invitation_repo_is_public(
+            db,
+            CollaboratorInvitation(owner_username=owner_gitea, repo_name=repo_name),
+        ):
+            return JSONResponse(
+                {
+                    "success": False,
+                    "message": "Invitations are not available for public repositories",
+                },
+                status_code=403,
+            )
 
         invitee_email = _norm_email(body.email)
         permission = body.permission
@@ -149,7 +249,11 @@ async def get_collaboration_status(
 
         user_id = str(user_res["user"]["id"])
         email = user_res["user"]["email"]
-        owner_gitea = str(resolve_owner_id(owner, db))
+        repo_row = load_repo_data(owner, repo_name, db)
+        if not repo_row:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        owner_gitea = str(repo_row.owner_id)
+        owner_keys = tuple(resolve_owner_invitation_keys(owner_gitea, db))
 
         # Check if user is already a collaborator via Gitea
         repo_service = RepoService()
@@ -159,13 +263,16 @@ async def get_collaboration_status(
                 if c.get("login") == user_id:
                     return {"success": True, "status": "collaborator"}
 
+        if repo_row.is_public:
+            return {"success": True, "status": "none"}
+
         # Check for pending invitation
         invitation = (
             db.query(CollaboratorInvitation)
             .filter(
-                CollaboratorInvitation.invitee_email == email,
+                sql_func.lower(CollaboratorInvitation.invitee_email) == _norm_email(email),
                 CollaboratorInvitation.repo_name == repo_name,
-                CollaboratorInvitation.owner_username == owner_gitea,
+                CollaboratorInvitation.owner_username.in_(owner_keys),
                 CollaboratorInvitation.status == "pending",
                 CollaboratorInvitation.expires_at > datetime.now(UTC),
             )
@@ -201,6 +308,14 @@ async def list_collaborators(
         return JSONResponse({"success": False}, status_code=401)
 
     owner_id = resolve_owner_id(owner, db)
+    repo_row = load_repo_data(owner, repo_name, db)
+    if not repo_row:
+        return JSONResponse({"success": False, "message": "Repository not found"}, status_code=404)
+
+    if repo_row.is_public:
+        collaborators = _contributors_from_push_history(db, repo_row.gitea_id, str(repo_row.owner_id))
+        return {"success": True, "collaborators": collaborators}
+
     repo_service = RepoService()
     result = repo_service.list_collaborators(owner_id, repo_name, db)
 
@@ -239,10 +354,16 @@ async def get_pending_invitations(
         )
 
         # Collect unique owner identifiers and resolve to human-readable usernames
-        owner_ids = {inv.owner_username for inv in invitations}
-        profiles = db.query(Profile).filter(Profile.id.in_(owner_ids)).all()
-        # Also check by username in case some are already stored as username
-        profiles += db.query(Profile).filter(Profile.username.in_(owner_ids)).all()
+        owner_ids = {str(inv.owner_username).strip() for inv in invitations if inv.owner_username}
+        owner_uuid_ids = [owner_id for owner_id in owner_ids if _looks_like_uuid(owner_id)]
+        owner_usernames = [owner_id for owner_id in owner_ids if not _looks_like_uuid(owner_id)]
+
+        profiles: list[Profile] = []
+        if owner_uuid_ids:
+            profiles.extend(db.query(Profile).filter(Profile.id.in_(owner_uuid_ids)).all())
+        if owner_usernames:
+            profiles.extend(db.query(Profile).filter(Profile.username.in_(owner_usernames)).all())
+
         id_to_username = {}
         for p in profiles:
             id_to_username[p.id] = p.username
@@ -259,6 +380,7 @@ async def get_pending_invitations(
                 "expires_at": inv.expires_at.isoformat(),
             }
             for inv in invitations
+            if not _invitation_repo_is_public(db, inv)
         ]
 
         return {"success": True, "invitations": invitation_list}
@@ -298,6 +420,9 @@ async def accept_invitation(
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")
 
+        if _invitation_repo_is_public(db, invitation):
+            raise HTTPException(status_code=400, detail="Invalid invitation")
+
         if _norm_email(invitation.invitee_email) != email:
             raise HTTPException(status_code=403, detail="This invitation is not for you")
 
@@ -306,6 +431,10 @@ async def accept_invitation(
 
         if invitation.expires_at < datetime.now(UTC):
             raise HTTPException(status_code=400, detail="Invitation has expired")
+
+        repo_row = _load_invitation_repo_data(db, invitation)
+        if not repo_row:
+            raise HTTPException(status_code=404, detail="This repository is no longer available")
 
         # Ensure invitee has a Gitea account — login may be Profile.username or legacy Supabase UUID
         gitea = GiteaAdminService()
@@ -337,29 +466,44 @@ async def accept_invitation(
                     raise HTTPException(status_code=500, detail="Failed to provision Git account")
                 logger.info("accept_invitation", action="create_gitea_user", status="already_exists", username=invitee_username)
 
-        # Add collaborator to repository
-        # Gitea repos are keyed by the owner's Supabase UUID, not display username.
-        # Resolve the owner's UUID from the stored owner_username or owner_email.
-        owner_profile = (
-            db.query(Profile)
-            .filter(
-                (Profile.username == invitation.owner_username)
-                | (Profile.id == invitation.owner_username)
-            )
-            .first()
-        )
-        if not owner_profile:
-            raise HTTPException(status_code=500, detail="Could not resolve repo owner")
-
         repo_service = RepoService()
+        repo_owner_id = str(repo_row.owner_id)
+        invitee_keys = {user_id, invitee_username}
+        if invitee_profile and invitee_profile.username:
+            invitee_keys.add(invitee_profile.username.strip())
+
+        collab_result = repo_service.list_collaborators(repo_owner_id, invitation.repo_name, db)
+        if collab_result.get("success"):
+            for collaborator in collab_result.get("collaborators", []):
+                login = (collaborator.get("login") or "").strip()
+                username = (collaborator.get("username") or "").strip()
+                if login in invitee_keys or username in invitee_keys:
+                    invitation.status = "accepted"
+                    invitation.responded_at = datetime.now(UTC)
+                    db.commit()
+                    return {
+                        "success": True,
+                        "message": f"You already have access to {invitation.repo_name}",
+                    }
+
         result = repo_service.add_collaborator(
-            owner_profile.id,  # UUID — the Gitea repo namespace
+            repo_owner_id,
             invitation.repo_name,
             invitee_username,
             invitation.permission,
         )
 
         if not result.get("success"):
+            message = result.get("message") or "Unknown collaborator error"
+            message_lower = message.lower()
+            if "already" in message_lower and "collaborator" in message_lower:
+                invitation.status = "accepted"
+                invitation.responded_at = datetime.now(UTC)
+                db.commit()
+                return {
+                    "success": True,
+                    "message": f"You already have access to {invitation.repo_name}",
+                }
             raise HTTPException(status_code=400, detail=f"Failed to add collaborator: {result.get('message')}")
 
         invitation.status = "accepted"
@@ -433,19 +577,33 @@ async def get_repo_invitations(
         if not user_res.get("success"):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-        user_id = user_res["user"]["id"]
-        owner_id = resolve_owner_id(owner, db)
-        if str(user_id) != str(owner_id):
+        user_id = str(user_res["user"]["id"])
+        repo_row = load_repo_data(owner, repo_name, db)
+        if not repo_row:
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        owner_id = str(repo_row.owner_id)
+        owner_keys = tuple(resolve_owner_invitation_keys(owner_id, db))
+        if user_id != owner_id:
             raise HTTPException(
                 status_code=403,
                 detail="Only the repository owner can list invitations for this repo",
+            )
+
+        if repo_row.is_public and _invitation_repo_is_public(
+            db,
+            CollaboratorInvitation(owner_username=owner_id, repo_name=repo_name),
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Invitations are not available for public repositories",
             )
 
         invitations = (
             db.query(CollaboratorInvitation)
             .filter(
                 CollaboratorInvitation.repo_name == repo_name,
-                CollaboratorInvitation.owner_username == owner_id,
+                CollaboratorInvitation.owner_username.in_(owner_keys),
             )
             .order_by(CollaboratorInvitation.created_at.desc())
             .all()
@@ -489,10 +647,11 @@ async def get_sent_invitations(
             raise HTTPException(status_code=401, detail="Unauthorized")
 
         user_id = user_res["user"]["id"]
+        owner_keys = tuple(resolve_owner_invitation_keys(str(user_id), db))
 
         invitations = (
             db.query(CollaboratorInvitation)
-            .filter(CollaboratorInvitation.owner_username == user_id)
+            .filter(CollaboratorInvitation.owner_username.in_(owner_keys))
             .order_by(CollaboratorInvitation.created_at.desc())
             .all()
         )
@@ -511,6 +670,7 @@ async def get_sent_invitations(
                     "responded_at": inv.responded_at.isoformat() if inv.responded_at else None,
                 }
                 for inv in invitations
+                if not _invitation_repo_is_public(db, inv)
             ],
         }
     except HTTPException:
@@ -537,6 +697,7 @@ async def cancel_invitation(
             raise HTTPException(status_code=401, detail="Unauthorized")
 
         user_id = user_res["user"]["id"]
+        owner_keys = resolve_owner_invitation_keys(str(user_id), db)
 
         invitation = db.query(CollaboratorInvitation).filter(
             CollaboratorInvitation.id == invitation_id
@@ -545,8 +706,11 @@ async def cancel_invitation(
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")
 
-        if invitation.owner_username != user_id:
+        if invitation.owner_username not in owner_keys:
             raise HTTPException(status_code=403, detail="Only the repo owner can cancel invitations")
+
+        if _invitation_repo_is_public(db, invitation):
+            raise HTTPException(status_code=403, detail="Invitations are not available for public repositories")
 
         if invitation.status != "pending":
             raise HTTPException(status_code=400, detail=f"Cannot cancel — invitation already {invitation.status}")
