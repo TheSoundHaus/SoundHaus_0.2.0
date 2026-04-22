@@ -4,9 +4,8 @@ import { getRepoActivity, getRepoEvents } from "@/lib/api/webhooks";
 import { getSnippetMetadata } from "@/lib/api/snippets";
 import { getAllGenres } from "@/lib/api/genre";
 import { getCommits } from "@/lib/api/commits";
-import { getLatestStems } from "@/lib/api/stems";
 import { getPublicProfile } from "@/lib/api/profile";
-import type { RepoStats, RepoActivity, RepoEvents, Snippet, Genre, SnippetVersion } from "@/lib/types/api";
+import type { RepoStats, RepoActivity, RepoEvents, Snippet, Genre } from "@/lib/types/api";
 import type { CommitListResponse } from "@/lib/api/commits";
 
 interface Params {
@@ -22,14 +21,13 @@ export default async function RepositoryPage({
   const { owner, repo } = await params;
 
   // Fetch all data in parallel (commits included)
-  const [statsRes, activityRes, eventsRes, snippetRes, genresRes, commitsRes, stemsRes, ownerProfileRes] = await Promise.all([
+  const [statsRes, activityRes, eventsRes, snippetRes, genresRes, commitsRes, ownerProfileRes] = await Promise.all([
     getRepoStats(owner, repo),
     getRepoActivity(owner, repo),
     getRepoEvents(owner, repo),
     getSnippetMetadata(owner, repo),
     getAllGenres(),
     getCommits(owner, repo, 1, 20),
-    getLatestStems(owner, repo),
     getPublicProfile(owner),
   ]);
 
@@ -39,9 +37,6 @@ export default async function RepositoryPage({
   const snippet: Snippet | null = snippetRes.success ? snippetRes.data.snippet : null;
   const allGenres: Genre[] = genresRes.success ? genresRes.data : [];
   const commitData: CommitListResponse | null = commitsRes.success ? commitsRes.data : null;
-  const initialStems: SnippetVersion | null = stemsRes.success && stemsRes.data?.snippet_version
-    ? stemsRes.data.snippet_version
-    : null;
   const ownerProfile = ownerProfileRes.success ? ownerProfileRes.data : null;
 
   return (
@@ -54,7 +49,6 @@ export default async function RepositoryPage({
       snippet={snippet}
       allGenres={allGenres}
       initialCommits={commitData}
-      initialStems={initialStems}
       ownerYoutube={ownerProfile?.social_youtube ?? null}
       ownerSpotify={ownerProfile?.social_spotify ?? null}
     />

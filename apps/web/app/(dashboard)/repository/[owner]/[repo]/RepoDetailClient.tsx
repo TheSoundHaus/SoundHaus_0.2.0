@@ -33,7 +33,6 @@ import {
 import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
 import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
 import SnippetUploader from "@/components/SnippetUploader";
-import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import ThumbnailSettings from "@/components/ThumbnailSettings";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
@@ -60,7 +59,6 @@ import type {
   SentInvitation,
   Collaborator,
   UserSearchResult,
-  SnippetVersion,
   SnippetComment,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData, DiffStatus } from "@/lib/api/commits";
@@ -74,7 +72,6 @@ interface RepoDetailClientProps {
   snippet: Snippet | null;
   allGenres: Genre[];
   initialCommits: CommitListResponse | null;
-  initialStems: SnippetVersion | null;
   ownerYoutube: string | null;
   ownerSpotify: string | null;
 }
@@ -88,7 +85,6 @@ export default function RepoDetailClient({
   snippet,
   allGenres,
   initialCommits,
-  initialStems,
   ownerYoutube,
   ownerSpotify,
 }: RepoDetailClientProps) {
@@ -1351,14 +1347,16 @@ export default function RepoDetailClient({
             </div>
           )}
 
-          {/* Invite Collaborators Section — owner or admin collab, private repos only */}
-          {canEdit && !isPrivate && (
+          {/* Public-repo explainer — collaborator list is derived from push history */}
+          {!isPrivate && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
-                <Users size={18} /> Public Repository
+                <Users size={18} /> Public Project
               </h2>
               <p className="text-sm text-zinc-400">
-                Invitations are only available for private repositories. For public projects, collaborators should fork the repository to contribute.
+                This project is public. The collaborator list below is built from contributors
+                who have actually pushed commits — there&apos;s no invite flow to manage.
+                To contribute, click <span className="text-glass-blue">Remix</span> to fork the project.
               </p>
             </div>
           )}
@@ -1529,12 +1527,18 @@ export default function RepoDetailClient({
                               <span className="text-base font-bold text-white">{c.username}</span>
                               <span
                                 className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                                  c.permission === "admin"
+                                  c.permission === "owner"
+                                    ? "bg-violet-500/10 text-violet-400 border border-violet-500/30"
+                                    : c.permission === "admin"
                                     ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
                                     : "bg-glass-cyan-500/10 text-glass-cyan-500 border border-glass-cyan-500/30"
                                 }`}
                               >
-                                {c.permission === "admin" ? "Admin" : "Contributor"}
+                                {c.permission === "owner"
+                                  ? "Owner"
+                                  : c.permission === "admin"
+                                  ? "Admin"
+                                  : "Contributor"}
                               </span>
                             </div>
                             <div className="text-sm text-zinc-400">{c.username || c.email || ""}</div>
@@ -1544,13 +1548,15 @@ export default function RepoDetailClient({
                             className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                           />
                         </button>
-                        <button
-                          onClick={() => handleRemoveCollaborator(c.login)}
-                          disabled={isPending}
-                          className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
-                        >
-                          <UserMinus size={11} /> Remove
-                        </button>
+                        {canEdit && isPrivate && c.permission !== "owner" && (
+                          <button
+                            onClick={() => handleRemoveCollaborator(c.login)}
+                            disabled={isPending}
+                            className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                          >
+                            <UserMinus size={11} /> Remove
+                          </button>
+                        )}
                       </div>
 
                       {/* Expanded dropdown */}
@@ -1573,8 +1579,8 @@ export default function RepoDetailClient({
             )}
           </div>
 
-          {/* Invitation History (accepted/declined/expired) */}
-          {repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
+          {/* Invitation History (accepted/declined/expired) — private repos only */}
+          {canEdit && isPrivate && repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="mb-4 text-xl font-semibold">Invitation History</h2>
               <div className="space-y-3">
@@ -1922,7 +1928,7 @@ export default function RepoDetailClient({
               )}
             </div>
 
-            {/* 4. Snippet History → 5. Stem Separation (middleContent) → 6. Replace Snippet drop zone */}
+            {/* Snippet History + Replace Snippet drop zone */}
             <SnippetUploader
               owner={owner}
               repo={repo}
@@ -1942,14 +1948,6 @@ export default function RepoDetailClient({
                 setCurrentSnippetUrl(newUrl);
                 router.refresh();
               }}
-              middleContent={
-                <StemPlayer
-                  owner={owner}
-                  repo={repo}
-                  snippetUrl={currentSnippetUrl}
-                  initialStems={initialStems}
-                />
-              }
             />
 
             {/* 6. Delete project — owner only */}

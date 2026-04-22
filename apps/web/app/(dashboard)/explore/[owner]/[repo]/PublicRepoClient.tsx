@@ -67,8 +67,9 @@ export default function PublicRepoClient({
   initialCommits,
   readme,
 }: Props) {
-  type TabKey = "overview" | "commits" | "events";
+  type TabKey = "overview" | "commits" | "collaborators" | "events";
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
   const router = useRouter();
   const { user } = useUser();
 
@@ -182,7 +183,7 @@ export default function PublicRepoClient({
 
   // Load collaborators on tab switch
   useEffect(() => {
-    if (activeTab === "overview") {
+    if (activeTab === "overview" || activeTab === "collaborators") {
       setCollabLoading(true);
       listCollaborators(owner, repo).then((res) => {
         if (res.success) setCollaborators(res.data ?? []);
@@ -252,6 +253,7 @@ export default function PublicRepoClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
+    { key: "collaborators" as const, label: "Collaborators", icon: Users },
     { key: "events" as const, label: "Timeline", icon: Activity },
   ];
 
@@ -817,6 +819,94 @@ export default function PublicRepoClient({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Collaborators Tab (read-only, public repo) ─────────────── */}
+      {activeTab === "collaborators" && (
+        <div className="space-y-6">
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
+              <Users size={18} /> Public Project
+            </h2>
+            <p className="text-sm text-zinc-400">
+              This project is public. The collaborator list below is built from contributors
+              who have actually pushed commits — there&apos;s no invite flow to manage.
+              To contribute, click <span className="text-glass-blue">Remix</span> to fork the project.
+            </p>
+          </div>
+
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+              <Users size={18} /> Contributors
+            </h2>
+            {collabLoading ? (
+              <p className="text-sm text-zinc-400">Loading…</p>
+            ) : collaborators.length === 0 ? (
+              <p className="text-sm text-zinc-400">No contributors yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {collaborators.map((c) => {
+                  const isExpanded = expandedCollab === c.login;
+                  const profileSlug = encodeURIComponent(c.username || c.login);
+                  return (
+                    <div
+                      key={c.login}
+                      className="rounded-md border border-zinc-700/50 bg-zinc-800/30 overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCollab(isExpanded ? null : c.login)}
+                          className="flex items-center gap-3 text-left group flex-1"
+                        >
+                          <UserAvatar src={c.avatar_url} alt={c.username || c.login} name={c.username || c.login} size={40} />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-bold text-white">{c.username || c.login}</span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  c.permission === "owner"
+                                    ? "bg-violet-500/10 text-violet-400 border border-violet-500/30"
+                                    : "bg-glass-cyan-500/10 text-glass-cyan-500 border border-glass-cyan-500/30"
+                                }`}
+                              >
+                                {c.permission === "owner" ? "Owner" : "Contributor"}
+                              </span>
+                            </div>
+                            <div className="text-sm text-zinc-400">{c.username || c.email || ""}</div>
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        <Link
+                          href={`/profile/${profileSlug}`}
+                          className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-blue hover:text-glass-blue"
+                        >
+                          <User size={11} /> Profile
+                        </Link>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="border-t border-zinc-700/50 bg-zinc-900/40 px-5 py-4 space-y-3">
+                          {c.bio ? (
+                            <div>
+                              <div className="text-xs font-medium text-zinc-400 mb-1">Bio</div>
+                              <p className="text-sm text-zinc-300 leading-relaxed">{c.bio}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-zinc-400 italic">No bio provided.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -105,7 +105,6 @@ def setup_db():
     import models.commit_models   # noqa: F401
     import models.diff_models     # noqa: F401
     import models.snippet_models  # noqa: F401
-    import models.stem_models     # noqa: F401
 
     Base.metadata.create_all(bind=test_engine)
     yield

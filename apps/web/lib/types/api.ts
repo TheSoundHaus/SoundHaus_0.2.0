@@ -174,7 +174,10 @@ export interface Collaborator {
   email: string;
   avatar_url: string;
   bio: string | null;
-  permission: "admin" | "write" | "read";  // role on the project
+  // Role on the project:
+  //   - "admin" / "write" / "read" on private repos (from Gitea ACL)
+  //   - "owner" / "contributor" on public repos (derived from push history)
+  permission: "admin" | "write" | "read" | "owner" | "contributor";
 }
 
 // User search result (from GET /users/search)
@@ -234,53 +237,6 @@ export interface RepoEvents {
   repo: string;
   count: number;
   events: RepoEvent[];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEMS
-// Matches the stem separation pipeline (Demucs)
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type StemJobStatus = "queued" | "processing" | "succeeded" | "failed";
-export type StemType = "vocals" | "drums" | "bass" | "other";
-
-/** Individual stem file returned by the API */
-export interface StemFile {
-  id: number;
-  stem_type: StemType;
-  public_url: string;
-  duration_seconds: number | null;
-  file_size_bytes: number | null;
-  format: string;
-  created_at: string;
-}
-
-/** A single stem-generation run (SnippetVersion) */
-export interface SnippetVersion {
-  id: number;
-  repo_gitea_id: string;
-  source_upload_url: string;
-  commit_sha: string | null;
-  status: StemJobStatus;
-  error_message: string | null;
-  is_confirmed: boolean;
-  created_at: string;
-  demucs_model_version: string;
-  stem_files: StemFile[];
-}
-
-/** POST /repos/{owner}/{repo}/stems/jobs — create job */
-export interface StemJobStatusResponse {
-  job_id: number;
-  status: StemJobStatus;
-  error_message: string | null;
-  progress_percent: number | null;
-}
-
-/** GET /repos/{owner}/{repo}/stems/latest */
-export interface StemsLatestResponse {
-  snippet_version: SnippetVersion | null;
-  has_stems: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
