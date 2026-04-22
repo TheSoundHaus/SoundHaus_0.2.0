@@ -2,6 +2,9 @@ import { exec } from 'dugite';
 import * as semanticDiffer from 'semantic-differ';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ensureGiteaGitCredentialsApproved } from './giteaGitAuth';
+
+const noGitPromptEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 
 /** Calls native merge when the rebuilt `.node` includes `mergeAlsFiles` (see native/semantic-diff). */
 async function mergeAlsFilesSafe(localPath: string, remotePath: string): Promise<Buffer> {
@@ -172,6 +175,7 @@ function explainRebaseFailure(stderr: string): string {
  */
 async function rebase(repoPath: string): Promise<RebaseResult> {
   await ensureCleanGitState(repoPath);
+  await ensureGiteaGitCredentialsApproved(repoPath);
 
   const alsAbsPath = await findAlsFile(repoPath);
   let hasBackup = false;
@@ -239,7 +243,9 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
 
     // 3rd try: ask the remote what its default branch is via ls-remote
     if (!remoteBranch) {
-      const lsRemote = await exec(['ls-remote', '--symref', 'origin', 'HEAD'], repoPath);
+      const lsRemote = await exec(['ls-remote', '--symref', 'origin', 'HEAD'], repoPath, {
+        env: noGitPromptEnv,
+      });
       if (lsRemote.exitCode === 0 && lsRemote.stdout) {
         const symMatch = lsRemote.stdout.match(/ref:\s+refs\/heads\/(\S+)/);
         if (symMatch) {
@@ -250,7 +256,9 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
 
     // 4th try: pick the first branch listed on the remote
     if (!remoteBranch) {
-      const lsHeads = await exec(['ls-remote', '--heads', 'origin'], repoPath);
+      const lsHeads = await exec(['ls-remote', '--heads', 'origin'], repoPath, {
+        env: noGitPromptEnv,
+      });
       if (lsHeads.exitCode === 0 && lsHeads.stdout.trim()) {
         const firstRef = lsHeads.stdout.trim().split('\n')[0];
         const refMatch = firstRef.match(/refs\/heads\/(\S+)/);
@@ -270,7 +278,9 @@ async function rebase(repoPath: string): Promise<RebaseResult> {
 
     // Fetch
     console.log(`[Rebase] Starting fetch from ${remoteBranch} in ${repoPath}`);
-    const fetchResult = await exec(['fetch', 'origin', branchName], repoPath);
+    const fetchResult = await exec(['fetch', 'origin', branchName], repoPath, {
+      env: noGitPromptEnv,
+    });
     if (fetchResult.exitCode !== 0) {
       console.error(`[Rebase] Fetch failed: ${fetchResult.stderr}`);
       throw new Error(`Fetch failed: ${fetchResult.stderr}`);
