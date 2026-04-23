@@ -1,5 +1,6 @@
 import PublicRepoClient from "./PublicRepoClient";
 
+import { notFound } from "next/navigation";
 import { getRepoStats } from "@/lib/api/repos";
 import { getRepoActivity, getRepoEvents } from "@/lib/api/webhooks";
 import { getSnippetMetadata } from "@/lib/api/snippets";
@@ -30,6 +31,7 @@ export default async function PublicRepoPage({
   ]);
 
   const stats: RepoStats | null = statsRes.success ? statsRes.data : null;
+  if (!stats) notFound();
   const activity: RepoActivity | null = activityRes.success ? activityRes.data : null;
   const events: RepoEvents | null = eventsRes.success ? eventsRes.data : null;
   const snippet: Snippet | null = snippetRes.success ? snippetRes.data.snippet : null;

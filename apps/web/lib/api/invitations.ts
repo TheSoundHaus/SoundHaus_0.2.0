@@ -30,9 +30,11 @@ export async function declineInvitation(invitationId: string): Promise<ApiRespon
     return { success: true, data: result.data };
 }
 
-// GET /repos/{repo_name}/invitations — list all invitations sent by owner for a repo
-export async function getRepoInvitations(repoName: string): Promise<ApiResponse<SentInvitation[]>> {
-    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${repoName}/invitations`);
+// GET /repos/{owner}/{repo_name}/invitations — list all invitations sent by owner for a repo
+export async function getRepoInvitations(owner: string, repoName: string): Promise<ApiResponse<SentInvitation[]>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
+    const result = await authFetch<{ invitations: SentInvitation[] }>(`/repos/${o}/${r}/invitations`);
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data?.invitations ?? [] };
 }
@@ -104,4 +106,29 @@ export async function searchUsers(query: string): Promise<ApiResponse<UserSearch
     const result = await authFetch<{ users: UserSearchResult[] }>(`/users/search?q=${encodeURIComponent(query)}`);
     if (!result.success) return { success: false, error: result.error };
     return { success: true, data: result.data?.users ?? [] };
+}
+
+// GET /repos/{owner}/{repo_name}/collaboration-status — check current user's collab status
+export type CollabStatus = "collaborator" | "pending" | "none";
+export interface CollabStatusResponse {
+    status: CollabStatus;
+    invitation_id?: string;
+}
+export async function getCollaborationStatus(
+    owner: string,
+    repoName: string,
+): Promise<ApiResponse<CollabStatusResponse>> {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repoName);
+    const result = await authFetch<CollabStatusResponse & { success: boolean }>(
+        `/repos/${o}/${r}/collaboration-status`,
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return {
+        success: true,
+        data: {
+            status: result.data?.status ?? "none",
+            invitation_id: result.data?.invitation_id,
+        },
+    };
 }

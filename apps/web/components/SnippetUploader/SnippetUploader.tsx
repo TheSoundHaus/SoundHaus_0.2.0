@@ -22,8 +22,8 @@ const ALLOWED_TYPES = new Set([
 
 const ALLOWED_EXTENSIONS = [".mp3", ".wav", ".flac", ".aiff", ".aif", ".ogg", ".m4a"];
 
-/** Max snippet duration in seconds — files longer than this are rejected with a message.
- *  30s keeps AI stem-separation (Demucs) fast and responsive. */
+/** Max snippet duration in seconds — files longer than this are rejected
+ *  with a message; mirrors backend MAX_SNIPPET_DURATION. */
 const MAX_DURATION_SECONDS = 30;
 
 /** 10 MB — matches backend MAX_AUDIO_SNIPPET_SIZE */
@@ -39,8 +39,6 @@ interface SnippetUploaderProps {
     /** Called after successful upload or delete so parent can refresh.
      *  Receives the new snippet URL on upload, or null on delete. */
     onUpdate?: (newUrl: string | null) => void;
-    /** Optional content rendered between the snippet display and the drop zone */
-    middleContent?: React.ReactNode;
 }
 
 /**
@@ -58,7 +56,6 @@ export default function SnippetUploader({
     existingUrl,
     existingMetadata,
     onUpdate,
-    middleContent,
 }: SnippetUploaderProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [isPending, startTransition] = useTransition();
@@ -264,8 +261,8 @@ export default function SnippetUploader({
                 {formatBytes(MAX_FILE_SIZE)}).
             </p>
             <p className="text-xs text-amber-400/80">
-                Snippets are limited to {MAX_DURATION_SECONDS}s for AI stem separation.
-                Longer files will be automatically trimmed.
+                Snippets are limited to {MAX_DURATION_SECONDS}s — longer files will be
+                automatically trimmed.
             </p>
 
             {/* Existing snippet player + delete */}
@@ -302,9 +299,6 @@ export default function SnippetUploader({
                     <AudioPlayer src={snippetUrl} />
                 </div>
             )}
-
-            {/* Middle content slot (e.g. StemPlayer) */}
-            {middleContent}
 
             {/* Trim picker — shown when user drops a file longer than max */}
             {trimmerFile && (

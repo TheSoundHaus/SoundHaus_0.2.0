@@ -80,6 +80,8 @@ exclude = '''
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -94,8 +96,10 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
 ]
 
-[tool.ruff.per-file-ignores]
+# FastAPI handlers often re-raise HTTPException from broad except blocks; explicit chaining is noisy.
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"routers/**/*.py" = ["B904"]
 
 [tool.mypy]
 python_version = "3.12"

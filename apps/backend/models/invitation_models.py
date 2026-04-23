@@ -4,6 +4,23 @@ from database import Base
 import uuid
 
 
+class CollaborationRequest(Base):
+    """Someone asked to collaborate; owner can invite or dismiss."""
+
+    __tablename__ = "collaboration_requests"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id = Column(String, nullable=False, index=True)
+    repo_name = Column(String, nullable=False, index=True)
+    requester_id = Column(String, nullable=False)
+    requester_email = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    def __repr__(self):
+        return f"<CollaborationRequest id={self.id} repo={self.owner_id}/{self.repo_name}>"
+
+
 class CollaboratorInvitation(Base):
     __tablename__ = "collaborator_invitations"
 

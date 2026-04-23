@@ -2,19 +2,38 @@
 Audio snippet endpoints – upload, stream/redirect, metadata, delete.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from database import get_db
 from config import settings
-from dependencies import limiter, verify_token, get_auth, MAX_AUDIO_SNIPPET_SIZE, format_bytes, resolve_owner_id
+from database import get_db
+from dependencies import (
+    MAX_AUDIO_SNIPPET_SIZE,
+    format_bytes,
+    get_auth,
+    limiter,
+    require_repo_access,
+    resolve_owner_id,
+    verify_token,
+)
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from logging_config import get_logger
 from models.repo_models import RepoData
 
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["snippets"])
+
+async def _optional_caller(request: Request):
+    authz = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not authz or not authz.startswith("Bearer "):
+        return None, None
+    token = authz.replace("Bearer ", "", 1).strip()
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        return None, None
+    user = user_res.get("user", {}) or {}
+    return user.get("id"), user.get("email")
 
 
 # ── Upload ───────────────────────────────────────────────────────────────────
@@ -86,7 +105,7 @@ async def upload_audio_snippet(
             content_type=file.content_type,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     repo_data.audio_snippet = result["url"]
     repo_data.snippet_duration = result.get("duration")
@@ -121,11 +140,15 @@ async def upload_audio_snippet(
 
 @router.get("/repos/{owner}/{repo}/snippet")
 async def get_repo_snippet(
+    request: Request,
     owner: str,
     repo: str,
     db: Session = Depends(get_db),
 ):
     """Redirect to the Supabase CDN URL for the audio snippet (public)."""
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
@@ -141,11 +164,15 @@ async def get_repo_snippet(
 
 @router.get("/repos/{owner}/{repo}/snippet/metadata")
 async def get_repo_snippet_metadata(
+    request: Request,
     owner: str,
     repo: str,
     db: Session = Depends(get_db),
 ):
     """Get metadata for a repo's audio snippet (public)."""
+    caller_id, caller_email = await _optional_caller(request)
+    require_repo_access(owner, repo, caller_id, caller_email, db)
+
     owner = resolve_owner_id(owner, db)
     repo_id = f"{owner}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
