@@ -10,18 +10,17 @@ interface CloneModalProps {
   onClose: () => void;
 }
 
-export default function CloneModal({ owner, repo, onClose }: CloneModalProps) {
+export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModalProps) {
   const [copied, setCopied] = useState(false);
   const [showContent, setShowContent] = useState(false);
-  const [soundhausLink, setSoundhausLink] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setSoundhausLink(
-      `${window.location.origin}/clone/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-    );
-  }, [owner, repo]);
+  // Prefer the backend-provided clone URL; fall back to constructing from NEXT_PUBLIC_GITEA_URL
+  const soundhausLink = cloneUrl || (() => {
+    const giteaBase = process.env.NEXT_PUBLIC_GITEA_URL || "https://git.thesound.haus";
+    return `${giteaBase}/${owner}/${repo}.git`;
+  })();
 
   useEffect(() => {
     const id = setTimeout(() => setShowContent(true), 80);
