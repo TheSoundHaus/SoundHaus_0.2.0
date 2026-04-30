@@ -23,6 +23,7 @@ from middlewares.security_headers import SecurityHeadersMiddleware
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 from routers import (
+    admin,
     audio,
     auth,
     collaborators,
@@ -130,3 +131,4 @@ app.include_router(commits.router)      # /repos/*/commits/*  ,  /repos/*/diff
 app.include_router(audio.router)        # /repos/*/audio/waveform
 app.include_router(reviews.router)      # /repos/*/reviews/*  ,  /repos/*/collaborators/promote
 app.include_router(dashboard.router)    # /api/dashboard/*  ,  /api/feed/*
+app.include_router(admin.router)        # /admin/*  (X-Admin-Token guarded)

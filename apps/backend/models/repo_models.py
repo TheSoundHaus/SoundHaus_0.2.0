@@ -66,10 +66,17 @@ class RepoData(Base):
     is_public = Column(Boolean, default=True, nullable=False)
 
     # If this repo is a fork, stores the source repo's gitea_id (e.g. "uuid/repo-name")
-    forked_from = Column(String(255), nullable=True, default=None)
+    forked_from = Column(String(255), nullable=True, default=None, index=True)
+
+    # Total number of forks of this repo (incremented on POST /repos/{o}/{r}/fork)
+    fork_count = Column(Integer, default=0, nullable=False)
 
     # Whether this repo is open to collaboration requests from non-collaborators
     open_to_collab = Column(Boolean, default=False, nullable=False)
+
+    # Pre-computed Explore ranking score (updated every ~15 min by
+    # /admin/recompute-explore-scores). Higher = ranks better under sort=trending.
+    explore_score = Column(Float, default=0.0, nullable=False, index=True)
     
     # Relationship: One repo has many clone events
     # cascade="all, delete-orphan" means when repo is deleted, all clone events are too

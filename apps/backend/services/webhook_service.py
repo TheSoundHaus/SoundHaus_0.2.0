@@ -190,10 +190,47 @@ class WebhookService:
                      commit_count=len(commits),
                      pusher=pusher_username)
 
-        # Create PushEvent record (only if repo exists in our DB - FK constraint)
+        # Create PushEvent record. RepoData must exist (FK constraint on PushEvent.repo_id).
+        # If the desktop app pushed before calling /repos/register (race window),
+        # auto-create a minimal RepoData row so the push is captured rather than dropped.
         repo_data = db.query(RepoData).filter(
             RepoData.gitea_id == repo_full_name
         ).first()
+
+        if not repo_data:
+            owner_login = (
+                payload.get("repository", {}).get("owner", {}).get("login")
+                or payload.get("repository", {}).get("owner", {}).get("username")
+                or repo_full_name.partition("/")[0]
+            )
+            repo_is_public = not bool(payload.get("repository", {}).get("private", True))
+            try:
+                repo_data = RepoData(
+                    gitea_id=repo_full_name,
+                    owner_id=owner_login,
+                    audio_snippet=None,
+                    clone_count=0,
+                    is_public=repo_is_public,
+                )
+                db.add(repo_data)
+                db.flush()
+                logger.info(
+                    "webhook_repo_data_autocreated",
+                    repo=repo_full_name,
+                    owner_id=owner_login,
+                    reason="push_before_register",
+                )
+            except Exception as e:
+                # Race or constraint violation — re-fetch and continue
+                db.rollback()
+                logger.warning(
+                    "webhook_repo_autocreate_failed",
+                    repo=repo_full_name,
+                    error=str(e),
+                )
+                repo_data = db.query(RepoData).filter(
+                    RepoData.gitea_id == repo_full_name
+                ).first()
 
         if repo_data:
             push_event = PushEvent(

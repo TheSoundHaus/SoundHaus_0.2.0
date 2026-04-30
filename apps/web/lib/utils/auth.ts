@@ -122,10 +122,19 @@ export async function authenticatedFetch(
     headers['Content-Type'] = 'application/json'
   }
 
-  let response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  // Default to no-store so server-component reads of /repos/*, /commits, /stats,
+  // etc. always reflect the authoritative DB state. Callers that explicitly
+  // want caching (e.g. genres list) can override by passing `cache` or
+  // `next.revalidate` in `options`.
+  const fetchInit: RequestInit = {
     ...options,
     headers,
-  })
+  }
+  if (!('cache' in options) && !('next' in options)) {
+    fetchInit.cache = 'no-store'
+  }
+
+  let response = await fetch(`${API_BASE_URL}${endpoint}`, fetchInit)
 
   // If we get a 401 and haven't already tried refreshing, attempt once more
   if (response.status === 401 && token) {
@@ -137,10 +146,14 @@ export async function authenticatedFetch(
       }
       if (!isFormData) retryHeaders['Content-Type'] = 'application/json'
 
-      response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const retryInit: RequestInit = {
         ...options,
         headers: retryHeaders,
-      })
+      }
+      if (!('cache' in options) && !('next' in options)) {
+        retryInit.cache = 'no-store'
+      }
+      response = await fetch(`${API_BASE_URL}${endpoint}`, retryInit)
     } else {
       await clearAuthCookies()
     }

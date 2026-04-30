@@ -627,6 +627,41 @@ async def get_user_public_stats(
     }
 
 
+async def _optional_caller(request: Request) -> tuple[str | None, str | None]:
+    """Return (caller_id, caller_email) when an Authorization header is present and valid.
+
+    Mirrors `routers/commits._optional_caller` so /stats can compute viewer-aware
+    fields without forcing auth on the public Explore path.
+    """
+    authz = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not authz or not authz.startswith("Bearer "):
+        return None, None
+    token = authz.replace("Bearer ", "", 1).strip()
+    user_res = await get_auth().get_user(token)
+    if not user_res.get("success"):
+        return None, None
+    user = user_res.get("user", {}) or {}
+    return user.get("id"), user.get("email")
+
+
+def _fork_parent(forked_from: str | None, db: Session) -> dict[str, str] | None:
+    """Parse `RepoData.forked_from` (= "ownerUUID/repo-name") into the shape the
+    web client expects: { owner: <username>, repo: <repo-name> }.
+
+    Returns None if forked_from is empty or malformed.
+    """
+    if not forked_from or "/" not in forked_from:
+        return None
+    parent_owner_id, _, parent_repo = forked_from.partition("/")
+    parent_profile = db.query(Profile).filter(Profile.id == parent_owner_id).first()
+    parent_username = (
+        parent_profile.username
+        if parent_profile and parent_profile.username
+        else parent_owner_id
+    )
+    return {"owner": parent_username, "repo": parent_repo}
+
+
 @router.get("/repos/{owner}/{repo}/stats")
 @limiter.limit("60/minute")
 async def get_repo_stats(
@@ -635,7 +670,14 @@ async def get_repo_stats(
     repo: str,
     db: Session = Depends(get_db),
 ):
-    """Get detailed stats for a specific repo."""
+    """Get detailed stats for a specific repo.
+
+    Returns every field declared in the `RepoStats` TypeScript type. Viewer-
+    sensitive fields (`viewer_can_clone`, `viewer_pending_invite`) are populated
+    only when the request carries a valid bearer token.
+    """
+    caller_id, caller_email = await _optional_caller(request)
+
     owner_id = resolve_owner_id(owner, db)
     repo_id = f"{owner_id}/{repo}"
     repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
@@ -643,6 +685,7 @@ async def get_repo_stats(
     if not repo_data:
         raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
 
+    # Recent clones — resolve user_id to username for display
     recent_clones = (
         db.query(CloneEvent)
         .filter(CloneEvent.repo_id == repo_id)
@@ -650,40 +693,148 @@ async def get_repo_stats(
         .limit(10)
         .all()
     )
+    clone_user_ids = list({c.user_id for c in recent_clones if c.user_id})
+    clone_profile_map: dict[str, str] = {}
+    if clone_user_ids:
+        clone_profiles = db.query(Profile).filter(Profile.id.in_(clone_user_ids)).all()
+        clone_profile_map = {
+            str(p.id): p.username for p in clone_profiles if p.username
+        }
 
-    # Fetch description and privacy from Gitea
+    # Fetch description / privacy / cached stars from Gitea (best-effort)
     svc = RepoService()
-    description = ""
+    description = repo_data.description or ""
     is_private = True
+    stars_count = repo_data.stars_count or 0
     try:
         gitea_info = svc.get_repo(owner_id, repo)
         if gitea_info.get("success"):
             repo_obj = gitea_info.get("repo", {})
-            description = repo_obj.get("description", "")
+            description = repo_obj.get("description", description)
             is_private = repo_obj.get("private", True)
+            # Use Gitea's count when available; fall back to cached
+            stars_count = repo_obj.get("stars_count", stars_count)
     except Exception:
-        pass  # Non-critical: description/privacy are cosmetic
+        pass  # Non-critical: cached values still serve
 
-    # Resolve owner UUID → username + display name
+    # Resolve owner UUID → username
     owner_profile = db.query(Profile).filter(Profile.id == owner_id).first()
     olab = _owner_profile_fields(owner_profile, owner_id)
+
+    # Viewer-aware fields
+    viewer_can_clone: bool | None = None
+    viewer_pending_invite: bool | None = None
+    if caller_id is not None:
+        if not is_private:
+            viewer_can_clone = True
+        elif str(caller_id) == str(owner_id):
+            viewer_can_clone = True
+        else:
+            # Accepted invitation grants clone access
+            accepted = (
+                db.query(CollaboratorInvitation)
+                .filter(
+                    CollaboratorInvitation.repo_name == repo,
+                    CollaboratorInvitation.invitee_email == (caller_email or ""),
+                    CollaboratorInvitation.status == "accepted",
+                )
+                .first()
+            )
+            viewer_can_clone = accepted is not None
+
+        if is_private and caller_email:
+            pending = (
+                db.query(CollaboratorInvitation)
+                .filter(
+                    CollaboratorInvitation.repo_name == repo,
+                    CollaboratorInvitation.invitee_email == caller_email,
+                    CollaboratorInvitation.status == "pending",
+                )
+                .first()
+            )
+            viewer_pending_invite = pending is not None
 
     return {
         "success": True,
         "gitea_id": repo_data.gitea_id,
+        "owner_id": owner_id,
         "owner_username": olab["owner_username"],
         "description": description,
         "private": is_private,
         "clone_url": f"{settings.gitea_public_url}/{owner_id}/{repo}.git",
-        "clone_count": repo_data.clone_count,
+        "clone_count": repo_data.clone_count or 0,
         "audio_snippet": repo_data.audio_snippet,
         "thumbnail_url": repo_data.thumbnail_url,
         "thumbnail_type": repo_data.thumbnail_type,
+        # Webhook-tracked fields — exposed so the UI can render them
+        "total_commits": repo_data.total_commits or 0,
+        "stars_count": stars_count,
+        "fork_count": repo_data.fork_count or 0,
+        "forked_from": repo_data.forked_from,
+        "fork_parent": _fork_parent(repo_data.forked_from, db),
+        "open_to_collab": bool(repo_data.open_to_collab),
+        "last_push_at": repo_data.last_push_at.isoformat() if repo_data.last_push_at else None,
+        "last_activity_at": repo_data.last_activity_at.isoformat() if repo_data.last_activity_at else None,
+        "needs_update": bool(repo_data.needs_update),
+        "last_push_commit_sha": repo_data.last_push_commit_sha,
+        "viewer_can_clone": viewer_can_clone,
+        "viewer_pending_invite": viewer_pending_invite,
         "genres": [{"genre_id": g.genre_id, "genre_name": g.genre_name} for g in repo_data.genres],
         "recent_clones": [
-            {"user_id": c.user_id, "cloned_at": c.cloned_at.isoformat()}
+            {
+                "user_id": c.user_id,
+                "username": clone_profile_map.get(str(c.user_id)),
+                "cloned_at": c.cloned_at.isoformat() if c.cloned_at else None,
+            }
             for c in recent_clones
         ],
+    }
+
+
+@router.get("/repos/{owner}/{repo}/stats/sync-check")
+@limiter.limit("20/minute")
+async def get_repo_stats_sync_check(
+    request: Request,
+    owner: str,
+    repo: str,
+    db: Session = Depends(get_db),
+):
+    """Live-query Gitea and report drift between cached SoundHaus state and reality.
+
+    The main /stats endpoint reads from RepoData (DB cache, fast). This endpoint
+    is the slow-path counterpart: it talks to Gitea and to commit_details to
+    surface webhook gaps so the UI can show a "your stats are stale" banner.
+    """
+    owner_id = resolve_owner_id(owner, db)
+    repo_id = f"{owner_id}/{repo}"
+    repo_data = db.query(RepoData).filter(RepoData.gitea_id == repo_id).first()
+    if not repo_data:
+        raise HTTPException(status_code=404, detail="Repo not registered on SoundHaus")
+
+    from models.commit_models import CommitDetail
+
+    cached_total = repo_data.total_commits or 0
+    db_commit_count = (
+        db.query(func.count(CommitDetail.id))
+        .filter(CommitDetail.repo_id == repo_id)
+        .scalar()
+        or 0
+    )
+
+    svc = RepoService()
+    gitea_total = svc.get_commit_count(owner_id, repo)  # 0 on failure
+
+    # Drift = how many commits Gitea has that our commit_details table lacks
+    commit_drift = max(gitea_total - db_commit_count, 0) if gitea_total > 0 else 0
+
+    return {
+        "success": True,
+        "repo": repo_id,
+        "cached_total_commits": cached_total,
+        "db_commit_details_count": db_commit_count,
+        "gitea_commit_count": gitea_total,
+        "commit_drift": commit_drift,
+        "out_of_sync": commit_drift > 0 or cached_total != db_commit_count,
     }
 
 

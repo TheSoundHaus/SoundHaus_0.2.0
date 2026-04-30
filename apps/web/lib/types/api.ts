@@ -124,6 +124,33 @@ export interface RepoStats {
   genres: GenreRef[];
   recent_clones: RecentClone[];
   fork_parent?: { owner: string; repo: string } | null;
+  // ── Webhook-tracked aggregates (added in sync fix) ────────────────────────
+  /** Total commits across the repo's lifetime (RepoData.total_commits) */
+  total_commits?: number;
+  /** Cached Gitea star count */
+  stars_count?: number;
+  /** Number of forks of this repo */
+  fork_count?: number;
+  /** ISO timestamp of the most recent push (null if no pushes recorded) */
+  last_push_at?: string | null;
+  /** ISO timestamp of the most recent activity (push, snippet, settings, etc.) */
+  last_activity_at?: string | null;
+  /** True when new commits have arrived but desktop hasn't posted a diff yet */
+  needs_update?: boolean;
+  /** HEAD SHA after most recent push (used by UpdateBanner) */
+  last_push_commit_sha?: string | null;
+}
+
+// GET /repos/{owner}/{repo}/stats/sync-check
+export interface RepoStatsSyncCheck {
+  success: boolean;
+  repo: string;                    // "owner/repo-name"
+  cached_total_commits: number;    // RepoData.total_commits
+  db_commit_details_count: number; // SELECT COUNT(*) FROM commit_details
+  gitea_commit_count: number;      // Live X-Total-Count from Gitea (0 on failure)
+  commit_drift: number;            // gitea_commit_count - db_commit_details_count, clamped >= 0
+  /** True when any of the three counts disagree — UI can show a drift banner */
+  out_of_sync: boolean;
 }
 
 // GET /repos/enriched – single-call aggregate of Gitea + SoundHaus metadata
