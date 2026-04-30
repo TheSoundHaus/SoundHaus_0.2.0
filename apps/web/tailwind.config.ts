@@ -93,9 +93,14 @@ const config: Config = {
         'caption': ['12px', { lineHeight: '1.4' }],
       },
 
-      // Custom font families
+      // Custom font families — --font-sans set by next/font in app/layout.tsx
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: [
+          'var(--font-sans)',
+          'ui-sans-serif',
+          'system-ui',
+          'sans-serif',
+        ],
         mono: ['JetBrains Mono', 'SF Mono', 'ui-monospace', 'monospace'],
       },
 
