@@ -17,3 +17,5 @@ structlog
 mutagen>=1.47.0
 pydub>=0.25.1
 docker>=6.0.0
+stripe>=9.0.0
+pyjwt[crypto]>=2.8.0

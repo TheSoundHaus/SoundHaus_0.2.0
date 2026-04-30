@@ -77,7 +77,49 @@ class Settings(BaseSettings):
         default=None,
         description="Symmetric key for pgcrypto column-level encryption (pgp_sym_encrypt/decrypt)",
     )
-    
+
+    # === Admin (X-Admin-Token guarded /admin/* endpoints) ===
+    admin_token: Optional[str] = Field(
+        default=None,
+        description="Shared token for /admin/* endpoints. None disables the admin API entirely.",
+    )
+
+    # === Stripe (Phase 6 billing) ===
+    # All Stripe fields are Optional; billing routes return 503 when unset, so
+    # development environments without Stripe credentials still boot cleanly.
+    stripe_secret_key: Optional[str] = Field(default=None, description="Stripe secret key (sk_test_... or sk_live_...)")
+    stripe_webhook_secret: Optional[str] = Field(default=None, description="Stripe webhook signing secret (whsec_...)")
+    stripe_price_pro: Optional[str] = Field(default=None, description="Stripe Price ID for Pro tier")
+    stripe_price_team: Optional[str] = Field(default=None, description="Stripe Price ID for Team tier")
+    stripe_checkout_success_url: str = Field(
+        default="http://localhost:3000/settings/billing?status=success",
+        description="Where Stripe Checkout returns the user on success",
+    )
+    stripe_checkout_cancel_url: str = Field(
+        default="http://localhost:3000/settings/billing?status=cancelled",
+        description="Where Stripe Checkout returns the user on cancel",
+    )
+    stripe_portal_return_url: str = Field(
+        default="http://localhost:3000/settings/billing",
+        description="Where the Stripe Customer Portal returns the user",
+    )
+
+    # === LTI 1.3 (Phase 8 classroom) ===
+    # All LTI fields are Optional; LTI routes return 503 when unset.
+    lti_client_id: Optional[str] = Field(default=None, description="Tool client_id registered in the LMS (Canvas, etc.)")
+    lti_private_key_pem: Optional[str] = Field(
+        default=None,
+        description="RSA private key (PEM, multi-line) for signing LTI JWTs. Quote with triple-quotes in .env.",
+    )
+    lti_public_jwks_url: Optional[str] = Field(
+        default=None,
+        description="Public JWKS URL for tool key discovery; usually points back at our /.well-known/jwks.json",
+    )
+    lti_auth_login_url: Optional[str] = Field(
+        default=None,
+        description="Default OIDC auth login endpoint; per-deployment overrides live in lti_deployments.auth_login_url",
+    )
+
     @field_validator("environment")
     @classmethod
     def validate_environment(cls, v: str) -> str:
