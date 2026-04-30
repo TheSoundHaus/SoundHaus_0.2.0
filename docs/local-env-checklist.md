@@ -106,7 +106,7 @@ Then in the router registration block (around line 134):
 app.include_router(admin.router)        # already registered as of c93e016
 app.include_router(billing.router)      # <-- add: /billing/*
 app.include_router(marketplace.router)  # <-- add: /marketplace/*
-app.include_router(classroom.router)    # <-- add: /classroom/*
+app.include_router(classroom.router)    # <-- add: /classrooms/*  (note: plural prefix)
 app.include_router(lti.router)          # <-- add: /lti/*
 ```
 
@@ -251,8 +251,9 @@ curl -s http://localhost:8000/docs > /dev/null && echo "Swagger UI loads"
 
 # Verify the new routes show up in the OpenAPI schema
 curl -s http://localhost:8000/openapi.json | jq -r '.paths | keys[]' | \
-  grep -E '^/(admin|billing|classroom|lti|marketplace)/' | head -20
+  grep -E '^/(admin|billing|classrooms|lti|marketplace|\.well-known)/' | head -20
 # expected: at least one route from each prefix
+# (lti.py registers /lti/* AND /.well-known/jwks.json with no router-level prefix)
 ```
 
 ### 4b. Sync-check endpoint (proves Phase 2 fix is live)
@@ -336,7 +337,7 @@ Set `RATE_LIMIT_ENABLED=false` in `.env.local` and restart the `fastapi` contain
 |---|---|---|
 | `column "fork_count" does not exist` on any repo page | Migrations V002/V003 not applied | §1 |
 | `AttributeError: 'Settings' object has no attribute 'stripe_secret_key'` | Settings field missing | §2c |
-| `404 Not Found` on `/billing/*`, `/classroom/*`, `/lti/*`, `/marketplace/*` | Router not registered | §2a |
+| `404 Not Found` on `/billing/*`, `/classrooms/*`, `/lti/*`, `/marketplace/*` | Router not registered | §2a |
 | `ModuleNotFoundError: No module named 'stripe'` | Dep not installed; image not rebuilt | §2d + `compose up -d --build fastapi` |
 | `LTI tool not configured` from `/lti/launch` | `LTI_PRIVATE_KEY_PEM` missing | §3 (only set if testing LTI) |
 | Repo page shows 0 commits but Gitea has 5 | Webhook drift | `GET /repos/<o>/<r>/stats/sync-check` then `POST /admin/backfill-commits?owner=…&repo=…` |

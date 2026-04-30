@@ -14,6 +14,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 import models.seen_models  # noqa: F401 — ensure UserRepoSeen table is created
+import models.billing_models  # noqa: F401 — Subscription, StorageUsage tables
+import models.classroom_models  # noqa: F401 — Classroom, LtiDeployment, LtiUser tables
+import models.marketplace_models  # noqa: F401 — SampleListing, MarketplacePurchase tables
 from config import settings
 from database import init_db, test_connection
 from dependencies import limiter
@@ -26,12 +29,16 @@ from routers import (
     admin,
     audio,
     auth,
+    billing,
+    classroom,
     collaborators,
     commits,
     dashboard,
     desktop,
     genres,
     health,
+    lti,
+    marketplace,
     repos,
     reviews,
     snippets,
@@ -132,3 +139,7 @@ app.include_router(audio.router)        # /repos/*/audio/waveform
 app.include_router(reviews.router)      # /repos/*/reviews/*  ,  /repos/*/collaborators/promote
 app.include_router(dashboard.router)    # /api/dashboard/*  ,  /api/feed/*
 app.include_router(admin.router)        # /admin/*  (X-Admin-Token guarded)
+app.include_router(billing.router)      # /billing/*  (Stripe checkout, portal, webhooks, usage)
+app.include_router(marketplace.router)  # /marketplace/*  (sample listings, purchases)
+app.include_router(classroom.router)    # /classrooms/*  (classroom CRUD, members, assignments)
+app.include_router(lti.router)          # /lti/*  ,  /.well-known/jwks.json  (LTI 1.3 handshake)
