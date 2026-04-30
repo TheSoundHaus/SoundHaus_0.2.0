@@ -84,7 +84,7 @@ export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModa
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-glass-blue/10">
               <Music size={16} className="text-glass-blue" />
             </div>
-            <h2 className="text-lg font-semibold text-soft-white">Remix this project</h2>
+            <h2 className="text-lg font-semibold text-soft-white">Clone in SoundHaus Desktop</h2>
           </div>
           <button
             onClick={onClose}
@@ -97,8 +97,7 @@ export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModa
         {/* Body */}
         <div className="px-5 py-5">
           <p className="mb-3 text-sm text-muted-300">
-            Paste this clone URL into the <strong>Clone Project</strong> window in the
-            SoundHaus Desktop app to remix this project.
+            Copy this link and paste it into Clone Project in the SoundHaus Desktop app.
           </p>
 
           {/* URL input + copy button */}

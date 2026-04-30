@@ -1,6 +1,7 @@
 import requests
 import base64
 import os
+from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 from services.gitea_service import GiteaAdminService
 from sqlalchemy.orm import Session
@@ -23,6 +24,12 @@ class RepoService:
 
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
+
+    def _gitea_repo_api_path(self, owner: str, repo_name: str) -> str:
+        """URL path for /api/v1/repos/{owner}/{repo} with safe segment encoding."""
+        o = quote(str(owner), safe="")
+        r = quote(str(repo_name), safe="")
+        return f"/api/v1/repos/{o}/{r}"
 
     def get_repo(self, username: str, repo_name: str) -> Dict[str, Any]:
         """Get repository information to verify it exists."""
@@ -575,6 +582,22 @@ class RepoService:
         except Exception:
             return f"HTTP {resp.status_code}: {resp.reason}"
 
+    def check_collaborator(self, owner: str, repo_name: str, username: str) -> Dict[str, Any]:
+        """Check if a user is a collaborator on a repository."""
+        try:
+            url_path = f"/api/v1/repos/{owner}/{repo_name}/collaborators/{username}"
+            resp = requests.get(self._url(url_path), headers=self.headers, timeout=15)
+
+            if resp.status_code == 204:
+                return {"success": True, "is_collaborator": True}
+            elif resp.status_code == 404:
+                return {"success": True, "is_collaborator": False}
+            else:
+                return {"success": False, "message": self._extract_msg(resp)}
+        except requests.RequestException as e:
+            logger.error("check_collaborator_error", owner=owner, repo=repo_name, error=str(e))
+            return {"success": False, "message": str(e)}
+
     def list_collaborators(self, owner: str, repo_name: str, db: Session) -> Dict[str, Any]:
         """List all collaborators for a repository, enriched with SoundHaus profile data."""
         try:
@@ -686,24 +709,34 @@ class RepoService:
     def fork_repo(self, source_owner: str, source_repo: str, fork_owner: str, fork_name: Optional[str] = None) -> Dict[str, Any]:
         """Fork a repository via Gitea API. The fork is created under fork_owner's namespace."""
         try:
-            url_path = f"/api/v1/repos/{source_owner}/{source_repo}/forks"
-            body: Dict[str, Any] = {"organization": fork_owner}
+            url_path = f"{self._gitea_repo_api_path(source_owner, source_repo)}/forks"
+            # Sudo header impersonates the target user so the fork is owned by them
+            headers = {**self.headers, "Sudo": fork_owner}
+            body: Dict[str, Any] = {}
             if fork_name:
                 body["name"] = fork_name
             resp = requests.post(
                 self._url(url_path),
-                headers=self.headers,
+                headers=headers,
                 json=body,
                 timeout=30,
             )
             logger.debug("fork_repo_response", source=f"{source_owner}/{source_repo}", fork_owner=fork_owner, status=resp.status_code)
 
-            if resp.status_code in [200, 202]:
+            if resp.status_code in [200, 201, 202]:
                 return {"success": True, "repo": resp.json()}
-            else:
-                msg = self._extract_msg(resp)
-                logger.warning("fork_repo_failed", source=f"{source_owner}/{source_repo}", error=msg)
-                return {"success": False, "status": resp.status_code, "message": msg}
+            if resp.status_code == 409:
+                return {"success": False, "status": 409, "message": "You already have a version of this project"}
+            msg = self._extract_msg(resp)
+            logger.warning(
+                "fork_repo_failed",
+                source=f"{source_owner}/{source_repo}",
+                fork_owner=fork_owner,
+                status=resp.status_code,
+                error=msg,
+                raw_body=resp.text[:500],
+            )
+            return {"success": False, "status": resp.status_code, "message": msg}
         except requests.RequestException as e:
             logger.error("fork_repo_error", source=f"{source_owner}/{source_repo}", error=str(e))
             return {"success": False, "status": 0, "message": f"Network error: {e}"}

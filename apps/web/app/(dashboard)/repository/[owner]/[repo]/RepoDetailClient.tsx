@@ -16,25 +16,22 @@ import {
   Activity,
   Settings,
   FileText,
+  FileEdit,
   Clock,
   Trash2,
   Save,
   ChevronDown,
   FilePlus,
-  FileEdit,
   Eye,
-  Search,
   Send,
-  X,
   UserPlus,
   UserMinus,
   BookOpen,
-  GitFork,
+  Search,
+  X,
 } from "lucide-react";
-import AudioPlayerWithComments from "@/components/AudioPlayerWithComments";
-import { getSnippetComments, addSnippetComment, deleteSnippetComment } from "@/lib/api/comments";
+import AudioPlayer from "@/components/AudioPlayer";
 import SnippetUploader from "@/components/SnippetUploader";
-import StemPlayer from "@/components/StemPlayer";
 import GenreEditor from "@/components/GenreEditor";
 import ThumbnailSettings from "@/components/ThumbnailSettings";
 import { DiffTimeline } from "@/components/diff/DiffTimeline";
@@ -45,7 +42,11 @@ import CloneModal from "@/components/CloneModal";
 import Markdown from "react-markdown";
 import { useUser } from "@/lib/context/UserContext";
 import { getReadme, updateReadme } from "@/lib/api/readme";
-import { deleteRepoAction, renameRepoAction, updateVisibilityAction, forkRepoAction } from "@/actions/repos";
+import {
+  deleteRepoAction,
+  updateVisibilityAction,
+  forkRepoAction,
+} from "@/actions/repos";
 import { inviteCollaboratorAction, cancelInvitationAction, removeCollaboratorAction } from "@/actions/invitations";
 import { getCommits, getCommitDiff, getDiffStatus } from "@/lib/api/commits";
 import { getRepoInvitations, listCollaborators, searchUsers } from "@/lib/api/invitations";
@@ -61,8 +62,6 @@ import type {
   SentInvitation,
   Collaborator,
   UserSearchResult,
-  SnippetVersion,
-  SnippetComment,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData, DiffStatus } from "@/lib/api/commits";
 
@@ -75,7 +74,6 @@ interface RepoDetailClientProps {
   snippet: Snippet | null;
   allGenres: Genre[];
   initialCommits: CommitListResponse | null;
-  initialStems: SnippetVersion | null;
   ownerYoutube: string | null;
   ownerSpotify: string | null;
 }
@@ -89,12 +87,11 @@ export default function RepoDetailClient({
   snippet,
   allGenres,
   initialCommits,
-  initialStems,
   ownerYoutube,
   ownerSpotify,
 }: RepoDetailClientProps) {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "commits" | "events" | "collaborators" | "about" | "settings"
+    "overview" | "commits" | "events" | "about" | "collaborators" | "settings"
   >("overview");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -102,9 +99,6 @@ export default function RepoDetailClient({
 
   // Track current snippet URL (updates after upload without full page reload)
   const [currentSnippetUrl, setCurrentSnippetUrl] = useState(snippet?.url ?? null);
-
-  // Snippet comment state
-  const [snippetComments, setSnippetComments] = useState<SnippetComment[]>([]);
 
   // README editor state
   const [readmeContent, setReadmeContent] = useState("");
@@ -116,7 +110,6 @@ export default function RepoDetailClient({
   const readmeLoadedRef = useRef(false);
 
   // Settings form state
-  const [newName, setNewName] = useState(repo);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isPrivate, setIsPrivate] = useState(stats?.private ?? true);
 
@@ -148,18 +141,6 @@ export default function RepoDetailClient({
   // Fork state
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
-
-  const handleFork = useCallback(async () => {
-    setForking(true);
-    setForkError(null);
-    const result = await forkRepoAction(owner, repo);
-    setForking(false);
-    if (result.success) {
-      router.push(`/repository/${result.fork_owner}/${result.fork_name}`);
-    } else {
-      setForkError(result.error);
-    }
-  }, [owner, repo, router]);
 
   function handleCompareToggle() {
     if (compareMode) {
@@ -209,32 +190,54 @@ export default function RepoDetailClient({
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [repoInvitations, setRepoInvitations] = useState<SentInvitation[]>([]);
   const [collabLoading, setCollabLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [collabError, setCollabError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [expandedCollab, setExpandedCollab] = useState<string | null>(null);
   const [invitePermission, setInvitePermission] = useState<"write" | "admin">("write");
 
-  // Fetch collaborators & invitations when tab is active
+  // Derive the current user's role relative to this repo
+  const isOwner = !!(user?.id && stats?.owner_id && user.id === stats.owner_id);
+  const isCollaborator =
+    !isOwner &&
+    collaborators.some(
+      (c) =>
+        c.login === user?.id ||
+        (!!user?.username && (c.username === user.username || c.login === user.username)),
+    );
+  const isAdminCollab =
+    !isOwner &&
+    !!user?.username &&
+    collaborators.some((c) => c.username === user.username && c.permission === "admin");
+  const canEdit = isOwner || isAdminCollab;
+  const pendingInvite = !!stats?.viewer_pending_invite;
+
   const loadCollaboratorsData = useCallback(async () => {
     setCollabLoading(true);
     setCollabError(null);
-    const [collabRes, invRes] = await Promise.all([
-      listCollaborators(owner, repo),
-      getRepoInvitations(repo),
-    ]);
-    if (collabRes.success) setCollaborators(collabRes.data ?? []);
+    const collabRes = await listCollaborators(owner, repo);
+    const collabs = collabRes.success ? collabRes.data ?? [] : [];
+    if (collabRes.success) setCollaborators(collabs);
     else setCollabError(collabRes.error);
-    if (invRes.success) setRepoInvitations(invRes.data ?? []);
+
+    const canFetchInvites = isOwner;
+
+    if (canFetchInvites && isPrivate) {
+      const invRes = await getRepoInvitations(owner, repo);
+      if (invRes.success) setRepoInvitations(invRes.data ?? []);
+      else setCollabError(invRes.error);
+    } else {
+      setRepoInvitations([]);
+    }
     setCollabLoading(false);
-  }, [owner, repo]);
+  }, [owner, repo, isPrivate, isOwner, user?.username]);
 
   useEffect(() => {
-    if (activeTab === "collaborators" || activeTab === "overview") {
-      loadCollaboratorsData();
+    if (activeTab === "collaborators" || activeTab === "overview" || activeTab === "settings") {
+      void loadCollaboratorsData();
     }
     if (activeTab === "events") {
       refreshEvents();
@@ -253,76 +256,93 @@ export default function RepoDetailClient({
     }
   }, [activeTab, loadCollaboratorsData, refreshEvents, owner, repo]);
 
-  // User search with debounce
   useEffect(() => {
     if (searchQuery.length < 2) {
       setSearchResults([]);
       return;
     }
-    const timer = setTimeout(async () => {
-      setSearchLoading(true);
-      const res = await searchUsers(searchQuery);
-      if (res.success) setSearchResults(res.data ?? []);
-      setSearchLoading(false);
+    const timer = setTimeout(() => {
+      void (async () => {
+        setSearchLoading(true);
+        const res = await searchUsers(searchQuery);
+        if (res.success) setSearchResults(res.data ?? []);
+        setSearchLoading(false);
+      })();
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch snippet comments
-  useEffect(() => {
-    if (!currentSnippetUrl) return;
-    let cancelled = false;
-    (async () => {
-      const res = await getSnippetComments(owner, repo);
-      if (!cancelled && res.success) {
-        setSnippetComments(res.data);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [owner, repo, currentSnippetUrl]);
-
   // Invite handler
-  const handleInvite = useCallback(async (email: string) => {
-    setInviteError(null);
-    setInviteSuccess(null);
-    startTransition(async () => {
-      const result = await inviteCollaboratorAction(repo, email, invitePermission);
-      if (result.success) {
-        setInviteSuccess(`Invitation sent to ${email} as ${invitePermission === "admin" ? "Admin" : "Contributor"}`);
-        setSearchQuery("");
-        setSearchResults([]);
-        loadCollaboratorsData();
-      } else {
-        setInviteError(result.error);
-      }
-    });
-  }, [repo, invitePermission, loadCollaboratorsData]);
+  const handleInvite = useCallback(
+    async (email: string) => {
+      setInviteError(null);
+      setInviteSuccess(null);
+      startTransition(async () => {
+        const result = await inviteCollaboratorAction(owner, repo, email, invitePermission);
+        if (result.success) {
+          setInviteSuccess(
+            `Invitation sent to ${email} as ${invitePermission === "admin" ? "Admin" : "Contributor"}`,
+          );
+          setSearchQuery("");
+          setSearchResults([]);
+          await loadCollaboratorsData();
+        } else {
+          setInviteError(result.error);
+        }
+      });
+    },
+    [owner, repo, invitePermission, loadCollaboratorsData],
+  );
 
   // Cancel invite handler
-  const handleCancelInvite = useCallback(async (invitationId: string) => {
-    setInviteError(null);
-    startTransition(async () => {
-      const result = await cancelInvitationAction(invitationId);
-      if (result.success) {
-        loadCollaboratorsData();
-      } else {
-        setCollabError(result.error);
-      }
-    });
-  }, [loadCollaboratorsData]);
+  const handleCancelInvite = useCallback(
+    async (invitationId: string) => {
+      setInviteError(null);
+      startTransition(async () => {
+        const result = await cancelInvitationAction(invitationId);
+        if (result.success) {
+          await loadCollaboratorsData();
+        } else {
+          setCollabError(result.error);
+        }
+      });
+    },
+    [loadCollaboratorsData],
+  );
 
   // Remove collaborator handler
-  const handleRemoveCollaborator = useCallback(async (username: string) => {
-    if (!confirm(`Remove ${username} from this project?`)) return;
-    startTransition(async () => {
-      const result = await removeCollaboratorAction(repo, username);
-      if (result.success) {
-        loadCollaboratorsData();
-      } else {
-        setCollabError(result.error);
+  const handleRemoveCollaborator = useCallback(
+    async (username: string) => {
+      if (!confirm(`Remove ${username} from this project?`)) return;
+      startTransition(async () => {
+        const result = await removeCollaboratorAction(owner, repo, username);
+        if (result.success) {
+          await loadCollaboratorsData();
+        } else {
+          setCollabError(result.error);
+        }
+      });
+    },
+    [owner, repo, loadCollaboratorsData],
+  );
+
+  // Fork handler — creates a copy of the project in the user's namespace
+  const handleFork = useCallback(async () => {
+    setForking(true);
+    setForkError(null);
+    try {
+      const result = await forkRepoAction(owner, repo);
+      if (result.success && result.fork) {
+        router.push(`/repository/${result.fork.owner}/${result.fork.name}`);
+      } else if (!result.success) {
+        setForkError(result.error);
       }
-    });
-  }, [repo, loadCollaboratorsData]);
+    } catch {
+      setForkError("Something went wrong. Please try again.");
+    } finally {
+      setForking(false);
+    }
+  }, [owner, repo, router]);
 
   function handleDelete() {
     if (!confirm(`Delete "${repo}"? This cannot be undone.`)) return;
@@ -331,21 +351,6 @@ export default function RepoDetailClient({
       const result = await deleteRepoAction(owner, repo);
       if (result.success) {
         router.push("/repositories");
-      } else {
-        setSettingsError(result.error);
-      }
-    });
-  }
-
-  function handleRename(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newName.trim() || newName === repo) return;
-    setSettingsError(null);
-    startTransition(async () => {
-      const result = await renameRepoAction(owner, repo, newName.trim());
-      if (result.success) {
-        router.push(`/repository/${owner}/${newName.trim()}`);
-        router.refresh();
       } else {
         setSettingsError(result.error);
       }
@@ -483,9 +488,10 @@ export default function RepoDetailClient({
   const tabs = [
     { key: "overview" as const, label: "Overview", icon: FileText },
     { key: "commits" as const, label: "Snapshots", icon: GitCommit },
+    { key: "about" as const, label: "About", icon: BookOpen },
     { key: "events" as const, label: "Timeline", icon: Activity },
-    { key: "collaborators" as const, label: "Collaborators", icon: Users },
-    { key: "settings" as const, label: "Settings", icon: Settings },
+    ...(user ? [{ key: "collaborators" as const, label: "Collaborators", icon: Users }] : []),
+    ...(isOwner ? [{ key: "settings" as const, label: "Settings", icon: Settings }] : []),
   ];
 
   return (
@@ -522,48 +528,74 @@ export default function RepoDetailClient({
             )}
           </div>
         </div>
-        <div className="flex gap-2">
-          {/* Fork button — public repos, non-owners only */}
-          {!isPrivate && user?.username !== owner && (
+        <div className="flex max-w-md flex-col items-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
-              onClick={handleFork}
-              disabled={forking}
-              className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20 disabled:opacity-50"
+              type="button"
+              onClick={() => setShowCloneModal(true)}
+              className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-all duration-300 hover:bg-white/[0.1] hover:border-white/20"
             >
-              <GitFork size={16} />
-              {forking ? "Forking…" : "Fork"}
+              <Download size={16} />
+              Clone
             </button>
+            {!isPrivate && user && !isOwner && !isCollaborator && (
+              <button
+                type="button"
+                onClick={() => void handleFork()}
+                disabled={forking}
+                onMouseEnter={() => setRemixHovered(true)}
+                onMouseLeave={() => setRemixHovered(false)}
+                className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95 disabled:opacity-50"
+                style={{ minWidth: "120px" }}
+              >
+                <span className="relative flex w-full items-center justify-center" style={{ height: "20px" }}>
+                  <span
+                    className="absolute inline-flex items-center justify-center"
+                    style={{
+                      transform: remixHovered || forking ? "translateX(26px)" : "translateX(-26px)",
+                      transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  >
+                    <RemixIcon hovered={remixHovered || forking} size={18} />
+                  </span>
+                  <span
+                    className="absolute inline-flex items-center justify-center whitespace-nowrap"
+                    style={{
+                      transform: remixHovered || forking ? "translateX(-14px)" : "translateX(14px)",
+                      transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  >
+                    {forking ? "Remixing…" : "Remix"}
+                  </span>
+                </span>
+              </button>
+            )}
+
+            {forkError && (
+              <span className="self-center text-xs text-red-400">{forkError}</span>
+            )}
+          </div>
+          {pendingInvite && isPrivate && !isOwner && !isCollaborator && user && (
+            <p className="text-right text-sm text-amber-400/90">
+              You have a pending invitation for this project.
+            </p>
           )}
-          <button
-            onClick={() => setShowCloneModal(true)}
-            onMouseEnter={() => setRemixHovered(true)}
-            onMouseLeave={() => setRemixHovered(false)}
-            className="group relative flex items-center justify-center overflow-hidden rounded-lg bg-glass-blue px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-glass-blue/25 transition-all duration-300 hover:bg-glass-blue/90 hover:shadow-xl hover:shadow-glass-blue/40 active:scale-95"
-            style={{ minWidth: "120px" }}
-          >
-            <span className="relative flex items-center justify-center w-full" style={{ height: "20px" }}>
-              <span
-                className="absolute inline-flex items-center justify-center"
-                style={{
-                  transform: remixHovered ? "translateX(26px)" : "translateX(-26px)",
-                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-                }}
-              >
-                <RemixIcon hovered={remixHovered} size={18} />
-              </span>
-              <span
-                className="absolute inline-flex items-center justify-center whitespace-nowrap"
-                style={{
-                  transform: remixHovered ? "translateX(-14px)" : "translateX(14px)",
-                  transition: "transform 500ms cubic-bezier(0.4, 0, 0.2, 1)",
-                }}
-              >
-                Clone
-              </span>
-            </span>
-          </button>
         </div>
       </div>
+
+      {/* Remixed from banner */}
+      {stats?.fork_parent && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-glass-blue/20 bg-glass-blue/5 px-4 py-2.5 text-sm text-zinc-300">
+          <GitBranch size={14} className="text-glass-blue" />
+          Remixed from{" "}
+          <Link
+            href={`/explore/${stats.fork_parent.owner}/${stats.fork_parent.repo}`}
+            className="font-medium text-glass-blue hover:underline"
+          >
+            {stats.fork_parent.owner}/{stats.fork_parent.repo}
+          </Link>
+        </div>
+      )}
 
       {/* Fork error banner */}
       {forkError && (
@@ -582,31 +614,10 @@ export default function RepoDetailClient({
         />
       )}
 
-      {/* Audio Player with Comment Markers */}
+      {/* Audio Player */}
       {currentSnippetUrl && (
         <div className="mb-8" data-snippet-player>
-          <AudioPlayerWithComments
-            src={currentSnippetUrl}
-            duration={snippet?.duration ?? undefined}
-            comments={snippetComments}
-            currentUserId={user?.id}
-            isOwner={user?.username === owner}
-            onAddComment={async (ts, text) => {
-              const res = await addSnippetComment(owner, repo, {
-                timestamp_seconds: ts,
-                comment_text: text,
-              });
-              if (res.success) {
-                setSnippetComments((prev) => [...prev, res.data].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds));
-              }
-            }}
-            onDeleteComment={async (commentId) => {
-              const res = await deleteSnippetComment(owner, repo, commentId);
-              if (res.success) {
-                setSnippetComments((prev) => prev.filter((c) => c.id !== commentId));
-              }
-            }}
-          />
+          <AudioPlayer src={currentSnippetUrl} />
         </div>
       )}
 
@@ -731,6 +742,32 @@ export default function RepoDetailClient({
                 </div>
               )}
             </div>
+
+            {(isOwner || isCollaborator) && (
+              <div className="glass-card rounded-lg p-6">
+                <h2 className="mb-4 text-xl font-semibold">Snippet</h2>
+                <SnippetUploader
+                  owner={owner}
+                  repo={repo}
+                  existingUrl={snippet?.url ?? null}
+                  existingMetadata={
+                    snippet
+                      ? {
+                          duration: snippet.duration,
+                          file_size: snippet.file_size,
+                          format: snippet.format,
+                          sample_rate: snippet.sample_rate,
+                          channels: snippet.channels,
+                        }
+                      : null
+                  }
+                  onUpdate={(newUrl) => {
+                    setCurrentSnippetUrl(newUrl);
+                    router.refresh();
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}
@@ -776,35 +813,6 @@ export default function RepoDetailClient({
               </div>
             )}
 
-            {/* Collaborators */}
-            <div className="glass-card rounded-lg p-6">
-              <h3 className="mb-4 text-lg font-semibold flex items-center gap-2">
-                <Users size={16} /> Collaborators
-              </h3>
-              {collabLoading ? (
-                <div className="space-y-3 animate-pulse">
-                  <div className="h-8 w-full rounded bg-zinc-800" />
-                  <div className="h-8 w-full rounded bg-zinc-800" />
-                </div>
-              ) : collaborators.length > 0 ? (
-                <div className="space-y-3">
-                  {collaborators.map((c) => (
-                    <div key={c.login} className="flex items-center gap-3">
-                      <UserAvatar src={c.avatar_url} alt={c.username || c.login} size={28} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-zinc-200 truncate">
-                          {c.username || c.login}
-                        </div>
-                        <div className="text-xs text-zinc-500 capitalize">{c.permission}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-400">No collaborators yet.</p>
-              )}
-            </div>
-
             {/* Recent Remixes — only shown on public repos */}
             {!isPrivate && (
             <div className="glass-card rounded-lg p-6">
@@ -814,7 +822,7 @@ export default function RepoDetailClient({
                   {stats.recent_clones.map((c, i) => (
                     <div key={i} className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2 text-zinc-300">
-                        <User size={14} /> User
+                        <User size={14} /> {c.username || "Someone"}
                       </span>
                       <span className="text-zinc-400">{timeAgo(c.cloned_at)}</span>
                     </div>
@@ -1082,6 +1090,315 @@ export default function RepoDetailClient({
         </div>
       )}
 
+      {/* ── Collaborators Tab (integration layout + SoundHaus invite APIs) ── */}
+      {activeTab === "collaborators" && user && (
+        <div className="space-y-8">
+          {collabError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {collabError}
+            </div>
+          )}
+          {inviteError && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {inviteError}
+            </div>
+          )}
+          {inviteSuccess && (
+            <div className="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
+              {inviteSuccess}
+            </div>
+          )}
+
+          {isOwner && !isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
+                <Users size={18} /> Public project
+              </h2>
+              <p className="text-sm text-zinc-400">
+                Invitations are only available for private repositories. For public projects, others can remix
+                from Explore.
+              </p>
+            </div>
+          )}
+
+          {isOwner && isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+                <UserPlus size={18} /> Invite collaborators
+              </h2>
+              <div className="relative">
+                <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
+                  <Search size={16} className="shrink-0 text-zinc-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by email or username…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSearchResults([]);
+                      }}
+                    >
+                      <X size={14} className="text-zinc-400 hover:text-zinc-300" />
+                    </button>
+                  )}
+                </div>
+
+                {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
+                  <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 shadow-lg">
+                    {searchLoading ? (
+                      <div className="px-4 py-3 text-sm text-zinc-400">Searching…</div>
+                    ) : (
+                      searchResults.map((u) => (
+                        <div
+                          key={u.username || u.email}
+                          className="flex items-center justify-between px-4 py-2 transition-colors hover:bg-zinc-800"
+                        >
+                          <div className="flex items-center gap-3">
+                            <UserAvatar src={u.avatar_url} alt={u.username} name={u.username} size={20} />
+                            <div>
+                              <div className="text-sm font-medium text-zinc-200">{u.username}</div>
+                              {u.email && <div className="text-xs text-zinc-400">{u.email}</div>}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleInvite(u.invite_email || u.email)}
+                            disabled={isPending}
+                            className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
+                          >
+                            <Send size={11} /> Invite
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 flex items-center gap-3">
+                <span className="text-xs text-zinc-400">Invite as:</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("write")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "write"
+                        ? "border-glass-cyan-500 bg-glass-cyan-500/10 text-glass-cyan-500"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Contributor
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInvitePermission("admin")}
+                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      invitePermission === "admin"
+                        ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                    }`}
+                  >
+                    Admin
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isOwner && isPrivate && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+                <Clock size={18} /> Pending invitations
+              </h2>
+              {collabLoading ? (
+                <p className="text-sm text-zinc-400">Loading…</p>
+              ) : repoInvitations.filter((i) => i.status === "pending").length === 0 ? (
+                <p className="text-sm text-zinc-400">No pending invitations.</p>
+              ) : (
+                <div className="space-y-3">
+                  {repoInvitations
+                    .filter((i) => i.status === "pending")
+                    .map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-yellow-500/10 text-yellow-500">
+                            <Send size={14} />
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-zinc-200">{inv.invitee_email}</div>
+                            <div className="text-xs text-zinc-400">
+                              Sent {timeAgo(inv.created_at)} · {inv.permission} access
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void handleCancelInvite(inv.id)}
+                          disabled={isPending}
+                          className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          <X size={11} /> Cancel
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="glass-card rounded-lg p-6">
+            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
+              <Users size={18} /> Active collaborators
+            </h2>
+            {collabLoading ? (
+              <p className="text-sm text-zinc-400">Loading…</p>
+            ) : collaborators.length === 0 ? (
+              <p className="text-sm text-zinc-400">
+                {!isPrivate
+                  ? "No push activity yet — contributors will appear after the first push."
+                  : canEdit
+                    ? "No collaborators yet. Invite someone above."
+                    : "No collaborators on this project yet."}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {collaborators.map((c) => {
+                  const isExpanded = expandedCollab === c.login;
+                  return (
+                    <div
+                      key={c.login}
+                      className="overflow-hidden rounded-md border border-zinc-700/50 bg-zinc-800/30"
+                    >
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCollab(isExpanded ? null : c.login)}
+                          className="group flex items-center gap-3 text-left"
+                        >
+                          <UserAvatar
+                            src={c.avatar_url || null}
+                            alt={c.username}
+                            name={c.username}
+                            size={40}
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-bold text-white">{c.username}</span>
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                  c.permission === "admin"
+                                    ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                                    : "border-glass-cyan-500/30 bg-glass-cyan-500/10 text-glass-cyan-500"
+                                }`}
+                              >
+                                {c.permission === "admin" ? "Admin" : "Contributor"}
+                              </span>
+                            </div>
+                            {c.email ? (
+                              <div className="text-sm text-zinc-400">{c.email}</div>
+                            ) : null}
+                          </div>
+                          <ChevronDown
+                            size={14}
+                            className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveCollaborator(c.login)}
+                            disabled={isPending}
+                            className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+                          >
+                            <UserMinus size={11} /> Remove
+                          </button>
+                        )}
+                      </div>
+                      {isExpanded && (
+                        <div className="space-y-3 border-t border-zinc-700/50 bg-zinc-900/40 px-5 py-4">
+                          {c.bio ? (
+                            <div>
+                              <div className="mb-1 text-xs font-medium text-zinc-400">Bio</div>
+                              <p className="text-sm leading-relaxed text-zinc-300">{c.bio}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs italic text-zinc-400">No bio provided.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {isOwner &&
+            isPrivate &&
+            repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="mb-4 text-xl font-semibold">Invitation history</h2>
+              <div className="space-y-3">
+                {repoInvitations
+                  .filter((i) => i.status !== "pending")
+                  .map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                            inv.status === "accepted"
+                              ? "bg-green-500/10 text-green-500"
+                              : inv.status === "expired"
+                                ? "bg-yellow-500/10 text-yellow-500"
+                                : "bg-red-500/10 text-red-500"
+                          }`}
+                        >
+                          <User size={14} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-zinc-200">{inv.invitee_email}</div>
+                          <div className="text-xs text-zinc-400">
+                            {inv.status === "accepted"
+                              ? "Accepted"
+                              : inv.status === "expired"
+                                ? "Expired"
+                                : "Declined"}{" "}
+                            {inv.responded_at ? timeAgo(inv.responded_at) : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          inv.status === "accepted"
+                            ? "bg-green-500/10 text-green-400"
+                            : inv.status === "expired"
+                              ? "bg-yellow-500/10 text-yellow-400"
+                              : "bg-red-500/10 text-red-400"
+                        }`}
+                      >
+                        {inv.status}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Events Tab ─────────────────────────────────────────────── */}
       {activeTab === "events" && (() => {
         // Build unified timeline from push activity + repo events
@@ -1218,7 +1535,7 @@ export default function RepoDetailClient({
 
                               {/* Avatar */}
                               <div className="shrink-0">
-                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} size={32} />
+                                <UserAvatar src={item.actorAvatar ?? null} alt={item.actor} name={item.actor} size={32} />
                               </div>
 
                               {/* Event details */}
@@ -1265,299 +1582,114 @@ export default function RepoDetailClient({
         );
       })()}
 
-      {/* ── Collaborators Tab ──────────────────────────────────────── */}
-      {activeTab === "collaborators" && (
-        <div className="space-y-8">
-          {/* Error/Success banners */}
-          {collabError && (
-            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {collabError}
-            </div>
-          )}
-          {inviteError && (
-            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              {inviteError}
-            </div>
-          )}
-          {inviteSuccess && (
-            <div className="rounded-md border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-400">
-              {inviteSuccess}
-            </div>
-          )}
+      {/* ── About Tab (README) ──────────────────────────────────────── */}
+      {activeTab === "about" && (
+        <div className="rounded-lg border border-zinc-800 p-6">
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">About</h2>
 
-          {/* Invite Collaborators Section — owner only, private repos only */}
-          {user?.username === owner && !isPrivate && (
-            <div className="glass-card rounded-lg p-6">
-              <h2 className="mb-2 text-xl font-semibold flex items-center gap-2">
-                <Users size={18} /> Public Repository
-              </h2>
-              <p className="text-sm text-zinc-400">
-                Invitations are only available for private repositories. For public projects, collaborators should fork the repository to contribute.
-              </p>
-            </div>
-          )}
-          {user?.username === owner && isPrivate && (
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
-              <UserPlus size={18} /> Invite Collaborators
-            </h2>
-
-            {/* Single search bar with inline send button */}
-            <div className="relative">
-              <div className="relative">
-                  <div className="flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2">
-                    <Search size={16} className="text-zinc-400 shrink-0" />
-                    <input
-                      type="text"
-                      placeholder="Search by email or username…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none text-sm"
-                    />
-                    {searchQuery && (
-                      <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }}>
-                        <X size={14} className="text-zinc-400 hover:text-zinc-300" />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Search results dropdown */}
-                  {(searchResults.length > 0 || searchLoading) && searchQuery.length >= 2 && (
-                    <div className="absolute z-10 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg max-h-48 overflow-y-auto">
-                      {searchLoading ? (
-                        <div className="px-4 py-3 text-sm text-zinc-400">Searching…</div>
-                      ) : (
-                        searchResults.map((u) => (
-                          <div
-                            key={u.username || u.email}
-                            className="flex items-center justify-between px-4 py-2 hover:bg-zinc-800 transition-colors"
-                          >
-                            <div className="flex items-center gap-3">
-                              <UserAvatar src={u.avatar_url} alt={u.username} size={20} />
-                              <div>
-                                <div className="text-sm font-medium text-zinc-200">{u.username}</div>
-                                {u.email && <div className="text-xs text-zinc-400">{u.email}</div>}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleInvite(u.invite_email || u.email)}
-                              disabled={isPending}
-                              className="flex items-center gap-1 rounded border border-zinc-600 px-3 py-1 text-xs text-zinc-300 transition-colors hover:border-glass-cyan-500 hover:text-glass-cyan-500 disabled:opacity-50"
-                            >
-                              <Send size={11} /> Invite
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
+            {/* Edit/Preview toggle (only for owner or collaborator) */}
+            {user && (
+              <div className="flex rounded-md border border-zinc-700 overflow-hidden">
+                <button
+                  onClick={() => setReadmeTab("preview")}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    readmeTab === "preview"
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <Eye size={14} className="mr-1.5 inline" />
+                  Preview
+                </button>
+                <button
+                  onClick={() => setReadmeTab("edit")}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    readmeTab === "edit"
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  <FileEdit size={14} className="mr-1.5 inline" />
+                  Edit
+                </button>
               </div>
+            )}
+          </div>
 
-              {/* Role selector */}
-              <div className="mt-3 flex items-center gap-3">
-                <span className="text-xs text-zinc-400">Invite as:</span>
+          {readmeError && (
+            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {readmeError}
+            </div>
+          )}
+
+          {readmeLoading ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-4 w-3/4 rounded bg-zinc-800" />
+              <div className="h-4 w-1/2 rounded bg-zinc-800" />
+              <div className="h-4 w-5/6 rounded bg-zinc-800" />
+              <div className="h-4 w-2/3 rounded bg-zinc-800" />
+            </div>
+          ) : readmeTab === "preview" ? (
+            /* Markdown preview */
+            <div className="prose prose-invert prose-zinc max-w-none">
+              {readmeContent ? (
+                <Markdown>{readmeContent}</Markdown>
+              ) : (
+                <p className="text-zinc-500 italic">
+                  No README yet. Switch to Edit to add a description for this project.
+                </p>
+              )}
+            </div>
+          ) : (
+            /* Edit mode */
+            <div className="space-y-4">
+              <textarea
+                value={readmeDraft}
+                onChange={(e) => setReadmeDraft(e.target.value)}
+                placeholder="Write a description for your project using Markdown..."
+                className="w-full min-h-[300px] rounded-md border border-zinc-700 bg-zinc-900 px-4 py-3 font-mono text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 resize-y"
+                maxLength={50000}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">
+                  {readmeDraft.length.toLocaleString()} / 50,000 characters · Markdown supported
+                </span>
                 <div className="flex gap-2">
                   <button
-                    type="button"
-                    onClick={() => setInvitePermission("write")}
-                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
-                      invitePermission === "write"
-                        ? "border-glass-cyan-500 bg-glass-cyan-500/10 text-glass-cyan-500"
-                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
-                    }`}
+                    onClick={() => {
+                      setReadmeDraft(readmeContent);
+                      setReadmeTab("preview");
+                    }}
+                    className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
                   >
-                    Contributor
+                    Cancel
                   </button>
                   <button
-                    type="button"
-                    onClick={() => setInvitePermission("admin")}
-                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
-                      invitePermission === "admin"
-                        ? "border-amber-500 bg-amber-500/10 text-amber-400"
-                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
-                    }`}
+                    disabled={readmeSaving || readmeDraft === readmeContent}
+                    onClick={async () => {
+                      setReadmeSaving(true);
+                      setReadmeError(null);
+                      try {
+                        const res = await updateReadme(owner, repo, readmeDraft);
+                        if (res.success) {
+                          setReadmeContent(res.data);
+                          setReadmeTab("preview");
+                        } else {
+                          setReadmeError(res.error);
+                        }
+                      } catch {
+                        setReadmeError("Failed to save README");
+                      } finally {
+                        setReadmeSaving(false);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
                   >
-                    Admin
+                    <Save size={14} />
+                    {readmeSaving ? "Saving..." : "Save"}
                   </button>
                 </div>
-              </div>
-            </div>
-          </div>
-          )}
-
-          {/* Pending Invitations — owner only, private repos only */}
-          {user?.username === owner && isPrivate && (
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
-              <Clock size={18} /> Pending Invitations
-            </h2>
-            {collabLoading ? (
-              <p className="text-sm text-zinc-400">Loading…</p>
-            ) : repoInvitations.filter((i) => i.status === "pending").length === 0 ? (
-              <p className="text-sm text-zinc-400">No pending invitations.</p>
-            ) : (
-              <div className="space-y-3">
-                {repoInvitations
-                  .filter((i) => i.status === "pending")
-                  .map((inv) => (
-                    <div
-                      key={inv.id}
-                      className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-yellow-500/10 text-yellow-500">
-                          <Send size={14} />
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-zinc-200">
-                            {inv.invitee_email}
-                          </div>
-                          <div className="text-xs text-zinc-400">
-                            Sent {timeAgo(inv.created_at)} · {inv.permission} access
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleCancelInvite(inv.id)}
-                        disabled={isPending}
-                        className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
-                      >
-                        <X size={11} /> Cancel
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-          )}
-
-          {/* Active Collaborators */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="mb-4 text-xl font-semibold flex items-center gap-2">
-              <Users size={18} /> Active Collaborators
-            </h2>
-            {collabLoading ? (
-              <p className="text-sm text-zinc-400">Loading…</p>
-            ) : collaborators.length === 0 ? (
-              <p className="text-sm text-zinc-400">No collaborators yet. Invite someone above!</p>
-            ) : (
-              <div className="space-y-3">
-                {collaborators.map((c) => {
-                  const isExpanded = expandedCollab === c.login;
-                  return (
-                    <div
-                      key={c.login}
-                      className="rounded-md border border-zinc-700/50 bg-zinc-800/30 overflow-hidden"
-                    >
-                      {/* Main row */}
-                      <div className="flex items-center justify-between px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedCollab(isExpanded ? null : c.login)}
-                          className="flex items-center gap-3 text-left group"
-                        >
-                          <UserAvatar src={c.avatar_url} alt={c.username} size={40} />
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-base font-bold text-white">{c.username}</span>
-                              <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                                  c.permission === "admin"
-                                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
-                                    : "bg-glass-cyan-500/10 text-glass-cyan-500 border border-glass-cyan-500/30"
-                                }`}
-                              >
-                                {c.permission === "admin" ? "Admin" : "Contributor"}
-                              </span>
-                            </div>
-                            <div className="text-sm text-zinc-400">{c.username || c.email || ""}</div>
-                          </div>
-                          <ChevronDown
-                            size={14}
-                            className={`ml-1 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                          />
-                        </button>
-                        <button
-                          onClick={() => handleRemoveCollaborator(c.login)}
-                          disabled={isPending}
-                          className="flex items-center gap-1 rounded border border-red-500/30 px-3 py-1 text-xs text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
-                        >
-                          <UserMinus size={11} /> Remove
-                        </button>
-                      </div>
-
-                      {/* Expanded dropdown */}
-                      {isExpanded && (
-                        <div className="border-t border-zinc-700/50 bg-zinc-900/40 px-5 py-4 space-y-3">
-                          {c.bio ? (
-                            <div>
-                              <div className="text-xs font-medium text-zinc-400 mb-1">Bio</div>
-                              <p className="text-sm text-zinc-300 leading-relaxed">{c.bio}</p>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-zinc-400 italic">No bio provided.</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Invitation History (accepted/declined/expired) */}
-          {repoInvitations.filter((i) => i.status !== "pending").length > 0 && (
-            <div className="glass-card rounded-lg p-6">
-              <h2 className="mb-4 text-xl font-semibold">Invitation History</h2>
-              <div className="space-y-3">
-                {repoInvitations
-                  .filter((i) => i.status !== "pending")
-                  .map((inv) => (
-                    <div
-                      key={inv.id}
-                      className="flex items-center justify-between rounded-md border border-zinc-700/50 bg-zinc-800/30 px-4 py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`flex h-9 w-9 items-center justify-center rounded-full ${
-                            inv.status === "accepted"
-                              ? "bg-green-500/10 text-green-500"
-                              : inv.status === "expired"
-                              ? "bg-yellow-500/10 text-yellow-500"
-                              : "bg-red-500/10 text-red-500"
-                          }`}
-                        >
-                          <User size={14} />
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-zinc-200">
-                            {inv.invitee_email}
-                          </div>
-                          <div className="text-xs text-zinc-400">
-                            {inv.status === "accepted"
-                              ? "Accepted"
-                              : inv.status === "expired"
-                              ? "Expired — repo deleted"
-                              : "Declined"}{" "}
-                            {inv.responded_at ? timeAgo(inv.responded_at) : ""}
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs ${
-                          inv.status === "accepted"
-                            ? "bg-green-500/10 text-green-400"
-                            : inv.status === "expired"
-                            ? "bg-yellow-500/10 text-yellow-400"
-                            : "bg-red-500/10 text-red-400"
-                        }`}
-                      >
-                        {inv.status}
-                      </span>
-                    </div>
-                  ))}
               </div>
             </div>
           )}
@@ -1577,29 +1709,7 @@ export default function RepoDetailClient({
           )}
 
           <div className="space-y-6">
-            {/* 1. Project Name */}
-            <form onSubmit={handleRename}>
-              <label className="mb-2 block text-sm font-medium">
-                Project Name
-              </label>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="flex-1 rounded-md border border-zinc-700 bg-zinc-800 px-4 py-2 text-zinc-100 focus:border-glass-blue focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={isPending || newName === repo || !newName.trim()}
-                  className="flex items-center gap-2 rounded-md bg-zinc-100 px-5 py-2 font-medium text-zinc-900 transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save size={14} /> Rename
-                </button>
-              </div>
-            </form>
-
-            {/* 2. Genre Selector */}
+            {/* 1. Genre Selector */}
             <GenreEditor
               owner={owner}
               repo={repo}
@@ -1764,37 +1874,8 @@ export default function RepoDetailClient({
               )}
             </div>
 
-            {/* 4. Snippet History → 5. Stem Separation (middleContent) → 6. Replace Snippet drop zone */}
-            <SnippetUploader
-              owner={owner}
-              repo={repo}
-              existingUrl={snippet?.url ?? null}
-              existingMetadata={
-                snippet
-                  ? {
-                      duration: snippet.duration,
-                      file_size: snippet.file_size,
-                      format: snippet.format,
-                      sample_rate: snippet.sample_rate,
-                      channels: snippet.channels,
-                    }
-                  : null
-              }
-              onUpdate={(newUrl) => {
-                setCurrentSnippetUrl(newUrl);
-                router.refresh();
-              }}
-              middleContent={
-                <StemPlayer
-                  owner={owner}
-                  repo={repo}
-                  snippetUrl={currentSnippetUrl}
-                  initialStems={initialStems}
-                />
-              }
-            />
-
-            {/* 6. Delete project — bottom right */}
+            {/* Delete project — owner only */}
+            {isOwner && (
             <div className="flex justify-end pt-4 border-t border-zinc-800">
               <button
                 onClick={handleDelete}
@@ -1804,6 +1885,7 @@ export default function RepoDetailClient({
                 <Trash2 size={14} /> Delete Project
               </button>
             </div>
+            )}
 
 
           </div>
