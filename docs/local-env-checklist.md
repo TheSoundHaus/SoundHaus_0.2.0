@@ -69,9 +69,11 @@ SELECT to_regclass('public.subscriptions'),
 
 ---
 
-## 2. Backend gaps to wire up
+## 2. Backend wiring (on `experimental-changes`, this is already done)
 
-**Status:** the new feature code exists; it just isn't plugged into the FastAPI app. Until you do these edits, FastAPI will start fine (because nothing imports the new routers), but visiting `/billing/*`, `/classroom/*`, `/lti/*`, or `/marketplace/*` will 404, and any code that reads `settings.stripe_secret_key` will raise `AttributeError`.
+**Status:** Routers, forced model imports, Stripe/LTI/admin settings in `config.py`, and `stripe` / `pyjwt[crypto]` in `requirements.txt` landed in commits `c25cca4`, `95b605d`, and `c66d15f`. You can **skip §2a–§2d** on this branch unless you are reconciling a fork or an older checkout.
+
+If you **are** on an older branch or a fresh port from `main`, apply the snippets below so `/billing/*`, `/classrooms/*`, `/lti/*`, `/marketplace/*` resolve and services do not raise `AttributeError` on `settings.stripe_*`.
 
 ### 2a. Register the four routers in `main.py`
 
