@@ -13,6 +13,24 @@ import {
 } from "lucide-react";
 import type { RepoStats } from "@/lib/types/api";
 
+function getRepositoryLink(owner: string, repo: string, cloneUrl?: string): string {
+    const fallback = `https://git.thesound.haus/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+
+    if (!cloneUrl) {
+        return fallback;
+    }
+
+    try {
+        const repoUrl = new URL(cloneUrl);
+        repoUrl.username = "";
+        repoUrl.password = "";
+        repoUrl.pathname = repoUrl.pathname.replace(/\.git$/, "");
+        return repoUrl.toString();
+    } catch {
+        return cloneUrl.replace(/\.git$/, "") || fallback;
+    }
+}
+
 interface ClonePageClientProps {
     owner: string;
     repo: string;
@@ -26,13 +44,13 @@ export default function ClonePageClient({
 }: ClonePageClientProps) {
     const [copied, setCopied] = useState(false);
 
-    const cloneLink = typeof window !== "undefined" ? window.location.href : "";
+    const repositoryLink = getRepositoryLink(owner, repo, stats?.clone_url);
     const desktopDeepLink = `soundhaus://clone/${owner}/${repo}`;
     const webLink = `/explore/${owner}/${repo}`;
 
     const handleCopyLink = async () => {
         try {
-            await navigator.clipboard.writeText(cloneLink);
+            await navigator.clipboard.writeText(repositoryLink);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch {
@@ -142,7 +160,7 @@ export default function ClonePageClient({
                                 <ol className="space-y-2 text-sm text-zinc-400">
                                     <li className="flex gap-2">
                                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-glass-blue-400/20 text-glass-blue-400 text-xs font-bold flex items-center justify-center">1</span>
-                                        <span>Copy this page&apos;s URL</span>
+                                        <span>Copy this repository link</span>
                                     </li>
                                     <li className="flex gap-2">
                                         <span className="flex-shrink-0 w-5 h-5 rounded-full bg-glass-blue-400/20 text-glass-blue-400 text-xs font-bold flex items-center justify-center">2</span>

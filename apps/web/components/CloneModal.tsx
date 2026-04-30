@@ -10,17 +10,30 @@ interface CloneModalProps {
   onClose: () => void;
 }
 
+function getRepositoryLink(owner: string, repo: string, cloneUrl?: string): string {
+  const giteaBase = process.env.NEXT_PUBLIC_GITEA_URL || "https://git.thesound.haus";
+  const fallback = `${giteaBase}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+
+  if (!cloneUrl) return fallback;
+
+  try {
+    const url = new URL(cloneUrl);
+    url.username = "";
+    url.password = "";
+    url.pathname = url.pathname.replace(/\.git$/, "");
+    return url.toString();
+  } catch {
+    return cloneUrl.replace(/\.git$/, "") || fallback;
+  }
+}
+
 export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModalProps) {
   const [copied, setCopied] = useState(false);
   const [showContent, setShowContent] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Prefer the backend-provided clone URL; fall back to constructing from NEXT_PUBLIC_GITEA_URL
-  const soundhausLink = cloneUrl || (() => {
-    const giteaBase = process.env.NEXT_PUBLIC_GITEA_URL || "https://git.thesound.haus";
-    return `${giteaBase}/${owner}/${repo}.git`;
-  })();
+  const repositoryLink = getRepositoryLink(owner, repo, cloneUrl);
 
   useEffect(() => {
     const id = setTimeout(() => setShowContent(true), 80);
@@ -41,7 +54,7 @@ export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModa
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(soundhausLink);
+      await navigator.clipboard.writeText(repositoryLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -50,7 +63,7 @@ export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModa
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [soundhausLink]);
+  }, [repositoryLink]);
 
   return (
     <div
@@ -100,7 +113,7 @@ export default function CloneModal({ owner, repo, cloneUrl, onClose }: CloneModa
               ref={inputRef}
               type="text"
               readOnly
-              value={soundhausLink}
+              value={repositoryLink}
               className="flex-1 bg-navy/60 px-3 py-2.5 text-sm text-soft-white font-mono rounded-l-lg outline-none selection:bg-glass-blue/30"
               onFocus={(e) => e.target.select()}
             />

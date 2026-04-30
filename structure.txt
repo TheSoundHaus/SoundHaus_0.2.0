@@ -1,0 +1,534 @@
+.
+├── apps
+│   ├── backend
+│   │   ├── middlewares
+│   │   │   ├── __init__.py
+│   │   │   └── security_headers.py
+│   │   ├── models
+│   │   │   ├── __init__.py
+│   │   │   ├── billing_models.py
+│   │   │   ├── classroom_models.py
+│   │   │   ├── clone_models.py
+│   │   │   ├── collaborator_requests.py
+│   │   │   ├── commit_models.py
+│   │   │   ├── diff_models.py
+│   │   │   ├── diff_schemas.py
+│   │   │   ├── genre_models.py
+│   │   │   ├── invitation_models.py
+│   │   │   ├── marketplace_models.py
+│   │   │   ├── pat_models.py
+│   │   │   ├── profile_models.py
+│   │   │   ├── repo_models.py
+│   │   │   ├── review_models.py
+│   │   │   ├── schemas.py
+│   │   │   ├── seen_models.py
+│   │   │   ├── snippet_models.py
+│   │   │   └── webhook_models.py
+│   │   ├── routers
+│   │   │   ├── __init__.py
+│   │   │   ├── admin.py
+│   │   │   ├── audio.py
+│   │   │   ├── auth.py
+│   │   │   ├── billing.py
+│   │   │   ├── classroom.py
+│   │   │   ├── collaborators.py
+│   │   │   ├── comments.py
+│   │   │   ├── commits.py
+│   │   │   ├── dashboard.py
+│   │   │   ├── desktop.py
+│   │   │   ├── genres.py
+│   │   │   ├── health.py
+│   │   │   ├── lti.py
+│   │   │   ├── marketplace.py
+│   │   │   ├── repos.py
+│   │   │   ├── reviews.py
+│   │   │   ├── snippets.py
+│   │   │   └── webhooks.py
+│   │   ├── scripts
+│   │   │   ├── migrations
+│   │   │   │   ├── V002_explore_score.sql
+│   │   │   │   ├── V003_fork_count.sql
+│   │   │   │   ├── V004_billing.sql
+│   │   │   │   ├── V005_marketplace.sql
+│   │   │   │   └── V006_classroom_lti.sql
+│   │   │   ├── backfill_commit_counts.py
+│   │   │   ├── backfill_commits.py
+│   │   │   ├── drop_stem_tables.py
+│   │   │   ├── migrate_drop_display_name.py
+│   │   │   ├── migrate_forked_from.py
+│   │   │   ├── migrate_open_to_collab.py
+│   │   │   ├── recompute_explore_scores.py
+│   │   │   ├── seed_all.py
+│   │   │   ├── seed_commits.py
+│   │   │   ├── seed_diff_test.py
+│   │   │   ├── seed_genres.py
+│   │   │   ├── seed_test_repo.py
+│   │   │   ├── signup_user.py
+│   │   │   └── sync_repo_visibility.py
+│   │   ├── services
+│   │   │   ├── auth_service.py
+│   │   │   ├── billing_service.py
+│   │   │   ├── classroom_service.py
+│   │   │   ├── crypto_service.py
+│   │   │   ├── gitea_service.py
+│   │   │   ├── lti_service.py
+│   │   │   ├── marketplace_service.py
+│   │   │   ├── pat_service.py
+│   │   │   ├── profile_service.py
+│   │   │   ├── redis_service.py
+│   │   │   ├── repo_service.py
+│   │   │   ├── review_service.py
+│   │   │   ├── snippet_service.py
+│   │   │   └── webhook_service.py
+│   │   ├── tests
+│   │   │   ├── auth
+│   │   │   │   ├── desktop_login
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_desktop_login.py
+│   │   │   │   ├── get_user
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_get_user.py
+│   │   │   │   ├── login
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_login.py
+│   │   │   │   ├── logout
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_logout.py
+│   │   │   │   ├── refresh
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_refresh.py
+│   │   │   │   ├── reset_password
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_reset_password.py
+│   │   │   │   ├── signup
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_signup.py
+│   │   │   │   └── update_user
+│   │   │   │       ├── results
+│   │   │   │       ├── README.md
+│   │   │   │       └── test_update_user.py
+│   │   │   ├── gitea
+│   │   │   │   ├── clone_event
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_clone_event.py
+│   │   │   │   ├── collaborators
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_collaborators.py
+│   │   │   │   ├── create_repo
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_create_repo.py
+│   │   │   │   ├── delete_repo
+│   │   │   │   │   └── test_delete_repo.py
+│   │   │   │   ├── desktop_credentials
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_desktop_credentials.py
+│   │   │   │   ├── enriched_repos
+│   │   │   │   │   └── test_enriched_repos.py
+│   │   │   │   ├── list_repos
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_list_repos.py
+│   │   │   │   ├── public_repos
+│   │   │   │   │   └── test_public_repos.py
+│   │   │   │   ├── register_repo
+│   │   │   │   │   └── test_register_repo.py
+│   │   │   │   ├── repo_contents
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_repo_contents.py
+│   │   │   │   ├── repo_readme
+│   │   │   │   │   └── test_repo_readme.py
+│   │   │   │   ├── repo_settings
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_repo_settings.py
+│   │   │   │   ├── repo_snippet
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_repo_snippet.py
+│   │   │   │   ├── repo_star
+│   │   │   │   │   └── test_repo_star.py
+│   │   │   │   ├── repo_stats
+│   │   │   │   │   └── test_repo_stats.py
+│   │   │   │   ├── repo_thumbnail
+│   │   │   │   │   └── test_repo_thumbnail.py
+│   │   │   │   ├── upload_delete_file
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_upload_delete_file.py
+│   │   │   │   └── webhooks
+│   │   │   │       ├── results
+│   │   │   │       ├── README.md
+│   │   │   │       └── test_webhooks.py
+│   │   │   ├── supabase
+│   │   │   │   ├── db_connection
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_db_connection.py
+│   │   │   │   ├── genres
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_genres.py
+│   │   │   │   ├── invitations
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_invitations.py
+│   │   │   │   ├── pat_crud
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_pat_crud.py
+│   │   │   │   ├── repo_data
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_repo_data.py
+│   │   │   │   ├── session_or_token_validation
+│   │   │   │   │   ├── results
+│   │   │   │   │   ├── README.md
+│   │   │   │   │   └── test_session_or_token_validation.py
+│   │   │   │   └── webhook_deliveries
+│   │   │   │       ├── results
+│   │   │   │       ├── README.md
+│   │   │   │       └── test_webhook_deliveries.py
+│   │   │   ├── __init__.py
+│   │   │   ├── conftest.py
+│   │   │   ├── load_env.py
+│   │   │   ├── README.md
+│   │   │   ├── requirements.txt
+│   │   │   ├── run_all.py
+│   │   │   ├── test_billing_webhooks.py
+│   │   │   ├── test_classroom_service.py
+│   │   │   ├── test_commits.py
+│   │   │   ├── test_marketplace_service.py
+│   │   │   └── test_require_repo_access.py
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── dependencies.py
+│   │   ├── Dockerfile
+│   │   ├── logging_config.py
+│   │   ├── main.py
+│   │   ├── migrate_diff_pending.py
+│   │   ├── migrate_profiles.py
+│   │   ├── pyproject.toml
+│   │   ├── requirements.lock.txt
+│   │   └── requirements.txt
+│   ├── desktop
+│   │   ├── assets
+│   │   │   └── icons
+│   │   │       ├── icon.icns
+│   │   │       ├── icon.ico
+│   │   │       └── icon.png
+│   │   ├── native
+│   │   │   └── semantic-diff
+│   │   │       ├── src
+│   │   │       │   ├── diff.rs
+│   │   │       │   ├── lib.rs
+│   │   │       │   ├── merge.rs
+│   │   │       │   ├── models.rs
+│   │   │       │   ├── parser.rs
+│   │   │       │   └── utils.rs
+│   │   │       ├── build.rs
+│   │   │       ├── Cargo.lock
+│   │   │       ├── Cargo.toml
+│   │   │       ├── index.d.ts
+│   │   │       ├── index.js
+│   │   │       └── package.json
+│   │   ├── src
+│   │   │   ├── components
+│   │   │   │   ├── diff
+│   │   │   │   │   └── PianoRollCanvas.tsx
+│   │   │   │   ├── ErrorBoundary.tsx
+│   │   │   │   ├── InvalidProjectNotice.tsx
+│   │   │   │   ├── Navbar.tsx
+│   │   │   │   ├── OpenProjectDialog.tsx
+│   │   │   │   ├── SearchPalette.tsx
+│   │   │   │   ├── Toast.tsx
+│   │   │   │   ├── ToastProvider.tsx
+│   │   │   │   └── WaveformSpinner.tsx
+│   │   │   ├── electron
+│   │   │   │   ├── dialogs
+│   │   │   │   │   ├── aboutDialog.ts
+│   │   │   │   │   ├── cloneUrlDialog.ts
+│   │   │   │   │   └── projectSetupDialog.ts
+│   │   │   │   ├── diffTransformer.ts
+│   │   │   │   ├── env.ts
+│   │   │   │   ├── git-bin.ts
+│   │   │   │   ├── git-rebase.ts
+│   │   │   │   ├── giteaGitAuth.ts
+│   │   │   │   ├── home.ts
+│   │   │   │   ├── login.ts
+│   │   │   │   ├── main.ts
+│   │   │   │   ├── menuIndexer.ts
+│   │   │   │   ├── preload.ts
+│   │   │   │   ├── project.ts
+│   │   │   │   └── recentProjectsManager.ts
+│   │   │   ├── hooks
+│   │   │   │   ├── useAlsParser.ts
+│   │   │   │   ├── useElectronIPC.ts
+│   │   │   │   ├── useGitStatus.ts
+│   │   │   │   ├── useLocalStorage.ts
+│   │   │   │   ├── useMenuActions.ts
+│   │   │   │   ├── useProjectActions.ts
+│   │   │   │   └── useProjectGitActions.ts
+│   │   │   ├── pages
+│   │   │   │   ├── AboutDialog.tsx
+│   │   │   │   ├── CloneUrlDialog.tsx
+│   │   │   │   ├── HomePage.tsx
+│   │   │   │   ├── LoginPage.tsx
+│   │   │   │   ├── ProjectInitDialog.tsx
+│   │   │   │   ├── ProjectPage.module.css
+│   │   │   │   └── ProjectPage.tsx
+│   │   │   ├── services
+│   │   │   │   ├── electronAPI.ts
+│   │   │   │   ├── gitService.ts
+│   │   │   │   ├── patService.ts
+│   │   │   │   └── storageService.ts
+│   │   │   ├── types
+│   │   │   │   ├── css.d.ts
+│   │   │   │   ├── electron.d.ts
+│   │   │   │   └── index.ts
+│   │   │   ├── utils
+│   │   │   │   └── projectNotifications.ts
+│   │   │   ├── App.css
+│   │   │   ├── App.tsx
+│   │   │   ├── index.css
+│   │   │   └── main.tsx
+│   │   ├── eslint.config.js
+│   │   ├── forge.config.js
+│   │   ├── index.html
+│   │   ├── package-lock.json
+│   │   ├── package.json
+│   │   ├── tsconfig-electron.json
+│   │   ├── tsconfig.app.json
+│   │   ├── tsconfig.json
+│   │   ├── tsconfig.node.json
+│   │   ├── vite.config.js
+│   │   └── vite.config.ts
+│   ├── token-broker
+│   │   ├── config.py
+│   │   ├── Dockerfile
+│   │   ├── logging_config.py
+│   │   ├── main.py
+│   │   └── requirements.txt
+│   └── web
+│       ├── actions
+│       │   ├── auth.ts
+│       │   ├── genres.ts
+│       │   ├── invitations.ts
+│       │   ├── profile.ts
+│       │   ├── repos.ts
+│       │   ├── reviews.ts
+│       │   ├── session.ts
+│       │   └── snippets.ts
+│       ├── app
+│       │   ├── (auth)
+│       │   │   ├── forgot-password
+│       │   │   │   └── page.tsx
+│       │   │   ├── login
+│       │   │   │   └── page.tsx
+│       │   │   ├── signup
+│       │   │   │   └── page.tsx
+│       │   │   └── layout.tsx
+│       │   ├── (dashboard)
+│       │   │   ├── classroom
+│       │   │   │   └── page.tsx
+│       │   │   ├── dashboard
+│       │   │   │   └── page.tsx
+│       │   │   ├── explore
+│       │   │   │   ├── [owner]
+│       │   │   │   └── page.tsx
+│       │   │   ├── marketplace
+│       │   │   │   ├── new
+│       │   │   │   └── page.tsx
+│       │   │   ├── profile
+│       │   │   │   └── [username]
+│       │   │   ├── repositories
+│       │   │   │   ├── page.tsx
+│       │   │   │   └── RepositoriesClient.tsx
+│       │   │   ├── repository
+│       │   │   │   └── [owner]
+│       │   │   ├── settings
+│       │   │   │   ├── billing
+│       │   │   │   └── page.tsx
+│       │   │   └── layout.tsx
+│       │   ├── api
+│       │   │   ├── profile
+│       │   │   │   └── avatar
+│       │   │   └── repos
+│       │   │       └── [owner]
+│       │   ├── clone
+│       │   │   └── [owner]
+│       │   │       └── [repo]
+│       │   ├── s
+│       │   │   └── [owner]
+│       │   │       └── [repo]
+│       │   ├── globals.css
+│       │   ├── icon.png
+│       │   ├── layout.tsx
+│       │   └── page.tsx
+│       ├── components
+│       │   ├── __tests__
+│       │   │   └── DiffView.test.tsx
+│       │   ├── diff
+│       │   │   ├── hooks
+│       │   │   │   ├── usePianoRollRenderer.ts
+│       │   │   │   ├── useSyncedPlayback.ts
+│       │   │   │   ├── useTimelineZoom.tsx
+│       │   │   │   └── useWaveformPeaks.ts
+│       │   │   ├── types
+│       │   │   │   └── diff.ts
+│       │   │   ├── ABComparisonView.tsx
+│       │   │   ├── ChangeOverlay.tsx
+│       │   │   ├── DeviceChainRow.tsx
+│       │   │   ├── DiffSummaryPanel.tsx
+│       │   │   ├── DiffTimeline.tsx
+│       │   │   ├── index.ts
+│       │   │   ├── PianoRollTrack.tsx
+│       │   │   ├── TimeRuler.tsx
+│       │   │   ├── TrackLabel.tsx
+│       │   │   └── WaveformTrack.tsx
+│       │   ├── GenreEditor
+│       │   │   ├── GenreEditor.tsx
+│       │   │   └── index.ts
+│       │   ├── SnippetUploader
+│       │   │   ├── index.ts
+│       │   │   ├── SnippetTrimmer.tsx
+│       │   │   └── SnippetUploader.tsx
+│       │   ├── ActivityHeatmap.tsx
+│       │   ├── AmbientWaveform.tsx
+│       │   ├── AudioPlayer.tsx
+│       │   ├── AudioSnippetsManager.ts
+│       │   ├── CloneModal.tsx
+│       │   ├── CollaborationPanel.tsx
+│       │   ├── CursorGlow.tsx
+│       │   ├── DefaultAvatar.tsx
+│       │   ├── DiffView.tsx
+│       │   ├── ImageCropper.tsx
+│       │   ├── KeyboardShortcutsModal.tsx
+│       │   ├── LoginForm.tsx
+│       │   ├── MediaPreview.tsx
+│       │   ├── MiniAudioPreview.tsx
+│       │   ├── Navbar.tsx
+│       │   ├── Navigation.tsx
+│       │   ├── PageTransition.tsx
+│       │   ├── RemixIcon.tsx
+│       │   ├── RemixModal.tsx
+│       │   ├── RepositoryCard.tsx
+│       │   ├── RepositoryList.tsx
+│       │   ├── SearchBar.tsx
+│       │   ├── SignUpForm.tsx
+│       │   ├── SnippetFeed.tsx
+│       │   ├── Spinner.tsx
+│       │   ├── ThumbnailSettings.tsx
+│       │   ├── UserAvatar.tsx
+│       │   └── WaveformSpinner.tsx
+│       ├── docs
+│       │   └── 2026-04-06-activity-feed-notifications-design.md
+│       ├── hooks
+│       │   ├── useDebounce.ts
+│       │   ├── useInfiniteScroll.ts
+│       │   └── useKeyboardShortcuts.ts
+│       ├── lib
+│       │   ├── actions
+│       │   │   ├── genres.actions.ts
+│       │   │   └── repos.actions.ts
+│       │   ├── api
+│       │   │   ├── __tests__
+│       │   │   │   └── commits.test.ts
+│       │   │   ├── billing.ts
+│       │   │   ├── classroom.ts
+│       │   │   ├── client.ts
+│       │   │   ├── commits.ts
+│       │   │   ├── dashboard.ts
+│       │   │   ├── genre.ts
+│       │   │   ├── invitations.ts
+│       │   │   ├── marketplace.ts
+│       │   │   ├── profile.ts
+│       │   │   ├── readme.ts
+│       │   │   ├── repos.ts
+│       │   │   ├── reviews.ts
+│       │   │   ├── snippets.ts
+│       │   │   └── webhooks.ts
+│       │   ├── context
+│       │   │   ├── AuthContext.tsx
+│       │   │   ├── GiteaContext.tsx
+│       │   │   └── UserContext.tsx
+│       │   ├── mockData
+│       │   │   └── repositories.ts
+│       │   ├── services
+│       │   │   ├── auth.service.ts
+│       │   │   └── gitea.service.ts
+│       │   ├── types
+│       │   │   └── api.ts
+│       │   ├── utils
+│       │   │   ├── auth.ts
+│       │   │   ├── authUtil.ts
+│       │   │   ├── clientAuthUtil.ts
+│       │   │   ├── giteaUtil.ts
+│       │   │   └── youtube.ts
+│       │   └── zod
+│       │       └── authDefinition.ts
+│       ├── public
+│       │   ├── file.svg
+│       │   ├── globe.svg
+│       │   ├── icon.png
+│       │   ├── next.svg
+│       │   ├── vercel.svg
+│       │   ├── vite.svg
+│       │   └── window.svg
+│       ├── BRAND_BIBLE.md
+│       ├── claude.md
+│       ├── Dockerfile
+│       ├── eslint.config.js
+│       ├── eslint.config.mjs
+│       ├── index.html
+│       ├── next-env.d.ts
+│       ├── next.config.ts
+│       ├── package-lock.json
+│       ├── package.json
+│       ├── postcss.config.mjs
+│       ├── proxy.ts
+│       ├── README.md
+│       ├── tailwind.config.ts
+│       ├── tsconfig.app.json
+│       ├── tsconfig.json
+│       ├── tsconfig.node.json
+│       └── vite.config.ts
+├── design_plans
+│   └── backend_improvements_phased_plan.md
+├── docs
+│   ├── hosting-decision.md
+│   └── lti-integration.md
+├── scripts
+│   ├── backup.sh
+│   ├── bootstrap_local_gitea_admin.py
+│   ├── deploy-digital-ocean.sh
+│   ├── DEPLOYMENT.md
+│   ├── migrate_encryption.sql
+│   ├── run_desktop.sh
+│   ├── setup_env.sh
+│   └── setup_luks_encryption.sh
+├── claude.local.md
+├── claude.md
+├── compose.ps1
+├── compose.sh
+├── doc_styles.css
+├── docker-compose.yml
+├── Final_Design_Document.md
+├── package-lock.json
+├── plan.md
+├── README.md
+├── SOUNDHAUS.md
+└── structure.txt
+
+143 directories, 389 files
