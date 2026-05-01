@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
+  Users,
   GitCommit,
   Download,
   Music,
@@ -41,6 +42,7 @@ import type {
   Snippet,
   PushActivity,
   RepoEvent,
+  Collaborator,
 } from "@/lib/types/api";
 import type { CommitListResponse, CommitSummary, AlsDiffData } from "@/lib/api/commits";
 

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { LayoutGrid, List, ArrowUpDown, Star, ChevronDown, Check, Music, Users, Waves } from "lucide-react";
 import { Popover, PopoverButton, PopoverPanel } from "@headlessui/react";
 import RepositoryCard from "@/components/RepositoryCard";
-import type { EnrichedRepo, Genre } from "@/lib/types/api";
+import type { EnrichedRepo, Genre, Invitation } from "@/lib/types/api";
 import { starRepoAction, unstarRepoAction, deleteRepoAction, renameRepoAction } from "@/actions/repos";
 
 type SortKey = "updated" | "alpha" | "created" | "stars" | "clones";
@@ -13,6 +13,7 @@ type RoleFilter = "all" | "owner" | "collaborator";
 interface RepositoriesClientProps {
     repos: EnrichedRepo[];
     genres: Genre[];
+    invitations?: Invitation[];
 }
 
 export default function RepositoriesClient({ repos, genres }: RepositoriesClientProps) {
